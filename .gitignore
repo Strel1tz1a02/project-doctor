@@ -15,3 +15,8 @@ coverage/
 # Local execution data
 *.log
 runtime-data/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+*.local.json

@@ -1,0 +1,76 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "action": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Action",
+      "type": "string"
+    },
+    "mechanism": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Mechanism",
+      "type": "string"
+    },
+    "conditions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Conditions",
+      "type": "array"
+    },
+    "costs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Costs",
+      "type": "array"
+    },
+    "validation_status": {
+      "default": "expected_mechanism",
+      "enum": [
+        "expected_mechanism",
+        "retested"
+      ],
+      "title": "Validation Status",
+      "type": "string"
+    },
+    "measured_gain_percent": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Measured Gain Percent"
+    },
+    "retest_experiment_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Retest Experiment Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "action",
+    "mechanism",
+    "conditions",
+    "costs"
+  ],
+  "title": "Recommendation",
+  "type": "object"
+}

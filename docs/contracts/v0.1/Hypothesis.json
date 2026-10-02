@@ -1,0 +1,80 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "slow_query",
+        "unclassified"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "explanation": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Explanation",
+      "type": "string"
+    },
+    "predictions": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Predictions",
+      "type": "array"
+    },
+    "falsifiers": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Falsifiers",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "proposed",
+        "supported",
+        "refuted",
+        "unresolved"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "explanation",
+    "predictions",
+    "falsifiers",
+    "status"
+  ],
+  "title": "Hypothesis",
+  "type": "object"
+}

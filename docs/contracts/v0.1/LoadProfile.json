@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "serial",
+        "concurrency",
+        "arrival_rate"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "concurrency": {
+      "default": 1,
+      "exclusiveMinimum": 0,
+      "title": "Concurrency",
+      "type": "integer"
+    },
+    "arrival_rate_per_second": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Arrival Rate Per Second"
+    }
+  },
+  "required": [
+    "mode"
+  ],
+  "title": "LoadProfile",
+  "type": "object"
+}

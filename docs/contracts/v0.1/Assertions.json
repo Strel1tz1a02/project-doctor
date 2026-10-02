@@ -1,0 +1,67 @@
+{
+  "$defs": {
+    "BusinessAssertion": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "json_pointer": {
+          "title": "Json Pointer",
+          "type": "string"
+        },
+        "operator": {
+          "enum": [
+            "equals",
+            "exists"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "expected": {
+          "$ref": "#/$defs/JsonValue",
+          "default": null
+        }
+      },
+      "required": [
+        "json_pointer",
+        "operator"
+      ],
+      "title": "BusinessAssertion",
+      "type": "object"
+    },
+    "JsonValue": {}
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status_code": {
+      "maximum": 599,
+      "minimum": 100,
+      "title": "Status Code",
+      "type": "integer"
+    },
+    "business": {
+      "items": {
+        "$ref": "#/$defs/BusinessAssertion"
+      },
+      "minItems": 1,
+      "title": "Business",
+      "type": "array"
+    }
+  },
+  "required": [
+    "status_code",
+    "business"
+  ],
+  "title": "Assertions",
+  "type": "object"
+}

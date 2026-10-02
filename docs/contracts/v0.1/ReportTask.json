@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "created",
+        "running",
+        "blocked",
+        "completed",
+        "partial"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "commit": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Commit",
+      "type": "string"
+    },
+    "environment_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Environment Id"
+    }
+  },
+  "required": [
+    "id",
+    "status",
+    "commit"
+  ],
+  "title": "ReportTask",
+  "type": "object"
+}

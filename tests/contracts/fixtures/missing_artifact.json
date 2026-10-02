@@ -1,0 +1,818 @@
+{
+  "synthetic": true,
+  "purpose": "developer_contract_test_only",
+  "expected_status": "lead",
+  "bundle": {
+    "schema_version": "0.1",
+    "task": {
+      "schema_version": "0.1",
+      "id": "task-1",
+      "project": {
+        "schema_version": "0.1",
+        "repo_path": "E:/synthetic/reference",
+        "commit": "synthetic-commit",
+        "supplied_url": "http://localhost:8000",
+        "recipe_ref": "recipe:reference",
+        "credential_refs": []
+      },
+      "status": "partial",
+      "limits": {
+        "schema_version": "0.1",
+        "max_wall_seconds": 180.0,
+        "max_requests": 12,
+        "max_experiments": 1,
+        "max_artifact_bytes": 1048576,
+        "restore_reserve_seconds": 30.0
+      },
+      "usage": {
+        "schema_version": "0.1",
+        "wall_seconds": 0.0,
+        "requests": 6,
+        "experiments": 1,
+        "artifact_bytes": 0
+      },
+      "environment_id": "environment-1",
+      "scenario_ids": [
+        "scenario-1"
+      ],
+      "experiment_ids": [
+        "experiment-1"
+      ],
+      "hypothesis_ids": [
+        "hypothesis-1"
+      ],
+      "finding_ids": [
+        "finding-1"
+      ],
+      "correlation": {
+        "schema_version": "0.1",
+        "task_id": "task-1",
+        "operation_id": "operation-1",
+        "agh_session_id": null,
+        "tool_call_id": null,
+        "missing_correlation": [
+          "agh_session_id",
+          "tool_call_id"
+        ]
+      },
+      "coverage": [
+        "GET /orders"
+      ]
+    },
+    "scenarios": [
+      {
+        "schema_version": "0.1",
+        "id": "scenario-1",
+        "version": 1,
+        "source": "repository",
+        "purpose": "Find orders by customer",
+        "preparation_recipe_ref": "recipe:seed",
+        "steps": [
+          {
+            "schema_version": "0.1",
+            "method": "GET",
+            "relative_path": "/orders",
+            "params": {
+              "customer_id": 10
+            },
+            "parameter_sources": {
+              "customer_id": {
+                "schema_version": "0.1",
+                "source": "repository",
+                "reference": "seed:10"
+              }
+            },
+            "assertions": {
+              "schema_version": "0.1",
+              "status_code": 200,
+              "business": [
+                {
+                  "schema_version": "0.1",
+                  "json_pointer": "/items",
+                  "operator": "exists",
+                  "expected": null
+                }
+              ]
+            }
+          }
+        ],
+        "dataset": {
+          "schema_version": "0.1",
+          "id": "dataset-1",
+          "snapshot_id": "snapshot-1",
+          "source": "synthetic",
+          "row_counts": {
+            "orders": 10000
+          },
+          "relationship_cardinalities": {},
+          "distribution_notes": [],
+          "target_scale": null,
+          "applicability_unknowns": [
+            "Real-world data distribution is unknown"
+          ]
+        },
+        "load": {
+          "schema_version": "0.1",
+          "mode": "serial",
+          "concurrency": 1,
+          "arrival_rate_per_second": null
+        },
+        "cache": {
+          "schema_version": "0.1",
+          "state": "warm",
+          "preparation_recipe_ref": "recipe:warm",
+          "notes": []
+        },
+        "credential_refs": [],
+        "uncovered_paths": []
+      }
+    ],
+    "hypotheses": [
+      {
+        "schema_version": "0.1",
+        "id": "hypothesis-1",
+        "kind": "slow_query",
+        "explanation": "Missing suitable index",
+        "predictions": [
+          "Candidate index reduces actual scanned rows"
+        ],
+        "falsifiers": [
+          "Actual work remains unchanged under comparable conditions"
+        ],
+        "status": "unresolved",
+        "evidence_ids": [
+          "synthetic-evidence"
+        ]
+      }
+    ],
+    "experiments": [
+      {
+        "schema_version": "0.1",
+        "result_type": "experiment",
+        "experiment_id": "experiment-1",
+        "operation_id": "operation-1",
+        "phase": "finished",
+        "observations": [
+          {
+            "schema_version": "0.1",
+            "id": "observation-baseline-1",
+            "experiment_id": "experiment-1",
+            "level": "baseline",
+            "repetition": 1,
+            "request_id": "request-baseline-1",
+            "business_valid": true,
+            "latency_ms": 105.0,
+            "result_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sql_calls": [
+              {
+                "schema_version": "0.1",
+                "id": "sql-baseline-1",
+                "normalized_sql": "SELECT * FROM orders WHERE customer_id = ?",
+                "duration_ms": 100.0,
+                "rows_examined": 10000,
+                "rows_returned": 10,
+                "lock_wait_ms": 0.0,
+                "metric_sources": {
+                  "duration_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_examined": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_returned": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "lock_wait_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  }
+                },
+                "parameter_provenance": [],
+                "code_location": {
+                  "schema_version": "0.1",
+                  "commit": "synthetic-commit",
+                  "path": "app/queries.py",
+                  "line": 12,
+                  "association_evidence_ids": [
+                    "synthetic-evidence"
+                  ]
+                },
+                "plan_evidence_ids": [
+                  "synthetic-evidence"
+                ],
+                "span_id": null
+              }
+            ],
+            "fingerprint": "fingerprint-baseline",
+            "snapshot_id": "snapshot-1",
+            "observation_config_id": "observation-config-1",
+            "evidence_refs": [
+              {
+                "schema_version": "0.1",
+                "artifact_id": "synthetic-evidence",
+                "relative_path": "synthetic/evidence.json",
+                "media_type": "application/json",
+                "format_version": "synthetic-0.1",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "size_bytes": 1
+              }
+            ]
+          },
+          {
+            "schema_version": "0.1",
+            "id": "observation-baseline-2",
+            "experiment_id": "experiment-1",
+            "level": "baseline",
+            "repetition": 2,
+            "request_id": "request-baseline-2",
+            "business_valid": true,
+            "latency_ms": 105.0,
+            "result_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sql_calls": [
+              {
+                "schema_version": "0.1",
+                "id": "sql-baseline-2",
+                "normalized_sql": "SELECT * FROM orders WHERE customer_id = ?",
+                "duration_ms": 100.0,
+                "rows_examined": 10000,
+                "rows_returned": 10,
+                "lock_wait_ms": 0.0,
+                "metric_sources": {
+                  "duration_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_examined": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_returned": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "lock_wait_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  }
+                },
+                "parameter_provenance": [],
+                "code_location": {
+                  "schema_version": "0.1",
+                  "commit": "synthetic-commit",
+                  "path": "app/queries.py",
+                  "line": 12,
+                  "association_evidence_ids": [
+                    "synthetic-evidence"
+                  ]
+                },
+                "plan_evidence_ids": [
+                  "synthetic-evidence"
+                ],
+                "span_id": null
+              }
+            ],
+            "fingerprint": "fingerprint-baseline",
+            "snapshot_id": "snapshot-1",
+            "observation_config_id": "observation-config-1",
+            "evidence_refs": [
+              {
+                "schema_version": "0.1",
+                "artifact_id": "synthetic-evidence",
+                "relative_path": "synthetic/evidence.json",
+                "media_type": "application/json",
+                "format_version": "synthetic-0.1",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "size_bytes": 1
+              }
+            ]
+          },
+          {
+            "schema_version": "0.1",
+            "id": "observation-baseline-3",
+            "experiment_id": "experiment-1",
+            "level": "baseline",
+            "repetition": 3,
+            "request_id": "request-baseline-3",
+            "business_valid": true,
+            "latency_ms": 105.0,
+            "result_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sql_calls": [
+              {
+                "schema_version": "0.1",
+                "id": "sql-baseline-3",
+                "normalized_sql": "SELECT * FROM orders WHERE customer_id = ?",
+                "duration_ms": 100.0,
+                "rows_examined": 10000,
+                "rows_returned": 10,
+                "lock_wait_ms": 0.0,
+                "metric_sources": {
+                  "duration_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_examined": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_returned": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "lock_wait_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  }
+                },
+                "parameter_provenance": [],
+                "code_location": {
+                  "schema_version": "0.1",
+                  "commit": "synthetic-commit",
+                  "path": "app/queries.py",
+                  "line": 12,
+                  "association_evidence_ids": [
+                    "synthetic-evidence"
+                  ]
+                },
+                "plan_evidence_ids": [
+                  "synthetic-evidence"
+                ],
+                "span_id": null
+              }
+            ],
+            "fingerprint": "fingerprint-baseline",
+            "snapshot_id": "snapshot-1",
+            "observation_config_id": "observation-config-1",
+            "evidence_refs": [
+              {
+                "schema_version": "0.1",
+                "artifact_id": "synthetic-evidence",
+                "relative_path": "synthetic/evidence.json",
+                "media_type": "application/json",
+                "format_version": "synthetic-0.1",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "size_bytes": 1
+              }
+            ]
+          },
+          {
+            "schema_version": "0.1",
+            "id": "observation-candidate_index-1",
+            "experiment_id": "experiment-1",
+            "level": "candidate_index",
+            "repetition": 1,
+            "request_id": "request-candidate_index-1",
+            "business_valid": true,
+            "latency_ms": 15.0,
+            "result_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sql_calls": [
+              {
+                "schema_version": "0.1",
+                "id": "sql-candidate_index-1",
+                "normalized_sql": "SELECT * FROM orders WHERE customer_id = ?",
+                "duration_ms": 10.0,
+                "rows_examined": 10,
+                "rows_returned": 10,
+                "lock_wait_ms": 0.0,
+                "metric_sources": {
+                  "duration_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_examined": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_returned": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "lock_wait_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  }
+                },
+                "parameter_provenance": [],
+                "code_location": {
+                  "schema_version": "0.1",
+                  "commit": "synthetic-commit",
+                  "path": "app/queries.py",
+                  "line": 12,
+                  "association_evidence_ids": [
+                    "synthetic-evidence"
+                  ]
+                },
+                "plan_evidence_ids": [
+                  "synthetic-evidence"
+                ],
+                "span_id": null
+              }
+            ],
+            "fingerprint": "fingerprint-candidate_index",
+            "snapshot_id": "snapshot-1",
+            "observation_config_id": "observation-config-1",
+            "evidence_refs": [
+              {
+                "schema_version": "0.1",
+                "artifact_id": "synthetic-evidence",
+                "relative_path": "synthetic/evidence.json",
+                "media_type": "application/json",
+                "format_version": "synthetic-0.1",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "size_bytes": 1
+              }
+            ]
+          },
+          {
+            "schema_version": "0.1",
+            "id": "observation-candidate_index-2",
+            "experiment_id": "experiment-1",
+            "level": "candidate_index",
+            "repetition": 2,
+            "request_id": "request-candidate_index-2",
+            "business_valid": true,
+            "latency_ms": 15.0,
+            "result_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sql_calls": [
+              {
+                "schema_version": "0.1",
+                "id": "sql-candidate_index-2",
+                "normalized_sql": "SELECT * FROM orders WHERE customer_id = ?",
+                "duration_ms": 10.0,
+                "rows_examined": 10,
+                "rows_returned": 10,
+                "lock_wait_ms": 0.0,
+                "metric_sources": {
+                  "duration_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_examined": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_returned": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "lock_wait_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  }
+                },
+                "parameter_provenance": [],
+                "code_location": {
+                  "schema_version": "0.1",
+                  "commit": "synthetic-commit",
+                  "path": "app/queries.py",
+                  "line": 12,
+                  "association_evidence_ids": [
+                    "synthetic-evidence"
+                  ]
+                },
+                "plan_evidence_ids": [
+                  "synthetic-evidence"
+                ],
+                "span_id": null
+              }
+            ],
+            "fingerprint": "fingerprint-candidate_index",
+            "snapshot_id": "snapshot-1",
+            "observation_config_id": "observation-config-1",
+            "evidence_refs": [
+              {
+                "schema_version": "0.1",
+                "artifact_id": "synthetic-evidence",
+                "relative_path": "synthetic/evidence.json",
+                "media_type": "application/json",
+                "format_version": "synthetic-0.1",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "size_bytes": 1
+              }
+            ]
+          },
+          {
+            "schema_version": "0.1",
+            "id": "observation-candidate_index-3",
+            "experiment_id": "experiment-1",
+            "level": "candidate_index",
+            "repetition": 3,
+            "request_id": "request-candidate_index-3",
+            "business_valid": true,
+            "latency_ms": 15.0,
+            "result_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sql_calls": [
+              {
+                "schema_version": "0.1",
+                "id": "sql-candidate_index-3",
+                "normalized_sql": "SELECT * FROM orders WHERE customer_id = ?",
+                "duration_ms": 10.0,
+                "rows_examined": 10,
+                "rows_returned": 10,
+                "lock_wait_ms": 0.0,
+                "metric_sources": {
+                  "duration_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_examined": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "rows_returned": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  },
+                  "lock_wait_ms": {
+                    "schema_version": "0.1",
+                    "source": "synthetic_sample",
+                    "measurement": "actual",
+                    "evidence_ids": [
+                      "synthetic-evidence"
+                    ]
+                  }
+                },
+                "parameter_provenance": [],
+                "code_location": {
+                  "schema_version": "0.1",
+                  "commit": "synthetic-commit",
+                  "path": "app/queries.py",
+                  "line": 12,
+                  "association_evidence_ids": [
+                    "synthetic-evidence"
+                  ]
+                },
+                "plan_evidence_ids": [
+                  "synthetic-evidence"
+                ],
+                "span_id": null
+              }
+            ],
+            "fingerprint": "fingerprint-candidate_index",
+            "snapshot_id": "snapshot-1",
+            "observation_config_id": "observation-config-1",
+            "evidence_refs": [
+              {
+                "schema_version": "0.1",
+                "artifact_id": "synthetic-evidence",
+                "relative_path": "synthetic/evidence.json",
+                "media_type": "application/json",
+                "format_version": "synthetic-0.1",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "size_bytes": 1
+              }
+            ]
+          }
+        ],
+        "restore_result": {
+          "schema_version": "0.1",
+          "result_type": "restore",
+          "verified": true,
+          "fingerprint": "fingerprint-baseline",
+          "snapshot_id": "snapshot-1",
+          "evidence_refs": [
+            {
+              "schema_version": "0.1",
+              "artifact_id": "synthetic-evidence",
+              "relative_path": "synthetic/evidence.json",
+              "media_type": "application/json",
+              "format_version": "synthetic-0.1",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "size_bytes": 1
+            }
+          ],
+          "reason": null
+        },
+        "evidence_refs": [
+          {
+            "schema_version": "0.1",
+            "artifact_id": "synthetic-evidence",
+            "relative_path": "synthetic/evidence.json",
+            "media_type": "application/json",
+            "format_version": "synthetic-0.1",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "size_bytes": 1
+          }
+        ],
+        "failure": null
+      }
+    ],
+    "findings": [
+      {
+        "schema_version": "0.1",
+        "id": "finding-1",
+        "task_id": "task-1",
+        "kind": "slow_query",
+        "status": "lead",
+        "scenario_id": "scenario-1",
+        "experiment_ids": [
+          "experiment-1"
+        ],
+        "sql_call_ids": [
+          "sql-baseline-1"
+        ],
+        "code_locations": [
+          {
+            "schema_version": "0.1",
+            "commit": "synthetic-commit",
+            "path": "app/queries.py",
+            "line": 12,
+            "association_evidence_ids": [
+              "synthetic-evidence"
+            ]
+          }
+        ],
+        "evidence_refs": [
+          {
+            "schema_version": "0.1",
+            "artifact_id": "synthetic-evidence",
+            "relative_path": "synthetic/evidence.json",
+            "media_type": "application/json",
+            "format_version": "synthetic-0.1",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "size_bytes": 1
+          }
+        ],
+        "excluded_explanations": [
+          {
+            "schema_version": "0.1",
+            "explanation": "Lock waiting",
+            "evidence_ids": [
+              "synthetic-evidence"
+            ]
+          }
+        ],
+        "impact": {
+          "schema_version": "0.1",
+          "method": "intervention",
+          "latency_delta_ms": 90.0,
+          "affected_request_ids": [],
+          "shared_sql_call_ids": [],
+          "uncertainty": [
+            "Synthetic example"
+          ],
+          "scope": "test_load"
+        },
+        "recommendation": {
+          "schema_version": "0.1",
+          "action": "Evaluate an index on customer_id",
+          "mechanism": "Reduce examined rows",
+          "conditions": [
+            "Actual selectivity supports index use"
+          ],
+          "costs": [
+            "Storage and write overhead"
+          ],
+          "validation_status": "expected_mechanism",
+          "measured_gain_percent": null,
+          "retest_experiment_ids": []
+        },
+        "limitations": [
+          "Synthetic contract example, not a real diagnosis"
+        ]
+      }
+    ],
+    "evidence_refs": [
+      {
+        "schema_version": "0.1",
+        "artifact_id": "synthetic-evidence",
+        "relative_path": "synthetic/evidence.json",
+        "media_type": "application/json",
+        "format_version": "synthetic-0.1",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "size_bytes": 1
+      }
+    ]
+  },
+  "spec": {
+    "schema_version": "0.1",
+    "id": "experiment-1",
+    "task_id": "task-1",
+    "scenario_id": "scenario-1",
+    "scenario_version": 1,
+    "hypothesis_ids": [
+      "hypothesis-1"
+    ],
+    "variable": "index",
+    "levels": [
+      "baseline",
+      "candidate_index"
+    ],
+    "intervention_recipe_ref": "recipe:customer-index",
+    "repetitions": 3,
+    "limits": {
+      "schema_version": "0.1",
+      "max_wall_seconds": 180.0,
+      "max_requests": 12,
+      "max_experiments": 1,
+      "max_artifact_bytes": 1048576,
+      "restore_reserve_seconds": 30.0
+    },
+    "baseline_fingerprint": "fingerprint-baseline",
+    "snapshot_id": "snapshot-1",
+    "observation_config_id": "observation-config-1"
+  },
+  "evidence_check": {
+    "schema_version": "0.1",
+    "valid": false,
+    "missing_ids": [
+      "synthetic-evidence"
+    ],
+    "corrupted_ids": [],
+    "reasons": []
+  }
+}

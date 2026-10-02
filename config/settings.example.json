@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.1",
+  "platform_dsn_ref": "env:PROJECT_DOCTOR_PLATFORM_DSN",
+  "artifact_root": "C:/project-doctor-runtime/artifacts",
+  "workspace_root": "C:/project-doctor-runtime/isolated",
+  "target_repo_root": "E:/projects/target-backend",
+  "allowed_target_network": "172.28.0.0/24",
+  "tool_timeouts": {
+    "create_task": 15,
+    "prepare_environment": 120,
+    "discover_scenarios": 30,
+    "propose_hypotheses": 15,
+    "run_experiment": 180,
+    "evaluate_evidence": 30,
+    "reconcile_task": 120,
+    "finish_task": 120
+  },
+  "model_config_ref": "file:agh/model.local.json"
+}

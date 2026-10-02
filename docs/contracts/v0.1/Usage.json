@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "wall_seconds": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Wall Seconds",
+      "type": "number"
+    },
+    "requests": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Requests",
+      "type": "integer"
+    },
+    "experiments": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Experiments",
+      "type": "integer"
+    },
+    "artifact_bytes": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Artifact Bytes",
+      "type": "integer"
+    }
+  },
+  "title": "Usage",
+  "type": "object"
+}

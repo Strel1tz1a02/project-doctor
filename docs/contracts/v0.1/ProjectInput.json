@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "repo_path": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Repo Path",
+      "type": "string"
+    },
+    "commit": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Commit",
+      "type": "string"
+    },
+    "supplied_url": {
+      "title": "Supplied Url",
+      "type": "string"
+    },
+    "recipe_ref": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Recipe Ref",
+      "type": "string"
+    },
+    "credential_refs": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Credential Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "repo_path",
+    "commit",
+    "supplied_url",
+    "recipe_ref"
+  ],
+  "title": "ProjectInput",
+  "type": "object"
+}

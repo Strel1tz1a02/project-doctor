@@ -1,0 +1,45 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "max_wall_seconds": {
+      "exclusiveMinimum": 0,
+      "title": "Max Wall Seconds",
+      "type": "number"
+    },
+    "max_requests": {
+      "exclusiveMinimum": 0,
+      "title": "Max Requests",
+      "type": "integer"
+    },
+    "max_experiments": {
+      "exclusiveMinimum": 0,
+      "title": "Max Experiments",
+      "type": "integer"
+    },
+    "max_artifact_bytes": {
+      "exclusiveMinimum": 0,
+      "title": "Max Artifact Bytes",
+      "type": "integer"
+    },
+    "restore_reserve_seconds": {
+      "exclusiveMinimum": 0,
+      "title": "Restore Reserve Seconds",
+      "type": "number"
+    }
+  },
+  "required": [
+    "max_wall_seconds",
+    "max_requests",
+    "max_experiments",
+    "max_artifact_bytes",
+    "restore_reserve_seconds"
+  ],
+  "title": "Limits",
+  "type": "object"
+}

@@ -1,0 +1,110 @@
+{
+  "$defs": {
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "artifact_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "relative_path": {
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "media_type": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "format_version": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Format Version",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "relative_path",
+        "media_type",
+        "format_version",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "result_type": {
+      "const": "report",
+      "default": "report",
+      "title": "Result Type",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "task_status": {
+      "enum": [
+        "created",
+        "running",
+        "blocked",
+        "completed",
+        "partial"
+      ],
+      "title": "Task Status",
+      "type": "string"
+    },
+    "json_ref": {
+      "$ref": "#/$defs/EvidenceRef"
+    },
+    "html_ref": {
+      "$ref": "#/$defs/EvidenceRef"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "task_id",
+    "task_status",
+    "json_ref",
+    "html_ref"
+  ],
+  "title": "ReportResult",
+  "type": "object"
+}

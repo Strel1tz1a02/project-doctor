@@ -1,0 +1,14 @@
+{
+  "schema_version": "0.1",
+  "status": "declared_not_integrated",
+  "tools": {
+    "create_task": {"timeout_seconds": 15, "side_effect": "platform_state", "replay": "business_key"},
+    "prepare_environment": {"timeout_seconds": 120, "side_effect": "environment", "replay": "reconcile_first"},
+    "discover_scenarios": {"timeout_seconds": 30, "side_effect": "platform_state", "replay": "version_key"},
+    "propose_hypotheses": {"timeout_seconds": 15, "side_effect": "platform_state", "replay": "business_key"},
+    "run_experiment": {"timeout_seconds": 180, "side_effect": "environment", "replay": "reconcile_first"},
+    "evaluate_evidence": {"timeout_seconds": 30, "side_effect": "platform_state", "replay": "business_key"},
+    "reconcile_task": {"timeout_seconds": 120, "side_effect": "environment", "replay": "reconcile_first"},
+    "finish_task": {"timeout_seconds": 120, "side_effect": "artifacts_and_environment", "replay": "reconcile_first"}
+  }
+}

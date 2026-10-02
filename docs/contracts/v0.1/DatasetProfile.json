@@ -1,0 +1,101 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Id",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "authorized_sample",
+        "project_seed",
+        "synthetic"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "row_counts": {
+      "patternProperties": {
+        "\\S": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "propertyNames": {
+        "minLength": 1
+      },
+      "title": "Row Counts",
+      "type": "object"
+    },
+    "relationship_cardinalities": {
+      "patternProperties": {
+        "\\S": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "propertyNames": {
+        "minLength": 1
+      },
+      "title": "Relationship Cardinalities",
+      "type": "object"
+    },
+    "distribution_notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Distribution Notes",
+      "type": "array"
+    },
+    "target_scale": {
+      "anyOf": [
+        {
+          "patternProperties": {
+            "\\S": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Scale"
+    },
+    "applicability_unknowns": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Applicability Unknowns",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "snapshot_id",
+    "source",
+    "row_counts"
+  ],
+  "title": "DatasetProfile",
+  "type": "object"
+}

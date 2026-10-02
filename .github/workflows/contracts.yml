@@ -1,0 +1,13 @@
+name: P0 contracts
+on: [push, pull_request]
+jobs:
+  contracts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python 3.13
+      - run: ./scripts/check.ps1
+        shell: pwsh

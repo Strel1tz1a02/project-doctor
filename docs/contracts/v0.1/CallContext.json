@@ -1,0 +1,68 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "operation_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "agh_session_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agh Session Id"
+    },
+    "tool_call_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tool Call Id"
+    },
+    "missing_correlation": {
+      "items": {
+        "enum": [
+          "agh_session_id",
+          "tool_call_id"
+        ],
+        "type": "string"
+      },
+      "title": "Missing Correlation",
+      "type": "array"
+    }
+  },
+  "required": [
+    "task_id",
+    "operation_id"
+  ],
+  "title": "CallContext",
+  "type": "object"
+}

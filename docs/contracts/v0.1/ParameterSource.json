@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "user_sample",
+        "repository",
+        "inferred",
+        "previous_step",
+        "credential_ref"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "reference": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Reference",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "reference"
+  ],
+  "title": "ParameterSource",
+  "type": "object"
+}

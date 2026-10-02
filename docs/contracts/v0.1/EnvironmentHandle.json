@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "result_type": {
+      "const": "environment",
+      "default": "environment",
+      "title": "Result Type",
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Id",
+      "type": "string"
+    },
+    "isolated_base_url": {
+      "title": "Isolated Base Url",
+      "type": "string"
+    },
+    "fingerprint": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Fingerprint",
+      "type": "string"
+    },
+    "baseline_snapshot_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Baseline Snapshot Id",
+      "type": "string"
+    },
+    "health": {
+      "enum": [
+        "available",
+        "restoring",
+        "quarantined"
+      ],
+      "title": "Health",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "isolated_base_url",
+    "fingerprint",
+    "baseline_snapshot_id",
+    "health"
+  ],
+  "title": "EnvironmentHandle",
+  "type": "object"
+}

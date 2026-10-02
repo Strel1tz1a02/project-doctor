@@ -1,0 +1,1800 @@
+{
+  "$defs": {
+    "Assertions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status_code": {
+          "maximum": 599,
+          "minimum": 100,
+          "title": "Status Code",
+          "type": "integer"
+        },
+        "business": {
+          "items": {
+            "$ref": "#/$defs/BusinessAssertion"
+          },
+          "minItems": 1,
+          "title": "Business",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status_code",
+        "business"
+      ],
+      "title": "Assertions",
+      "type": "object"
+    },
+    "BusinessAssertion": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "json_pointer": {
+          "title": "Json Pointer",
+          "type": "string"
+        },
+        "operator": {
+          "enum": [
+            "equals",
+            "exists"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "expected": {
+          "$ref": "#/$defs/JsonValue",
+          "default": null
+        }
+      },
+      "required": [
+        "json_pointer",
+        "operator"
+      ],
+      "title": "BusinessAssertion",
+      "type": "object"
+    },
+    "CacheProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "cold",
+            "warm",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "preparation_recipe_ref": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preparation Recipe Ref"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "CacheProfile",
+      "type": "object"
+    },
+    "CallContext": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "task_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "agh_session_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agh Session Id"
+        },
+        "tool_call_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Call Id"
+        },
+        "missing_correlation": {
+          "items": {
+            "enum": [
+              "agh_session_id",
+              "tool_call_id"
+            ],
+            "type": "string"
+          },
+          "title": "Missing Correlation",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "operation_id"
+      ],
+      "title": "CallContext",
+      "type": "object"
+    },
+    "CodeLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Commit",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "exclusiveMinimum": 0,
+          "title": "Line",
+          "type": "integer"
+        },
+        "association_evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Association Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "commit",
+        "path",
+        "line",
+        "association_evidence_ids"
+      ],
+      "title": "CodeLocation",
+      "type": "object"
+    },
+    "DatasetProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "authorized_sample",
+            "project_seed",
+            "synthetic"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "row_counts": {
+          "patternProperties": {
+            "\\S": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "title": "Row Counts",
+          "type": "object"
+        },
+        "relationship_cardinalities": {
+          "patternProperties": {
+            "\\S": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "title": "Relationship Cardinalities",
+          "type": "object"
+        },
+        "distribution_notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Distribution Notes",
+          "type": "array"
+        },
+        "target_scale": {
+          "anyOf": [
+            {
+              "patternProperties": {
+                "\\S": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "propertyNames": {
+                "minLength": 1
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Scale"
+        },
+        "applicability_unknowns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Applicability Unknowns",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "snapshot_id",
+        "source",
+        "row_counts"
+      ],
+      "title": "DatasetProfile",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "artifact_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "relative_path": {
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "media_type": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "format_version": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Format Version",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "relative_path",
+        "media_type",
+        "format_version",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
+    "ExcludedExplanation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "explanation": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Explanation",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "explanation",
+        "evidence_ids"
+      ],
+      "title": "ExcludedExplanation",
+      "type": "object"
+    },
+    "ExperimentResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "result_type": {
+          "const": "experiment",
+          "default": "experiment",
+          "title": "Result Type",
+          "type": "string"
+        },
+        "experiment_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Experiment Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "prepared",
+            "running",
+            "restoring",
+            "finished",
+            "needs_reconcile"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/Observation"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "restore_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RestoreResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Failure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "experiment_id",
+        "operation_id",
+        "phase"
+      ],
+      "title": "ExperimentResult",
+      "type": "object"
+    },
+    "Failure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "code": {
+          "enum": [
+            "environment_blocked",
+            "scenario_invalid",
+            "evidence_insufficient",
+            "tool_failure",
+            "environment_contaminated",
+            "budget_exhausted",
+            "operation_conflict"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Message",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "retry_policy": {
+          "enum": [
+            "never",
+            "reconcile_first",
+            "safe_same_input"
+          ],
+          "title": "Retry Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retry_policy"
+      ],
+      "title": "Failure",
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "slow_query",
+            "unclassified"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "verified",
+            "lead",
+            "refuted",
+            "unclassified"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "scenario_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "experiment_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Experiment Ids",
+          "type": "array"
+        },
+        "sql_call_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Sql Call Ids",
+          "type": "array"
+        },
+        "code_locations": {
+          "items": {
+            "$ref": "#/$defs/CodeLocation"
+          },
+          "title": "Code Locations",
+          "type": "array"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "excluded_explanations": {
+          "items": {
+            "$ref": "#/$defs/ExcludedExplanation"
+          },
+          "title": "Excluded Explanations",
+          "type": "array"
+        },
+        "impact": {
+          "$ref": "#/$defs/Impact"
+        },
+        "recommendation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Recommendation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "kind",
+        "status",
+        "scenario_id",
+        "impact"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "Hypothesis": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "slow_query",
+            "unclassified"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "explanation": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Explanation",
+          "type": "string"
+        },
+        "predictions": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Predictions",
+          "type": "array"
+        },
+        "falsifiers": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Falsifiers",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "proposed",
+            "supported",
+            "refuted",
+            "unresolved"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "explanation",
+        "predictions",
+        "falsifiers",
+        "status"
+      ],
+      "title": "Hypothesis",
+      "type": "object"
+    },
+    "Impact": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "intervention",
+            "sql_time_estimate",
+            "unmeasured"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "latency_delta_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Delta Ms"
+        },
+        "affected_request_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Affected Request Ids",
+          "type": "array"
+        },
+        "shared_sql_call_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Shared Sql Call Ids",
+          "type": "array"
+        },
+        "uncertainty": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Uncertainty",
+          "type": "array"
+        },
+        "scope": {
+          "const": "test_load",
+          "default": "test_load",
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "Impact",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "Limits": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "max_wall_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Max Wall Seconds",
+          "type": "number"
+        },
+        "max_requests": {
+          "exclusiveMinimum": 0,
+          "title": "Max Requests",
+          "type": "integer"
+        },
+        "max_experiments": {
+          "exclusiveMinimum": 0,
+          "title": "Max Experiments",
+          "type": "integer"
+        },
+        "max_artifact_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Max Artifact Bytes",
+          "type": "integer"
+        },
+        "restore_reserve_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Restore Reserve Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "max_wall_seconds",
+        "max_requests",
+        "max_experiments",
+        "max_artifact_bytes",
+        "restore_reserve_seconds"
+      ],
+      "title": "Limits",
+      "type": "object"
+    },
+    "LoadProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "serial",
+            "concurrency",
+            "arrival_rate"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "concurrency": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "title": "Concurrency",
+          "type": "integer"
+        },
+        "arrival_rate_per_second": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Arrival Rate Per Second"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "LoadProfile",
+      "type": "object"
+    },
+    "MetricSource": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Source",
+          "type": "string"
+        },
+        "measurement": {
+          "enum": [
+            "actual",
+            "estimated"
+          ],
+          "title": "Measurement",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "measurement"
+      ],
+      "title": "MetricSource",
+      "type": "object"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "experiment_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Experiment Id",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "baseline",
+            "candidate_index"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "repetition": {
+          "exclusiveMinimum": 0,
+          "title": "Repetition",
+          "type": "integer"
+        },
+        "request_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "business_valid": {
+          "title": "Business Valid",
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "number"
+        },
+        "result_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Digest"
+        },
+        "sql_calls": {
+          "items": {
+            "$ref": "#/$defs/SqlCall"
+          },
+          "title": "Sql Calls",
+          "type": "array"
+        },
+        "fingerprint": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "observation_config_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Observation Config Id",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "experiment_id",
+        "level",
+        "repetition",
+        "request_id",
+        "business_valid",
+        "latency_ms",
+        "sql_calls",
+        "fingerprint",
+        "snapshot_id",
+        "observation_config_id"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "ParameterProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "parameter": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "parameter",
+        "source_ref"
+      ],
+      "title": "ParameterProvenance",
+      "type": "object"
+    },
+    "ParameterSource": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "user_sample",
+            "repository",
+            "inferred",
+            "previous_step",
+            "credential_ref"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "reference": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Reference",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "reference"
+      ],
+      "title": "ParameterSource",
+      "type": "object"
+    },
+    "ProjectInput": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "repo_path": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Repo Path",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Commit",
+          "type": "string"
+        },
+        "supplied_url": {
+          "title": "Supplied Url",
+          "type": "string"
+        },
+        "recipe_ref": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Recipe Ref",
+          "type": "string"
+        },
+        "credential_refs": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Credential Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "repo_path",
+        "commit",
+        "supplied_url",
+        "recipe_ref"
+      ],
+      "title": "ProjectInput",
+      "type": "object"
+    },
+    "Recommendation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "action": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Action",
+          "type": "string"
+        },
+        "mechanism": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Mechanism",
+          "type": "string"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "costs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Costs",
+          "type": "array"
+        },
+        "validation_status": {
+          "default": "expected_mechanism",
+          "enum": [
+            "expected_mechanism",
+            "retested"
+          ],
+          "title": "Validation Status",
+          "type": "string"
+        },
+        "measured_gain_percent": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Measured Gain Percent"
+        },
+        "retest_experiment_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Retest Experiment Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "action",
+        "mechanism",
+        "conditions",
+        "costs"
+      ],
+      "title": "Recommendation",
+      "type": "object"
+    },
+    "RequestStep": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "HEAD",
+            "OPTIONS"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "relative_path": {
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Params",
+          "type": "object"
+        },
+        "parameter_sources": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ParameterSource"
+          },
+          "title": "Parameter Sources",
+          "type": "object"
+        },
+        "assertions": {
+          "$ref": "#/$defs/Assertions"
+        }
+      },
+      "required": [
+        "method",
+        "relative_path",
+        "assertions"
+      ],
+      "title": "RequestStep",
+      "type": "object"
+    },
+    "RestoreResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "result_type": {
+          "const": "restore",
+          "default": "restore",
+          "title": "Result Type",
+          "type": "string"
+        },
+        "verified": {
+          "title": "Verified",
+          "type": "boolean"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "snapshot_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Id"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "verified"
+      ],
+      "title": "RestoreResult",
+      "type": "object"
+    },
+    "Scenario": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "exclusiveMinimum": 0,
+          "title": "Version",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "user_sample",
+            "repository",
+            "inferred"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "purpose": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Purpose",
+          "type": "string"
+        },
+        "preparation_recipe_ref": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Preparation Recipe Ref",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/RequestStep"
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "dataset": {
+          "$ref": "#/$defs/DatasetProfile"
+        },
+        "load": {
+          "$ref": "#/$defs/LoadProfile"
+        },
+        "cache": {
+          "$ref": "#/$defs/CacheProfile"
+        },
+        "credential_refs": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Credential Refs",
+          "type": "array"
+        },
+        "uncovered_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Uncovered Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "source",
+        "purpose",
+        "preparation_recipe_ref",
+        "steps",
+        "dataset",
+        "load",
+        "cache"
+      ],
+      "title": "Scenario",
+      "type": "object"
+    },
+    "SqlCall": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "normalized_sql": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Normalized Sql",
+          "type": "string"
+        },
+        "duration_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Ms"
+        },
+        "rows_examined": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rows Examined"
+        },
+        "rows_returned": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rows Returned"
+        },
+        "lock_wait_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lock Wait Ms"
+        },
+        "metric_sources": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetricSource"
+          },
+          "propertyNames": {
+            "enum": [
+              "duration_ms",
+              "rows_examined",
+              "rows_returned",
+              "lock_wait_ms"
+            ]
+          },
+          "title": "Metric Sources",
+          "type": "object"
+        },
+        "parameter_provenance": {
+          "items": {
+            "$ref": "#/$defs/ParameterProvenance"
+          },
+          "title": "Parameter Provenance",
+          "type": "array"
+        },
+        "code_location": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "plan_evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Plan Evidence Ids",
+          "type": "array"
+        },
+        "span_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Span Id"
+        }
+      },
+      "required": [
+        "id",
+        "normalized_sql"
+      ],
+      "title": "SqlCall",
+      "type": "object"
+    },
+    "TaskRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "project": {
+          "$ref": "#/$defs/ProjectInput"
+        },
+        "status": {
+          "enum": [
+            "created",
+            "running",
+            "blocked",
+            "completed",
+            "partial"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        },
+        "usage": {
+          "$ref": "#/$defs/Usage"
+        },
+        "environment_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Environment Id"
+        },
+        "scenario_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Scenario Ids",
+          "type": "array"
+        },
+        "experiment_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Experiment Ids",
+          "type": "array"
+        },
+        "hypothesis_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Hypothesis Ids",
+          "type": "array"
+        },
+        "finding_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Finding Ids",
+          "type": "array"
+        },
+        "correlation": {
+          "$ref": "#/$defs/CallContext"
+        },
+        "coverage": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Coverage",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "project",
+        "status",
+        "limits",
+        "usage",
+        "correlation"
+      ],
+      "title": "TaskRecord",
+      "type": "object"
+    },
+    "Usage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "wall_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Wall Seconds",
+          "type": "number"
+        },
+        "requests": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Requests",
+          "type": "integer"
+        },
+        "experiments": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Experiments",
+          "type": "integer"
+        },
+        "artifact_bytes": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Artifact Bytes",
+          "type": "integer"
+        }
+      },
+      "title": "Usage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "task": {
+      "$ref": "#/$defs/TaskRecord"
+    },
+    "scenarios": {
+      "items": {
+        "$ref": "#/$defs/Scenario"
+      },
+      "title": "Scenarios",
+      "type": "array"
+    },
+    "hypotheses": {
+      "items": {
+        "$ref": "#/$defs/Hypothesis"
+      },
+      "title": "Hypotheses",
+      "type": "array"
+    },
+    "experiments": {
+      "items": {
+        "$ref": "#/$defs/ExperimentResult"
+      },
+      "title": "Experiments",
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "evidence_refs": {
+      "items": {
+        "$ref": "#/$defs/EvidenceRef"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "task"
+  ],
+  "title": "TaskBundle",
+  "type": "object"
+}

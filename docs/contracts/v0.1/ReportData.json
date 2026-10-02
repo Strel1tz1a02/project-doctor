@@ -1,0 +1,533 @@
+{
+  "$defs": {
+    "CodeLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Commit",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "exclusiveMinimum": 0,
+          "title": "Line",
+          "type": "integer"
+        },
+        "association_evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Association Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "commit",
+        "path",
+        "line",
+        "association_evidence_ids"
+      ],
+      "title": "CodeLocation",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "artifact_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "relative_path": {
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "media_type": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "format_version": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Format Version",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "relative_path",
+        "media_type",
+        "format_version",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
+    "ExcludedExplanation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "explanation": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Explanation",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "explanation",
+        "evidence_ids"
+      ],
+      "title": "ExcludedExplanation",
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "slow_query",
+            "unclassified"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "verified",
+            "lead",
+            "refuted",
+            "unclassified"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "scenario_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "experiment_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Experiment Ids",
+          "type": "array"
+        },
+        "sql_call_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Sql Call Ids",
+          "type": "array"
+        },
+        "code_locations": {
+          "items": {
+            "$ref": "#/$defs/CodeLocation"
+          },
+          "title": "Code Locations",
+          "type": "array"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "excluded_explanations": {
+          "items": {
+            "$ref": "#/$defs/ExcludedExplanation"
+          },
+          "title": "Excluded Explanations",
+          "type": "array"
+        },
+        "impact": {
+          "$ref": "#/$defs/Impact"
+        },
+        "recommendation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Recommendation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "kind",
+        "status",
+        "scenario_id",
+        "impact"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "Impact": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "intervention",
+            "sql_time_estimate",
+            "unmeasured"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "latency_delta_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Delta Ms"
+        },
+        "affected_request_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Affected Request Ids",
+          "type": "array"
+        },
+        "shared_sql_call_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Shared Sql Call Ids",
+          "type": "array"
+        },
+        "uncertainty": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Uncertainty",
+          "type": "array"
+        },
+        "scope": {
+          "const": "test_load",
+          "default": "test_load",
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "Impact",
+      "type": "object"
+    },
+    "Recommendation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "action": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Action",
+          "type": "string"
+        },
+        "mechanism": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Mechanism",
+          "type": "string"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "costs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Costs",
+          "type": "array"
+        },
+        "validation_status": {
+          "default": "expected_mechanism",
+          "enum": [
+            "expected_mechanism",
+            "retested"
+          ],
+          "title": "Validation Status",
+          "type": "string"
+        },
+        "measured_gain_percent": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Measured Gain Percent"
+        },
+        "retest_experiment_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Retest Experiment Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "action",
+        "mechanism",
+        "conditions",
+        "costs"
+      ],
+      "title": "Recommendation",
+      "type": "object"
+    },
+    "ReportTask": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "created",
+            "running",
+            "blocked",
+            "completed",
+            "partial"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Commit",
+          "type": "string"
+        },
+        "environment_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Environment Id"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "commit"
+      ],
+      "title": "ReportTask",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "task": {
+      "$ref": "#/$defs/ReportTask"
+    },
+    "applicability": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Applicability",
+      "type": "array"
+    },
+    "coverage": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Coverage",
+      "type": "array"
+    },
+    "verified_findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Verified Findings",
+      "type": "array"
+    },
+    "leads": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Leads",
+      "type": "array"
+    },
+    "unclassified": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Unclassified",
+      "type": "array"
+    },
+    "blocked_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blocked Paths",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "json_content": {
+      "title": "Json Content",
+      "type": "string"
+    },
+    "html_content": {
+      "title": "Html Content",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task",
+    "applicability",
+    "coverage",
+    "verified_findings",
+    "leads",
+    "unclassified",
+    "blocked_paths",
+    "limitations",
+    "json_content",
+    "html_content"
+  ],
+  "title": "ReportData",
+  "type": "object"
+}

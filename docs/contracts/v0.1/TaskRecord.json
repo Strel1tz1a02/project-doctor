@@ -1,0 +1,309 @@
+{
+  "$defs": {
+    "CallContext": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "task_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "agh_session_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agh Session Id"
+        },
+        "tool_call_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Call Id"
+        },
+        "missing_correlation": {
+          "items": {
+            "enum": [
+              "agh_session_id",
+              "tool_call_id"
+            ],
+            "type": "string"
+          },
+          "title": "Missing Correlation",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "operation_id"
+      ],
+      "title": "CallContext",
+      "type": "object"
+    },
+    "Limits": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "max_wall_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Max Wall Seconds",
+          "type": "number"
+        },
+        "max_requests": {
+          "exclusiveMinimum": 0,
+          "title": "Max Requests",
+          "type": "integer"
+        },
+        "max_experiments": {
+          "exclusiveMinimum": 0,
+          "title": "Max Experiments",
+          "type": "integer"
+        },
+        "max_artifact_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Max Artifact Bytes",
+          "type": "integer"
+        },
+        "restore_reserve_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Restore Reserve Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "max_wall_seconds",
+        "max_requests",
+        "max_experiments",
+        "max_artifact_bytes",
+        "restore_reserve_seconds"
+      ],
+      "title": "Limits",
+      "type": "object"
+    },
+    "ProjectInput": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "repo_path": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Repo Path",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Commit",
+          "type": "string"
+        },
+        "supplied_url": {
+          "title": "Supplied Url",
+          "type": "string"
+        },
+        "recipe_ref": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Recipe Ref",
+          "type": "string"
+        },
+        "credential_refs": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Credential Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "repo_path",
+        "commit",
+        "supplied_url",
+        "recipe_ref"
+      ],
+      "title": "ProjectInput",
+      "type": "object"
+    },
+    "Usage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "wall_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Wall Seconds",
+          "type": "number"
+        },
+        "requests": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Requests",
+          "type": "integer"
+        },
+        "experiments": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Experiments",
+          "type": "integer"
+        },
+        "artifact_bytes": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Artifact Bytes",
+          "type": "integer"
+        }
+      },
+      "title": "Usage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Id",
+      "type": "string"
+    },
+    "project": {
+      "$ref": "#/$defs/ProjectInput"
+    },
+    "status": {
+      "enum": [
+        "created",
+        "running",
+        "blocked",
+        "completed",
+        "partial"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "limits": {
+      "$ref": "#/$defs/Limits"
+    },
+    "usage": {
+      "$ref": "#/$defs/Usage"
+    },
+    "environment_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Environment Id"
+    },
+    "scenario_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Scenario Ids",
+      "type": "array"
+    },
+    "experiment_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Experiment Ids",
+      "type": "array"
+    },
+    "hypothesis_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Hypothesis Ids",
+      "type": "array"
+    },
+    "finding_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Finding Ids",
+      "type": "array"
+    },
+    "correlation": {
+      "$ref": "#/$defs/CallContext"
+    },
+    "coverage": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Coverage",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "project",
+    "status",
+    "limits",
+    "usage",
+    "correlation"
+  ],
+  "title": "TaskRecord",
+  "type": "object"
+}

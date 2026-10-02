@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "parameter": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Parameter",
+      "type": "string"
+    },
+    "source_ref": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Source Ref",
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "parameter",
+    "source_ref"
+  ],
+  "title": "ParameterProvenance",
+  "type": "object"
+}

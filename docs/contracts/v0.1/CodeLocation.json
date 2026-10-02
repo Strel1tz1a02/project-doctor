@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "commit": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Commit",
+      "type": "string"
+    },
+    "path": {
+      "title": "Path",
+      "type": "string"
+    },
+    "line": {
+      "exclusiveMinimum": 0,
+      "title": "Line",
+      "type": "integer"
+    },
+    "association_evidence_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Association Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "commit",
+    "path",
+    "line",
+    "association_evidence_ids"
+  ],
+  "title": "CodeLocation",
+  "type": "object"
+}

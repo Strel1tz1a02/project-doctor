@@ -1,0 +1,433 @@
+{
+  "$defs": {
+    "Assertions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status_code": {
+          "maximum": 599,
+          "minimum": 100,
+          "title": "Status Code",
+          "type": "integer"
+        },
+        "business": {
+          "items": {
+            "$ref": "#/$defs/BusinessAssertion"
+          },
+          "minItems": 1,
+          "title": "Business",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status_code",
+        "business"
+      ],
+      "title": "Assertions",
+      "type": "object"
+    },
+    "BusinessAssertion": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "json_pointer": {
+          "title": "Json Pointer",
+          "type": "string"
+        },
+        "operator": {
+          "enum": [
+            "equals",
+            "exists"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "expected": {
+          "$ref": "#/$defs/JsonValue",
+          "default": null
+        }
+      },
+      "required": [
+        "json_pointer",
+        "operator"
+      ],
+      "title": "BusinessAssertion",
+      "type": "object"
+    },
+    "CacheProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "cold",
+            "warm",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "preparation_recipe_ref": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preparation Recipe Ref"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "CacheProfile",
+      "type": "object"
+    },
+    "DatasetProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "authorized_sample",
+            "project_seed",
+            "synthetic"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "row_counts": {
+          "patternProperties": {
+            "\\S": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "title": "Row Counts",
+          "type": "object"
+        },
+        "relationship_cardinalities": {
+          "patternProperties": {
+            "\\S": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "title": "Relationship Cardinalities",
+          "type": "object"
+        },
+        "distribution_notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Distribution Notes",
+          "type": "array"
+        },
+        "target_scale": {
+          "anyOf": [
+            {
+              "patternProperties": {
+                "\\S": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "propertyNames": {
+                "minLength": 1
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Scale"
+        },
+        "applicability_unknowns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Applicability Unknowns",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "snapshot_id",
+        "source",
+        "row_counts"
+      ],
+      "title": "DatasetProfile",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "LoadProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "serial",
+            "concurrency",
+            "arrival_rate"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "concurrency": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "title": "Concurrency",
+          "type": "integer"
+        },
+        "arrival_rate_per_second": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Arrival Rate Per Second"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "LoadProfile",
+      "type": "object"
+    },
+    "ParameterSource": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "user_sample",
+            "repository",
+            "inferred",
+            "previous_step",
+            "credential_ref"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "reference": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Reference",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "reference"
+      ],
+      "title": "ParameterSource",
+      "type": "object"
+    },
+    "RequestStep": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "HEAD",
+            "OPTIONS"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "relative_path": {
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Params",
+          "type": "object"
+        },
+        "parameter_sources": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ParameterSource"
+          },
+          "title": "Parameter Sources",
+          "type": "object"
+        },
+        "assertions": {
+          "$ref": "#/$defs/Assertions"
+        }
+      },
+      "required": [
+        "method",
+        "relative_path",
+        "assertions"
+      ],
+      "title": "RequestStep",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Id",
+      "type": "string"
+    },
+    "version": {
+      "exclusiveMinimum": 0,
+      "title": "Version",
+      "type": "integer"
+    },
+    "source": {
+      "enum": [
+        "user_sample",
+        "repository",
+        "inferred"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "purpose": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Purpose",
+      "type": "string"
+    },
+    "preparation_recipe_ref": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Preparation Recipe Ref",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/RequestStep"
+      },
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    },
+    "dataset": {
+      "$ref": "#/$defs/DatasetProfile"
+    },
+    "load": {
+      "$ref": "#/$defs/LoadProfile"
+    },
+    "cache": {
+      "$ref": "#/$defs/CacheProfile"
+    },
+    "credential_refs": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Credential Refs",
+      "type": "array"
+    },
+    "uncovered_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Uncovered Paths",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "source",
+    "purpose",
+    "preparation_recipe_ref",
+    "steps",
+    "dataset",
+    "load",
+    "cache"
+  ],
+  "title": "Scenario",
+  "type": "object"
+}

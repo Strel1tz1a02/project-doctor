@@ -1,0 +1,874 @@
+{
+  "$defs": {
+    "CodeLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Commit",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "exclusiveMinimum": 0,
+          "title": "Line",
+          "type": "integer"
+        },
+        "association_evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Association Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "commit",
+        "path",
+        "line",
+        "association_evidence_ids"
+      ],
+      "title": "CodeLocation",
+      "type": "object"
+    },
+    "EnvironmentHandle": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "result_type": {
+          "const": "environment",
+          "default": "environment",
+          "title": "Result Type",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "isolated_base_url": {
+          "title": "Isolated Base Url",
+          "type": "string"
+        },
+        "fingerprint": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "baseline_snapshot_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Baseline Snapshot Id",
+          "type": "string"
+        },
+        "health": {
+          "enum": [
+            "available",
+            "restoring",
+            "quarantined"
+          ],
+          "title": "Health",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "isolated_base_url",
+        "fingerprint",
+        "baseline_snapshot_id",
+        "health"
+      ],
+      "title": "EnvironmentHandle",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "artifact_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "relative_path": {
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "media_type": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "format_version": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Format Version",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "relative_path",
+        "media_type",
+        "format_version",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
+    "ExperimentResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "result_type": {
+          "const": "experiment",
+          "default": "experiment",
+          "title": "Result Type",
+          "type": "string"
+        },
+        "experiment_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Experiment Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "prepared",
+            "running",
+            "restoring",
+            "finished",
+            "needs_reconcile"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/Observation"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "restore_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RestoreResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Failure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "experiment_id",
+        "operation_id",
+        "phase"
+      ],
+      "title": "ExperimentResult",
+      "type": "object"
+    },
+    "Failure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "code": {
+          "enum": [
+            "environment_blocked",
+            "scenario_invalid",
+            "evidence_insufficient",
+            "tool_failure",
+            "environment_contaminated",
+            "budget_exhausted",
+            "operation_conflict"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Message",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "retry_policy": {
+          "enum": [
+            "never",
+            "reconcile_first",
+            "safe_same_input"
+          ],
+          "title": "Retry Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retry_policy"
+      ],
+      "title": "Failure",
+      "type": "object"
+    },
+    "MetricSource": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Source",
+          "type": "string"
+        },
+        "measurement": {
+          "enum": [
+            "actual",
+            "estimated"
+          ],
+          "title": "Measurement",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "measurement"
+      ],
+      "title": "MetricSource",
+      "type": "object"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "experiment_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Experiment Id",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "baseline",
+            "candidate_index"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "repetition": {
+          "exclusiveMinimum": 0,
+          "title": "Repetition",
+          "type": "integer"
+        },
+        "request_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "business_valid": {
+          "title": "Business Valid",
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "number"
+        },
+        "result_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Digest"
+        },
+        "sql_calls": {
+          "items": {
+            "$ref": "#/$defs/SqlCall"
+          },
+          "title": "Sql Calls",
+          "type": "array"
+        },
+        "fingerprint": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "observation_config_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Observation Config Id",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "experiment_id",
+        "level",
+        "repetition",
+        "request_id",
+        "business_valid",
+        "latency_ms",
+        "sql_calls",
+        "fingerprint",
+        "snapshot_id",
+        "observation_config_id"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "OperationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "operation_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "reserved",
+            "running",
+            "completed",
+            "failed",
+            "needs_reconcile"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "input_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Digest",
+          "type": "string"
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "environment": "#/$defs/EnvironmentHandle",
+                  "experiment": "#/$defs/ExperimentResult",
+                  "report": "#/$defs/ReportResult",
+                  "restore": "#/$defs/RestoreResult"
+                },
+                "propertyName": "result_type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/EnvironmentHandle"
+                },
+                {
+                  "$ref": "#/$defs/ExperimentResult"
+                },
+                {
+                  "$ref": "#/$defs/RestoreResult"
+                },
+                {
+                  "$ref": "#/$defs/ReportResult"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Failure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "operation_id",
+        "state",
+        "input_digest"
+      ],
+      "title": "OperationResult",
+      "type": "object"
+    },
+    "ParameterProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "parameter": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "parameter",
+        "source_ref"
+      ],
+      "title": "ParameterProvenance",
+      "type": "object"
+    },
+    "ReportResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "result_type": {
+          "const": "report",
+          "default": "report",
+          "title": "Result Type",
+          "type": "string"
+        },
+        "task_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "task_status": {
+          "enum": [
+            "created",
+            "running",
+            "blocked",
+            "completed",
+            "partial"
+          ],
+          "title": "Task Status",
+          "type": "string"
+        },
+        "json_ref": {
+          "$ref": "#/$defs/EvidenceRef"
+        },
+        "html_ref": {
+          "$ref": "#/$defs/EvidenceRef"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "task_status",
+        "json_ref",
+        "html_ref"
+      ],
+      "title": "ReportResult",
+      "type": "object"
+    },
+    "RestoreResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "result_type": {
+          "const": "restore",
+          "default": "restore",
+          "title": "Result Type",
+          "type": "string"
+        },
+        "verified": {
+          "title": "Verified",
+          "type": "boolean"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fingerprint"
+        },
+        "snapshot_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Id"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "verified"
+      ],
+      "title": "RestoreResult",
+      "type": "object"
+    },
+    "SqlCall": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "normalized_sql": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Normalized Sql",
+          "type": "string"
+        },
+        "duration_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Ms"
+        },
+        "rows_examined": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rows Examined"
+        },
+        "rows_returned": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rows Returned"
+        },
+        "lock_wait_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lock Wait Ms"
+        },
+        "metric_sources": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetricSource"
+          },
+          "propertyNames": {
+            "enum": [
+              "duration_ms",
+              "rows_examined",
+              "rows_returned",
+              "lock_wait_ms"
+            ]
+          },
+          "title": "Metric Sources",
+          "type": "object"
+        },
+        "parameter_provenance": {
+          "items": {
+            "$ref": "#/$defs/ParameterProvenance"
+          },
+          "title": "Parameter Provenance",
+          "type": "array"
+        },
+        "code_location": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodeLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "plan_evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Plan Evidence Ids",
+          "type": "array"
+        },
+        "span_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Span Id"
+        }
+      },
+      "required": [
+        "id",
+        "normalized_sql"
+      ],
+      "title": "SqlCall",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "accepted": {
+      "title": "Accepted",
+      "type": "boolean"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "replay_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OperationResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "accepted"
+  ],
+  "title": "Reservation",
+  "type": "object"
+}

@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "Assertions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status_code": {
+          "maximum": 599,
+          "minimum": 100,
+          "title": "Status Code",
+          "type": "integer"
+        },
+        "business": {
+          "items": {
+            "$ref": "#/$defs/BusinessAssertion"
+          },
+          "minItems": 1,
+          "title": "Business",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status_code",
+        "business"
+      ],
+      "title": "Assertions",
+      "type": "object"
+    },
+    "BusinessAssertion": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "json_pointer": {
+          "title": "Json Pointer",
+          "type": "string"
+        },
+        "operator": {
+          "enum": [
+            "equals",
+            "exists"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "expected": {
+          "$ref": "#/$defs/JsonValue",
+          "default": null
+        }
+      },
+      "required": [
+        "json_pointer",
+        "operator"
+      ],
+      "title": "BusinessAssertion",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "ParameterSource": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "user_sample",
+            "repository",
+            "inferred",
+            "previous_step",
+            "credential_ref"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "reference": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Reference",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "reference"
+      ],
+      "title": "ParameterSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "method": {
+      "enum": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "title": "Method",
+      "type": "string"
+    },
+    "relative_path": {
+      "title": "Relative Path",
+      "type": "string"
+    },
+    "params": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Params",
+      "type": "object"
+    },
+    "parameter_sources": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ParameterSource"
+      },
+      "title": "Parameter Sources",
+      "type": "object"
+    },
+    "assertions": {
+      "$ref": "#/$defs/Assertions"
+    }
+  },
+  "required": [
+    "method",
+    "relative_path",
+    "assertions"
+  ],
+  "title": "RequestStep",
+  "type": "object"
+}

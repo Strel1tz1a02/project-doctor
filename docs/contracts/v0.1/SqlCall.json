@@ -1,0 +1,261 @@
+{
+  "$defs": {
+    "CodeLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Commit",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "exclusiveMinimum": 0,
+          "title": "Line",
+          "type": "integer"
+        },
+        "association_evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Association Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "commit",
+        "path",
+        "line",
+        "association_evidence_ids"
+      ],
+      "title": "CodeLocation",
+      "type": "object"
+    },
+    "MetricSource": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Source",
+          "type": "string"
+        },
+        "measurement": {
+          "enum": [
+            "actual",
+            "estimated"
+          ],
+          "title": "Measurement",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "measurement"
+      ],
+      "title": "MetricSource",
+      "type": "object"
+    },
+    "ParameterProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "parameter": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "parameter",
+        "source_ref"
+      ],
+      "title": "ParameterProvenance",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Id",
+      "type": "string"
+    },
+    "normalized_sql": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Normalized Sql",
+      "type": "string"
+    },
+    "duration_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Duration Ms"
+    },
+    "rows_examined": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rows Examined"
+    },
+    "rows_returned": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rows Returned"
+    },
+    "lock_wait_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lock Wait Ms"
+    },
+    "metric_sources": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MetricSource"
+      },
+      "propertyNames": {
+        "enum": [
+          "duration_ms",
+          "rows_examined",
+          "rows_returned",
+          "lock_wait_ms"
+        ]
+      },
+      "title": "Metric Sources",
+      "type": "object"
+    },
+    "parameter_provenance": {
+      "items": {
+        "$ref": "#/$defs/ParameterProvenance"
+      },
+      "title": "Parameter Provenance",
+      "type": "array"
+    },
+    "code_location": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CodeLocation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "plan_evidence_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Plan Evidence Ids",
+      "type": "array"
+    },
+    "span_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Span Id"
+    }
+  },
+  "required": [
+    "id",
+    "normalized_sql"
+  ],
+  "title": "SqlCall",
+  "type": "object"
+}

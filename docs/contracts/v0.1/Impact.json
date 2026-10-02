@@ -1,0 +1,68 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "method": {
+      "enum": [
+        "intervention",
+        "sql_time_estimate",
+        "unmeasured"
+      ],
+      "title": "Method",
+      "type": "string"
+    },
+    "latency_delta_ms": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Latency Delta Ms"
+    },
+    "affected_request_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Affected Request Ids",
+      "type": "array"
+    },
+    "shared_sql_call_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Shared Sql Call Ids",
+      "type": "array"
+    },
+    "uncertainty": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Uncertainty",
+      "type": "array"
+    },
+    "scope": {
+      "const": "test_load",
+      "default": "test_load",
+      "title": "Scope",
+      "type": "string"
+    }
+  },
+  "required": [
+    "method"
+  ],
+  "title": "Impact",
+  "type": "object"
+}
