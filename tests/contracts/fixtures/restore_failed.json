@@ -684,7 +684,8 @@
           "message": "Restore failed",
           "evidence_refs": [],
           "retry_policy": "never"
-        }
+        },
+        "spec": null
       }
     ],
     "findings": [

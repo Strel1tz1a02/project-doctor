@@ -7,10 +7,16 @@ name = "project-doctor"
 version = "0.1.0"
 description = "Evidence-first backend performance diagnosis contracts"
 requires-python = ">=3.13,<3.14"
-dependencies = ["pydantic>=2.11,<3"]
+dependencies = [
+    "mcp>=1.26,<2",
+    "pydantic>=2.11,<3",
+]
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1", "mypy>=1.15,<2"]
+
+[project.scripts]
+project-doctor-mcp = "project_doctor.entrypoints.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/project_doctor"]

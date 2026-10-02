@@ -44,9 +44,12 @@ class ExperimentResult(Contract):
     restore_result: RestoreResult | None = None
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     failure: Failure | None = None
+    spec: ExperimentSpec | None = None
 
     @model_validator(mode="after")
     def consistent_lifecycle(self) -> ExperimentResult:
+        if self.spec is not None and self.spec.id != self.experiment_id:
+            raise ValueError("persisted spec belongs to another experiment")
         if any(item.experiment_id != self.experiment_id for item in self.observations):
             raise ValueError("observation belongs to another experiment")
         keys = [(item.level, item.repetition, item.request_id) for item in self.observations]

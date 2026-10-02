@@ -14,6 +14,8 @@
 
 **首交边界：** 本轮只实现慢查询／有代价扫描，优先缺少适用索引的机制；N+1、深分页不开发专门判据，无法归因的慢链路保留线索。
 
+实施状态：B1～B3 的显式 manifest、规则、报告、MCP 工具及 scripted 联调已实现；真实 A 工厂未就绪，B0 的 AGH→MySQL 探针和 B4／B5 真实目标验收尚未完成。当前实际函数签名 `check_slow_query(result: ExperimentResult, scenario: Scenario, task_id: str, commit: str, policy: MeasurementPolicy | None = None) -> list[Finding]`，evaluate 仍为共享业务入口；纯规则函数需要上下文，以免伪造提交与任务归属。用户已批准 ExperimentResult.spec 可选字段，见 [交接](../../development/b/handoff-to-a.md)。
+
 ## B0：骨架、共享合同和 AGH 探针
 
 公共骨架、模型、三个接口、六组合同样例、Schema、配置与检查入口已由 P0 基线完成，见 [交接记录](../../development/p0-baseline.md)。B 从现有代码继续，不能重新设计或重复生成另一套合同；测试假实现按 B1～B3 所需补充。真实 AGH／MCP／MySQL 探针尚未完成，仍属于 B0。

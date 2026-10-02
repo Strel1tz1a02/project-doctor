@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Push-Location (Split-Path $PSScriptRoot -Parent)
 try {
-    uv run --locked pytest tests/contracts
+    uv run --locked pytest
     if ($LASTEXITCODE -ne 0) { throw 'Contract tests failed' }
     uv run --locked ruff check .
     if ($LASTEXITCODE -ne 0) { throw 'Ruff failed' }

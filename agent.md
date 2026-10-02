@@ -148,4 +148,6 @@ AGH 保存会话与调用记录；MySQL 保存可恢复的业务事实。用任�
 
 当前首次交付仅慢查询诊断到报告，N+1 与深分页后续安排。评估用数据由第三人负责，A/B 只制作必需的开发测试样例与最小联调种子。公共合同及交接方式见 [P0 公共基线](docs/development/p0-baseline.md)；跨线接口修改先确认，文件归属遵循 [双人开发计划](docs/superpowers/plans/2026-10-02-two-developer-plan.md)。
 
+B 侧已实现显式场景 manifest、慢查询规则、报告及八个 MCP 工具；官方 SDK 协议与 scripted 假实现链路已验证。真实 A 工厂、目标实验、MySQL 与 AGH 会话仍待联调。用户已授权兼容新增 ExperimentResult.spec；A 必须持久化实际 spec，缺失时 B 降级线索。见 [B → A 交接](docs/development/b/handoff-to-a.md)。
+
 用户的新指令优先于本指南；架构变更需同时更新对应设计文档，避免文档与代码长期不一致。

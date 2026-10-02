@@ -688,7 +688,8 @@
             "size_bytes": 1
           }
         ],
-        "failure": null
+        "failure": null,
+        "spec": null
       }
     ],
     "findings": [

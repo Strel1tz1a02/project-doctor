@@ -676,7 +676,8 @@
           "message": "Execution outcome unknown",
           "evidence_refs": [],
           "retry_policy": "reconcile_first"
-        }
+        },
+        "spec": null
       }
     ],
     "findings": [

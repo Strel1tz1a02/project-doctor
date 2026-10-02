@@ -71,6 +71,8 @@ P0 公共基线已落地并完成本地合同检查，尚未提交 Git；真实�
 
 以下合同已落实到 P0 模型、三个 ports 和 JSON Schema，具体类型及补充字段见 [P0 交接记录](../../development/p0-baseline.md)。真实实现与接入探针仍待 A0／B0 完成。禁止额外字段；时间采用 UTC，耗时单位 ms，行号为一基正整数。可选观测值为 null，不能用 0 冒充缺失。
 
+2026-10-02 用户批准兼容新增 `ExperimentResult.spec: ExperimentSpec | None = None`。A 持久化实际执行配置，B 判定必须读取该配置；旧结果仍可读取，但缺配置不能形成正式结论。对应 Schema 已更新，详见 [B → A 交接](../../development/b/handoff-to-a.md)。
+
 | 文件／模型 | 必需语义与字段 |
 | --- | --- |
 | `models/common.py` | `schema_version="0.1"`；`CodeLocation(commit, path, line, association_evidence_ids)`；`EvidenceRef(artifact_id, relative_path, media_type, format_version, sha256, size_bytes)`；ID 均为非空字符串 |

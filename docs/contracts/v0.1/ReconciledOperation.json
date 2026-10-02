@@ -170,6 +170,17 @@
             }
           ],
           "default": null
+        },
+        "spec": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExperimentSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -178,6 +189,121 @@
         "phase"
       ],
       "title": "ExperimentResult",
+      "type": "object"
+    },
+    "ExperimentSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "scenario_version": {
+          "exclusiveMinimum": 0,
+          "title": "Scenario Version",
+          "type": "integer"
+        },
+        "hypothesis_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Hypothesis Ids",
+          "type": "array"
+        },
+        "variable": {
+          "const": "index",
+          "title": "Variable",
+          "type": "string"
+        },
+        "levels": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "const": "baseline",
+              "type": "string"
+            },
+            {
+              "const": "candidate_index",
+              "type": "string"
+            }
+          ],
+          "title": "Levels",
+          "type": "array"
+        },
+        "intervention_recipe_ref": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Intervention Recipe Ref",
+          "type": "string"
+        },
+        "repetitions": {
+          "minimum": 3,
+          "title": "Repetitions",
+          "type": "integer"
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        },
+        "baseline_fingerprint": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Baseline Fingerprint",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "observation_config_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Observation Config Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "scenario_id",
+        "scenario_version",
+        "hypothesis_ids",
+        "variable",
+        "levels",
+        "intervention_recipe_ref",
+        "repetitions",
+        "limits",
+        "baseline_fingerprint",
+        "snapshot_id",
+        "observation_config_id"
+      ],
+      "title": "ExperimentSpec",
       "type": "object"
     },
     "Failure": {
@@ -231,6 +357,51 @@
         "retry_policy"
       ],
       "title": "Failure",
+      "type": "object"
+    },
+    "Limits": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "max_wall_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Max Wall Seconds",
+          "type": "number"
+        },
+        "max_requests": {
+          "exclusiveMinimum": 0,
+          "title": "Max Requests",
+          "type": "integer"
+        },
+        "max_experiments": {
+          "exclusiveMinimum": 0,
+          "title": "Max Experiments",
+          "type": "integer"
+        },
+        "max_artifact_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Max Artifact Bytes",
+          "type": "integer"
+        },
+        "restore_reserve_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Restore Reserve Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "max_wall_seconds",
+        "max_requests",
+        "max_experiments",
+        "max_artifact_bytes",
+        "restore_reserve_seconds"
+      ],
+      "title": "Limits",
       "type": "object"
     },
     "MetricSource": {
