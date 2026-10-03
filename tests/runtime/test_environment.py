@@ -111,7 +111,7 @@ def test_render_compose_gives_app_connection_vars() -> None:
     assert "DB_PASSWORD: secret" in text
 
 
-def test_render_compose_isolates_on_internal_network_and_host_port() -> None:
+def test_render_compose_publishes_host_port_on_plain_project_network() -> None:
     text = render_compose(
         service_image="project-doctor-target:latest",
         service_port=18080,
@@ -120,7 +120,48 @@ def test_render_compose_isolates_on_internal_network_and_host_port() -> None:
         db_user="app",
         db_password="secret",
     )
-    assert "internal: true" in text
     # The experiment address is the isolated host port, never an external host.
     assert '"18080:8080"' in text
     assert "http://" not in text
+    # The network must stay a plain project-scoped bridge: `internal: true`
+    # silently disables port publishing, so the host port above would not bind.
+    assert "networks:\n  internal:" in text
+    assert "internal: true" not in text
+
+
+def test_render_compose_keeps_db_env_and_volume_on_separate_lines() -> None:
+    text = render_compose(
+        service_image="project-doctor-target:latest",
+        service_port=18080,
+        db_image="mysql:8.4",
+        db_name="app",
+        db_user="app",
+        db_password="secret",
+    )
+    # The last db env var and the initdb volume must be separate lines; a missing
+    # trailing newline in the db env block once glued them into invalid YAML.
+    assert "MYSQL_USER: app\n    volumes:\n" in text
+    assert "app    volumes:" not in text
+
+
+def test_render_compose_waits_for_db_and_app_readiness() -> None:
+    text = render_compose(
+        service_image="project-doctor-target:latest",
+        service_port=18080,
+        db_image="mysql:8.4",
+        db_name="app",
+        db_user="app",
+        db_password="secret",
+    )
+    # `up --wait` must block until mysqld accepts the application user and the app
+    # has written its seed-complete marker; otherwise the follow-on dump/request
+    # steps race a still-initializing MySQL or a half-seeded database.
+    assert (
+        'test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uapp", "-psecret", "--silent"]'
+        in text
+    )
+    assert 'test: ["CMD-SHELL", "test -f /tmp/ready"]' in text
+    # The app healthcheck lives under the app service (before `db:`), the db
+    # healthcheck under the db service (after `db:`).
+    assert text.index("test -f /tmp/ready") < text.index("  db:")
+    assert text.index("mysqladmin") > text.index("  db:")

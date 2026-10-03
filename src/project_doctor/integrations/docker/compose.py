@@ -1,7 +1,9 @@
 """Docker Compose adapter: isolated project names, rendered files and subprocess calls.
 
-The target service is published on a dedicated host port and internal-only network, so
-the experiment address can never be the original production address.
+The target service is published on a dedicated host port and a project-scoped network, so
+the experiment address can never be the original production address. The network must be a
+plain bridge: ``internal: true`` silently disables port publishing, breaking the host-port
+path the experiment HTTP client relies on.
 """
 
 from __future__ import annotations
@@ -32,16 +34,19 @@ def render_compose(
     caller-provided ``./initdb`` directory so the SQL probe can read
     ``performance_schema`` as the application user.
     """
-    db_env = "\n".join(
-        f"      {key}: {value}"
-        for key, value in sorted(
-            {
-                "MYSQL_DATABASE": db_name,
-                "MYSQL_USER": db_user,
-                "MYSQL_PASSWORD": db_password,
-                "MYSQL_ROOT_PASSWORD": db_password,
-            }.items()
+    db_env = (
+        "\n".join(
+            f"      {key}: {value}"
+            for key, value in sorted(
+                {
+                    "MYSQL_DATABASE": db_name,
+                    "MYSQL_USER": db_user,
+                    "MYSQL_PASSWORD": db_password,
+                    "MYSQL_ROOT_PASSWORD": db_password,
+                }.items()
+            )
         )
+        + "\n"
     )
     app_env = (
         "      DB_HOST: db\n"
@@ -49,6 +54,30 @@ def render_compose(
         f"      DB_NAME: {db_name}\n"
         f"      DB_USER: {db_user}\n"
         f"      DB_PASSWORD: {db_password}\n"
+    )
+    # ``up --wait`` must not return before either container is actually ready: the
+    # db healthcheck waits for mysqld to answer the application user (the temporary
+    # init server binds ``--skip-networking``, so TCP only appears after the real
+    # server starts), and the app healthcheck waits for the target to write its
+    # ``/tmp/ready`` marker -- which it does only after Tomcat is listening and the
+    # seed data is fully loaded, so the follow-on baseline dump captures a stable
+    # database rather than a half-seeded one.
+    db_healthcheck = (
+        "    healthcheck:\n"
+        f'      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", '
+        f'"-u{db_user}", "-p{db_password}", "--silent"]\n'
+        "      interval: 5s\n"
+        "      timeout: 5s\n"
+        "      retries: 30\n"
+        "      start_period: 10s\n"
+    )
+    app_healthcheck = (
+        "    healthcheck:\n"
+        '      test: ["CMD-SHELL", "test -f /tmp/ready"]\n'
+        "      interval: 5s\n"
+        "      timeout: 5s\n"
+        "      retries: 60\n"
+        "      start_period: 15s\n"
     )
     return (
         "services:\n"
@@ -60,11 +89,13 @@ def render_compose(
         f'      - "{service_port}:8080"\n'
         "    environment:\n"
         f"{app_env}"
+        f"{app_healthcheck}"
         "    networks:\n"
         "      - internal\n"
         "  db:\n"
         f"    image: {db_image}\n"
         "    command: --performance-schema-consumer-events-statements-history-long=ON\n"
+        f"{db_healthcheck}"
         "    environment:\n"
         f"{db_env}"
         "    volumes:\n"
@@ -73,7 +104,6 @@ def render_compose(
         "      - internal\n"
         "networks:\n"
         "  internal:\n"
-        "    internal: true\n"
     )
 
 
