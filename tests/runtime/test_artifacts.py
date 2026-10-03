@@ -36,7 +36,7 @@ def test_publish_then_verify_round_trip(tmp_path: Path) -> None:
         )
     )
     assert ref.sha256 == hashlib.sha256(CONTENT).hexdigest()
-    assert ref.artifact_id == ref.sha256
+    assert ref.artifact_id != ref.sha256
     assert ref.size_bytes == len(CONTENT)
     check = asyncio.run(build_evidence_reader(settings).verify([ref]))
     assert check.valid

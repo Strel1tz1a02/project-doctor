@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import socket
+import uuid
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -22,6 +23,7 @@ class HttpResponse:
     body: Any
     latency_ms: float
     headers: dict[str, str]
+    request_id: str | None = None
 
 
 def join_url(base_url: str, relative_path: str) -> str:
@@ -99,9 +101,13 @@ class RestrictedHttpClient:
 
     async def request(self, step: RequestStep) -> HttpResponse:
         url = self.endpoint(step.relative_path)
+        request_id = uuid.uuid4().hex
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.request(
-                step.method, url, params=self._query_params(step.params) or None
+                step.method,
+                url,
+                params=self._query_params(step.params) or None,
+                headers={"X-Project-Doctor-Request-Id": request_id},
             )
             try:
                 body: Any = response.json()
@@ -112,6 +118,7 @@ class RestrictedHttpClient:
                 body=body,
                 latency_ms=response.elapsed.total_seconds() * 1000,
                 headers=dict(response.headers),
+                request_id=request_id,
             )
 
     @staticmethod

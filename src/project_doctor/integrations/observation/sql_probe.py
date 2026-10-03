@@ -1,11 +1,12 @@
 """Collect SQL statements for a request and map them to code locations and plan evidence.
 
-The target application tags every statement with a ``/* pd:<path>:<line> */`` marker
+The target application tags every statement with a
+``/* pd:<path>:<line> request=<32 hex digits> */`` marker
 via a MyBatis interceptor. The probe reads those tagged statements from MySQL
 ``performance_schema.events_statements_history_long``, publishes the raw rows and one
 ``EXPLAIN FORMAT=JSON`` plan per statement as artifacts, and returns ``SqlCall`` items
 whose metric sources, code locations and plan references all cite the published artifact
-ids (their content hashes), so B's evidence gate can resolve them.
+    ids, so B's evidence gate can resolve them.
 
 The row fetcher, explain fetcher and publisher are injected so this module never talks
 to Docker/MySQL directly; the real implementations run ``mysql --batch`` inside the
@@ -28,7 +29,10 @@ from project_doctor.models.observation import ExperimentLevel, MetricName, Metri
 from project_doctor.models.scenario import RequestStep
 from project_doctor.models.task import CallContext
 
-_CODE_MARKER = re.compile(r"\A\s*/\*\s*pd:(?P<path>[^:\s]+):(?P<line>\d+)\s*\*/")
+_CODE_MARKER = re.compile(
+    r"\A\s*/\*\s*pd:(?P<path>[^:\s]+):(?P<line>\d+)"
+    r"(?:\s+request=(?P<request>[a-f0-9]{32}))?\s*\*/"
+)
 
 PERF_SCHEMA_COLUMNS: tuple[str, ...] = (
     "SQL_TEXT",
@@ -51,19 +55,23 @@ class SqlCollection:
     evidence_refs: list[EvidenceRef]
 
 
-def recent_tagged_statements_sql(limit: int) -> str:
+def recent_tagged_statements_sql(limit: int, request_id: str | None = None) -> str:
     """Return the query for the most recent marker-tagged statements.
 
     Newlines and tabs in ``SQL_TEXT`` are flattened so ``mysql --batch`` output
     stays one row per line.
     """
+    if limit <= 0:
+        raise ValueError("history limit must be positive")
+    if request_id is not None and not re.fullmatch(r"[a-f0-9]{32}", request_id):
+        raise ValueError("invalid request correlation id")
+    scope = f"AND SQL_TEXT LIKE '% request={request_id} */%' " if request_id else "AND 1=0 "
     return (
         "SELECT "
         "REPLACE(REPLACE(SQL_TEXT, '\\n', ' '), '\\t', ' ') AS SQL_TEXT, "
         "TIMER_WAIT, ROWS_EXAMINED, ROWS_SENT, LOCK_TIME "
         "FROM performance_schema.events_statements_history_long "
-        "WHERE SQL_TEXT LIKE '/* pd:%' "
-        "ORDER BY TIMER_START DESC "
+        "WHERE SQL_TEXT LIKE '/* pd:%' " + scope + "ORDER BY TIMER_START DESC "
         f"LIMIT {limit}"
     )
 
@@ -85,17 +93,14 @@ def timer_wait_to_ms(timer_wait: Any) -> float | None:
 
 
 def lock_wait_to_ms(lock_time: Any) -> float | None:
-    """Convert ``performance_schema`` LOCK_TIME (picoseconds) to milliseconds.
+    """Convert table/metadata LOCK_TIME without discarding nonzero waits.
 
-    ``LOCK_TIME`` counts table/metadata-lock wait only (InnoDB row-lock waits are
-    reported elsewhere), so a value in the microsecond range is timer granularity,
-    not lock contention. Rounding to one decimal place reports 0.0 when there is no
-    meaningful wait while a real contention of several milliseconds stays non-zero.
+    This value is not the complete lock_wait_ms required by the diagnosis gate.
     """
     if lock_time is None or lock_time == "":
         return None
     try:
-        return round(float(lock_time) / 1_000_000_000, 1)
+        return float(lock_time) / 1_000_000_000
     except (TypeError, ValueError):
         return None
 
@@ -149,7 +154,8 @@ def perf_schema_row_to_sql_call(
     duration_ms = timer_wait_to_ms(row.get("TIMER_WAIT"))
     rows_examined = _as_int(row.get("ROWS_EXAMINED"))
     rows_returned = _as_int(row.get("ROWS_SENT"))
-    lock_wait_ms = lock_wait_to_ms(row.get("LOCK_TIME"))
+    # LOCK_TIME excludes InnoDB row locks; it cannot establish total lock wait.
+    lock_wait_ms = None
 
     metric_sources: dict[MetricName, MetricSource] = {}
     actual = MetricSource(
@@ -190,13 +196,7 @@ def parse_mysql_batch(output: str, columns: Sequence[str]) -> list[dict[str, Any
 
 
 def substitute_placeholders(sql: str, *, value: str = "0") -> str:
-    """Replace JDBC ``?`` placeholders with a literal so ``EXPLAIN`` can parse the text.
-
-    ``performance_schema.SQL_TEXT`` holds the prepared-statement form with ``?`` for
-    bound values; MySQL rejects ``?`` as SQL. Replacing with ``0`` yields a parseable
-    statement whose access shape is still decided by the indexes present. A real
-    interceptor that binds actual values would be more faithful but is app-side.
-    """
+    """Legacy helper; the production probe never uses substituted parameter plans."""
     return sql.replace("?", value)
 
 
@@ -229,14 +229,26 @@ class PerfSchemaSqlProbe:
         commit: str,
         level: ExperimentLevel,
     ) -> SqlCollection:
-        # Collection is a recent-statement window (serial load -> one request at a
-        # time), so the request parameters and response are not needed for mapping.
-        del step, response
-        rows = await self._fetch_rows(context, recent_tagged_statements_sql(self._history_limit))
+        # Only SQL tagged with this client's unique request ID is admissible.
+        del step
+        if response is None or response.request_id is None:
+            return SqlCollection(calls=[], evidence_refs=[])
+        request_id = response.request_id
+        rows = await self._fetch_rows(
+            context, recent_tagged_statements_sql(self._history_limit, request_id)
+        )
+        rows = [
+            row
+            for row in rows
+            if (
+                (marker := _CODE_MARKER.match(str(row.get("SQL_TEXT", "")))) is not None
+                and marker.group("request") == request_id
+            )
+        ]
         if not rows:
             return SqlCollection(calls=[], evidence_refs=[])
 
-        base = f"tasks/{context.task_id}/experiments/{context.operation_id}/{level}"
+        base = f"tasks/{context.task_id}/experiments/{context.operation_id}/{level}/{request_id}"
         evidence: dict[str, EvidenceRef] = {}
         raw_ref = await self._publish_evidence(
             base,
@@ -254,7 +266,7 @@ class PerfSchemaSqlProbe:
                     row,
                     commit=commit,
                     evidence_id=raw_ref.artifact_id,
-                    call_id=f"sql-{context.operation_id}-{index}",
+                    call_id=f"sql-{request_id}-{index}",
                 )
             except ValueError:
                 continue
@@ -276,7 +288,9 @@ class PerfSchemaSqlProbe:
         evidence: dict[str, EvidenceRef],
     ) -> PlanEstimate | None:
         try:
-            raw = await self._explain(context, substitute_placeholders(sql))
+            if "?" in sql:
+                return None
+            raw = await self._explain(context, sql)
             plan_doc = json.loads(raw)
         except (ValueError, json.JSONDecodeError):
             return None

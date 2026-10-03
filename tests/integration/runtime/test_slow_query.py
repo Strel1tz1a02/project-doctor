@@ -10,12 +10,15 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
 from sqlalchemy import create_engine, insert
 
 from project_doctor.entrypoints.settings import Settings
 from project_doctor.features.environments.ports import PreparedEnvironment, RestoredState
+from project_doctor.integrations.artifacts.publish import publish_artifact
 from project_doctor.integrations.http.requests import HttpResponse, RestrictedHttpClient
 from project_doctor.integrations.mysql.migrations.schema import create_schema, environment_health
+from project_doctor.integrations.observation.sql_probe import SqlCollection
 from project_doctor.integrations.runtime_factory import RuntimeService
 from project_doctor.models.experiment import ExperimentSpec
 from project_doctor.models.task import (
@@ -53,6 +56,7 @@ class FakeStore:
     def __init__(self, task: TaskRecord) -> None:
         self.task = task
         self.results: dict[str, OperationResult] = {}
+        self.consumed: object | None = None
 
     async def get(self, task_id: str) -> TaskRecord:
         return self.task
@@ -68,6 +72,7 @@ class FakeStore:
         self, task_id: str, operation_id: str, result: OperationResult, consumed: object
     ) -> None:
         self.results[operation_id] = result
+        self.consumed = consumed
 
 
 class FakeGateway:
@@ -97,8 +102,14 @@ class FakeGateway:
             restored_dump=b"restored",
         )
 
+    async def fingerprint(self, environment_id: str, context: CallContext, commit: str) -> str:
+        return "fingerprint-candidate" if self.sql_applied else "fingerprint-baseline"
+
     async def health(self, task_id: str) -> str:
         return "available"
+
+    async def teardown(self, environment_id: str, context: CallContext) -> None:
+        pass
 
     async def execute_sql(self, environment_id: str, context: CallContext, sql: str) -> None:
         self.sql_applied.append(sql)
@@ -227,3 +238,69 @@ def test_run_preserves_partial_observations_and_still_restores(tmp_path: Path, m
     assert result.failure is not None and result.failure.code == "tool_failure"
     assert result.phase == "needs_reconcile"
     assert gateway.restore_calls == 1
+
+
+@pytest.mark.parametrize(
+    "reference", ["CREATE INDEX i ON t (a)", "recipe:../outside", "recipe:/absolute"]
+)
+def test_recipe_rejects_inline_sql_and_escaping_paths(tmp_path: Path, reference: str) -> None:
+    bundle, _ = load_bundle_and_spec()
+    runtime, _, _ = build_runtime(tmp_path, bundle.task)
+    with pytest.raises(ValueError):
+        runtime._resolve_recipe(reference)
+
+
+def test_changed_live_baseline_is_rejected_and_restored(tmp_path: Path, monkeypatch) -> None:
+    bundle, spec = load_bundle_and_spec()
+    runtime, gateway, _ = build_runtime(tmp_path, bundle.task)
+
+    async def changed(*args):
+        return "unexpected-live-state"
+
+    async def forbidden(*args):
+        raise AssertionError("mismatched baseline must not send an HTTP request")
+
+    monkeypatch.setattr(gateway, "fingerprint", changed)
+    monkeypatch.setattr(RestrictedHttpClient, "request", forbidden)
+    result = asyncio.run(
+        runtime.run("environment-1", bundle.scenarios[0], spec, context("changed"))
+    )
+    assert result.failure is not None
+    assert "live baseline" in result.failure.message
+    assert result.observations == []
+    assert gateway.restore_calls == 1
+
+
+def test_runtime_settles_observation_artifacts_and_uses_measured_fingerprints(
+    tmp_path: Path, monkeypatch
+) -> None:
+    bundle, spec = load_bundle_and_spec()
+    runtime, _, store = build_runtime(tmp_path, bundle.task)
+    counter = 0
+
+    async def request(*args):
+        return HttpResponse(200, {"items": [1]}, 1, {})
+
+    async def probe(*args):
+        nonlocal counter
+        counter += 1
+        ref = await publish_artifact(
+            runtime._settings.artifact_root,
+            f"observations/{counter}.json",
+            b"{}",
+            "application/json",
+            "raw.v1",
+        )
+        return SqlCollection([], [ref])
+
+    runtime._probe = probe
+    monkeypatch.setattr(RestrictedHttpClient, "request", request)
+    result = asyncio.run(runtime.run("environment-1", bundle.scenarios[0], spec, context("budget")))
+    refs = {ref.artifact_id: ref for ref in result.evidence_refs}
+    for observation in result.observations:
+        refs.update({ref.artifact_id: ref for ref in observation.evidence_refs})
+    assert store.consumed.artifact_bytes == sum(ref.size_bytes for ref in refs.values())
+    assert store.consumed.artifact_bytes > sum(ref.size_bytes for ref in result.evidence_refs)
+    assert {o.fingerprint for o in result.observations if o.level == "candidate_index"} == {
+        "fingerprint-candidate"
+    }

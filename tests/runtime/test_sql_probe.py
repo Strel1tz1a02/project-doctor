@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from project_doctor.integrations.http.requests import HttpResponse
 from project_doctor.integrations.observation.sql_probe import (
     PERF_SCHEMA_COLUMNS,
     PerfSchemaSqlProbe,
@@ -104,7 +105,7 @@ def test_timer_wait_to_ms_rejects_garbage() -> None:
 
 
 def test_lock_wait_to_ms_zeroes_timer_noise() -> None:
-    assert lock_wait_to_ms(2_000_000) == 0.0  # 2 µs of MDL timing, not contention
+    assert lock_wait_to_ms(2_000_000) == 0.002  # 2 µs of MDL timing, not contention
     assert lock_wait_to_ms(5_000_000_000) == 5.0  # 5 ms stays clearly non-zero
     assert lock_wait_to_ms("0") == 0.0
     assert lock_wait_to_ms("NULL") is None
@@ -159,12 +160,11 @@ def test_perf_schema_row_to_sql_call_builds_actual_sources() -> None:
     assert call.duration_ms == 412.0
     assert call.rows_examined == 200000
     assert call.rows_returned == 20
-    assert call.lock_wait_ms == 0.0
+    assert call.lock_wait_ms is None
     assert set(call.metric_sources) == {
         "duration_ms",
         "rows_examined",
         "rows_returned",
-        "lock_wait_ms",
     }
     assert all(
         source.source == "performance_schema"
@@ -237,7 +237,10 @@ def test_parse_mysql_batch_rejects_mismatched_columns() -> None:
 # --- probe collection -------------------------------------------------------
 
 _GOOD_ROW = {
-    "SQL_TEXT": "/* pd:src/main/OrderMapper.java:14 */ SELECT o.* FROM orders o WHERE status = ?",
+    "SQL_TEXT": (
+        "/* pd:src/main/OrderMapper.java:14 request=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa */ "
+        "SELECT o.* FROM orders o WHERE status = 1"
+    ),
     "TIMER_WAIT": "412000000000",
     "ROWS_EXAMINED": "200000",
     "ROWS_SENT": "20",
@@ -273,11 +276,19 @@ def test_perf_schema_probe_publishes_and_attaches_evidence() -> None:
 
     publish, refs = _publisher()
     probe = PerfSchemaSqlProbe(fetch_rows=fake_fetcher, explain=fake_explain, publish=publish)
-    collection = asyncio.run(probe(None, None, _context(), COMMIT, "baseline"))  # type: ignore[arg-type]
+    collection = asyncio.run(
+        probe(
+            None,
+            HttpResponse(200, {}, 1, {}, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            _context(),
+            COMMIT,
+            "baseline",
+        )
+    )  # type: ignore[arg-type]
 
     assert len(collection.calls) == 1
     call = collection.calls[0]
-    assert call.id == "sql-op-1-0"
+    assert call.id == "sql-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0"
     assert call.code_location is not None
     assert call.code_location.commit == COMMIT
 
@@ -302,7 +313,15 @@ def test_perf_schema_probe_returns_empty_when_no_rows() -> None:
 
     publish, _ = _publisher()
     probe = PerfSchemaSqlProbe(fetch_rows=fake_fetcher, explain=fake_explain, publish=publish)
-    collection = asyncio.run(probe(None, None, _context(), COMMIT, "baseline"))  # type: ignore[arg-type]
+    collection = asyncio.run(
+        probe(
+            None,
+            HttpResponse(200, {}, 1, {}, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            _context(),
+            COMMIT,
+            "baseline",
+        )
+    )  # type: ignore[arg-type]
     assert collection.calls == []
     assert collection.evidence_refs == []
 
@@ -316,7 +335,15 @@ def test_perf_schema_probe_degrades_when_explain_is_not_json() -> None:
 
     publish, _ = _publisher()
     probe = PerfSchemaSqlProbe(fetch_rows=fake_fetcher, explain=fake_explain, publish=publish)
-    collection = asyncio.run(probe(None, None, _context(), COMMIT, "baseline"))  # type: ignore[arg-type]
+    collection = asyncio.run(
+        probe(
+            None,
+            HttpResponse(200, {}, 1, {}, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            _context(),
+            COMMIT,
+            "baseline",
+        )
+    )  # type: ignore[arg-type]
     assert len(collection.calls) == 1
     assert collection.calls[0].plan_evidence_ids == []
     assert len(collection.evidence_refs) == 1  # raw only, no plan

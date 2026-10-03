@@ -3,7 +3,7 @@
 Only the Runtime drives this; B never touches Docker. ``prepare`` copies the target
 repository into an isolated workspace, brings up a dedicated compose project, captures
 a baseline database snapshot and returns its fingerprint. ``restore`` returns the
-database to that snapshot, verifies it and tears the project down.
+database to that snapshot and verifies it; final teardown is a separate close step.
 """
 
 from __future__ import annotations
@@ -119,6 +119,8 @@ class DockerEnvironmentGateway:
                 expected_snapshot_id=snapshot_id,
                 index_removed=True,
             )
+            if not verified:
+                runner.down(timeout=self._settings.tool_timeouts["run_experiment"])
             return RestoredState(
                 verified=verified,
                 fingerprint=None,
@@ -127,8 +129,9 @@ class DockerEnvironmentGateway:
                 reason=reason,
                 restored_dump=restored_dump if verified else None,
             )
-        finally:
+        except BaseException:
             runner.down(timeout=self._settings.tool_timeouts["run_experiment"])
+            raise
 
     async def prepare(self, project: ProjectInput, context: CallContext) -> PreparedEnvironment:
         return await asyncio.to_thread(self._prepare_sync, project, context)
@@ -155,6 +158,25 @@ class DockerEnvironmentGateway:
             return "available" if runner.is_up(timeout=15) else "quarantined"
 
         return await asyncio.to_thread(check)
+
+    async def fingerprint(self, environment_id: str, context: CallContext, commit: str) -> str:
+        """Measure live database state; candidate index intentionally changes the hash."""
+
+        def measure() -> str:
+            isolated_dir = isolated_workspace_path(self._settings.workspace_root, context.task_id)
+            dump = self._snapshots(self._runner(isolated_dir, environment_id)).dump(
+                timeout=self._settings.tool_timeouts["run_experiment"]
+            )
+            return environment_fingerprint(commit=commit, snapshot_id=SnapshotManager.digest(dump))
+
+        return await asyncio.to_thread(measure)
+
+    async def teardown(self, environment_id: str, context: CallContext) -> None:
+        isolated_dir = isolated_workspace_path(self._settings.workspace_root, context.task_id)
+        await asyncio.to_thread(
+            self._runner(isolated_dir, environment_id).down,
+            timeout=self._settings.tool_timeouts["run_experiment"],
+        )
 
     async def execute_sql(self, environment_id: str, context: CallContext, sql: str) -> None:
         """Run one SQL statement on the target database inside the isolated project."""

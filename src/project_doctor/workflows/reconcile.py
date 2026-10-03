@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, update
 
 from project_doctor.features.environments.ports import EnvironmentGateway
 from project_doctor.integrations.mysql.environment_state import (
     list_operations,
     load_environment_state,
 )
+from project_doctor.integrations.mysql.migrations.schema import environment_health
 from project_doctor.models.common import EnvironmentHealth
 from project_doctor.models.environment import RestoreResult
 from project_doctor.models.experiment import ExperimentResult, ReconciledOperation, ReconcileResult
@@ -21,7 +22,7 @@ def classify_operation(*, state: str, has_result: bool) -> str:
     A stored result means the operation ran to a determinate end. A reserved operation
     with no result never began, so it is safe to re-execute. Anything else is unknown.
     """
-    if has_result:
+    if has_result and state in ("completed", "failed"):
         return "completed"
     if state == "reserved":
         return "safe_same_input"
@@ -44,7 +45,11 @@ async def reconcile(
     unresolved: list[str] = []
     for row in list_operations(engine, task_id):
         stored = await store.load_operation(task_id, row.operation_id)
-        verdict = classify_operation(state=row.state, has_result=stored is not None)
+        verdict = classify_operation(
+            state=row.state,
+            has_result=stored is not None
+            and (stored.payload is not None or stored.failure is not None),
+        )
         if verdict == "completed" and stored is not None:
             result = (
                 stored.payload
@@ -54,7 +59,7 @@ async def reconcile(
             operation_results.append(
                 ReconciledOperation(
                     operation_id=row.operation_id,
-                    state="completed",
+                    state="completed" if stored.state == "completed" else "failed",
                     result=result,
                     reason=None,
                 )
@@ -73,6 +78,14 @@ async def reconcile(
 
     if unresolved:
         health: EnvironmentHealth = "quarantined"
+        with engine.begin() as conn:
+            conn.execute(
+                update(environment_health)
+                .where(environment_health.c.task_id == task_id)
+                .values(health=health)
+            )
+    elif persisted is not None and persisted.health == "quarantined":
+        health = "quarantined"
     elif persisted is not None and actual_health == "available":
         health = "available"
     else:

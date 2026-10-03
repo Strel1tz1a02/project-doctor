@@ -85,6 +85,12 @@ def test_restore_verified_when_dump_matches_baseline(tmp_path: Path, monkeypatch
     assert restored.snapshot_id == snapshot_id
     assert restored.restored_dump == baseline
     assert restored.index_removed is True
+    assert runner.down_calls == 0
+    # A successful experiment restore must leave the environment available for
+    # another experiment or the final restore verification before report publication.
+    again = asyncio.run(gateway.restore("environment-1", snapshot_id, context(), baseline))
+    assert again.verified
+    asyncio.run(gateway.teardown("environment-1", context()))
     assert runner.down_calls == 1
 
 

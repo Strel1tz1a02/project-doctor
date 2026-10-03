@@ -24,7 +24,7 @@ def test_classify_operation() -> None:
     assert classify_operation(state="reserved", has_result=False) == "safe_same_input"
     assert classify_operation(state="running", has_result=False) == "needs_reconcile"
     # A stored result means a determinate end regardless of the stored state.
-    assert classify_operation(state="running", has_result=True) == "completed"
+    assert classify_operation(state="running", has_result=True) == "needs_reconcile"
 
 
 class FakeStore:

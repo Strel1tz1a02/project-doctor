@@ -44,7 +44,9 @@ async def publish_artifact(
             pass
         raise
     return EvidenceRef(
-        artifact_id=digest,
+        artifact_id=hashlib.sha256(
+            f"{relative_path}\n{media_type}\n{format_version}\n{digest}".encode()
+        ).hexdigest(),
         relative_path=relative_path,
         media_type=media_type,
         format_version=format_version,

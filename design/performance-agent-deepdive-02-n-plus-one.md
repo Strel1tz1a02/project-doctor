@@ -63,9 +63,9 @@
 查询 100 个用户及各自所属部门，代码在循环里逐个查部门：
 
 ```python
-users = db.query(User).all()          # 1 条查询
+users = db.query(User).all()  # 1 条查询
 for u in users:
-    dept = u.department               # 触发懒加载，共 100 条查询
+    dept = u.department  # 触发懒加载，共 100 条查询
 ```
 
 trace 显示：同一请求内 101 条 span，其中 100 条是 `SELECT * FROM department WHERE id = ?`（仅 id 参数不同，且参数恰好来自主查询返回的 100 个用户 id）。诊断结论：N+1。修复方式（按查询次数与副作用权衡）：

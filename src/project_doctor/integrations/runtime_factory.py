@@ -154,7 +154,7 @@ class RuntimeService:
             return self._reject(spec, context, failures[0])
 
         state = await asyncio.to_thread(load_environment_state, self._engine, context.task_id)
-        if state is None or state.environment_id != environment_id:
+        if state is None or state.environment_id != environment_id or state.health != "available":
             return self._reject(
                 spec,
                 context,
@@ -236,9 +236,12 @@ class RuntimeService:
             )
             baseline_dump = await asyncio.to_thread(baseline_path.read_bytes)
             snapshot_id = _digest_bytes(baseline_dump)
-            restored = await self._gateway.restore(
-                environment_id, snapshot_id, context, baseline_dump
-            )
+            try:
+                restored = await self._gateway.restore(
+                    environment_id, snapshot_id, context, baseline_dump
+                )
+            finally:
+                await self._gateway.teardown(environment_id, context)
             evidence_refs = []
             if restored.verified and restored.restored_dump is not None:
                 evidence_refs.append(
@@ -263,7 +266,10 @@ class RuntimeService:
                 input_digest=_sha256(f"{environment_id}:close"),
                 payload=restore_result,
             )
-            return result, Usage(wall_seconds=time.monotonic() - start)
+            return result, Usage(
+                wall_seconds=time.monotonic() - start,
+                artifact_bytes=sum(ref.size_bytes for ref in evidence_refs),
+            )
 
         operation = await self._settle(
             task_id=task_id,
@@ -388,6 +394,7 @@ class RuntimeService:
                             repetition=repetition,
                             context=context,
                             commit=commit,
+                            environment_id=environment_id,
                         )
                     )
                     requests_made += 1
@@ -423,7 +430,15 @@ class RuntimeService:
             wall_seconds=time.monotonic() - start,
             requests=requests_made,
             experiments=1,
-            artifact_bytes=sum(ref.size_bytes for ref in evidence_refs),
+            artifact_bytes=sum(
+                ref.size_bytes
+                for ref in {
+                    ref.artifact_id: ref
+                    for ref in (
+                        evidence_refs + [ref for obs in observations for ref in obs.evidence_refs]
+                    )
+                }.values()
+            ),
         )
         return operation, usage
 
@@ -436,8 +451,15 @@ class RuntimeService:
         repetition: int,
         context: CallContext,
         commit: str,
+        environment_id: str,
     ) -> Observation:
+        fingerprint_before = await self._gateway.fingerprint(environment_id, context, commit)
+        if level == "baseline" and fingerprint_before != spec.baseline_fingerprint:
+            raise ValueError("live baseline fingerprint does not match experiment")
         response = await self._http.request(step)
+        fingerprint_after = await self._gateway.fingerprint(environment_id, context, commit)
+        if fingerprint_before != fingerprint_after:
+            raise ValueError("environment changed during observation")
         valid, _ = check_assertions(step.assertions, response)
         digest = normalized_result_digest(response.body) if valid else None
         collection = (
@@ -450,12 +472,12 @@ class RuntimeService:
             experiment_id=spec.id,
             level=level,
             repetition=repetition,
-            request_id=f"{context.operation_id}-{level}-{repetition}",
+            request_id=response.request_id or f"{context.operation_id}-{level}-{repetition}",
             business_valid=valid,
             latency_ms=response.latency_ms,
             result_digest=digest,
             sql_calls=collection.calls,
-            fingerprint=spec.baseline_fingerprint,
+            fingerprint=fingerprint_before,
             snapshot_id=spec.snapshot_id,
             observation_config_id=spec.observation_config_id,
             evidence_refs=collection.evidence_refs,
@@ -507,10 +529,10 @@ class RuntimeService:
 
     def _resolve_recipe(self, recipe_ref: str) -> str:
         text = recipe_ref.strip()
-        if text.upper().startswith("CREATE"):
-            return text
+        if not text.startswith("recipe:"):
+            raise ValueError("intervention must reference a controlled recipe")
         name = text.removeprefix("recipe:")
-        candidate = self._settings.target_repo_root / "recipes" / f"{name}.sql"
+        candidate = resolve_contained(self._settings.target_repo_root / "recipes", f"{name}.sql")
         if candidate.is_file():
             return candidate.read_text(encoding="utf-8")
         raise ValueError(f"unknown intervention recipe reference {recipe_ref}")
