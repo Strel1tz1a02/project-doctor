@@ -1,0 +1,88 @@
+{
+  "case_id": "case-01-slow-query-fullscan",
+  "schema_version": "0.1",
+  "title": "订单搜索接口全表扫描（单缺陷 normal 用例）",
+  "case_type": "normal",
+  "difficulty": "easy",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "Java",
+    "framework": "Spring Boot 3 + MyBatis",
+    "database": "MySQL 8"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/search 在 email 模糊匹配下 P95 响应时间超过 2s",
+    "endpoint": "GET /api/orders/search",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d",
+    "healthcheck": "GET /actuator/health",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 30,
+      "warmup_seconds": 5
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "users": 50000,
+      "orders": 200000
+    },
+    "init": "schema.sql + DataInitRunner",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1-email-fullscan",
+      "role": "primary",
+      "kind": "slow_query",
+      "mechanism": "users.email 无索引且查询使用 LIKE '%...%' 前缀通配，导致全表扫描",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 18,
+          "symbol": "findSlowOrders"
+        }
+      ],
+      "expected_fix": "为 users.email 建立索引，或改写查询避免前缀通配",
+      "expected_status": "verified"
+    }
+  ],
+  "expected": {
+    "decision": "verified",
+    "root_cause_ids": ["d1-email-fullscan"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+        "line": 18,
+        "symbol": "findSlowOrders"
+      }
+    ],
+    "excluded_explanations": ["仅因数据量自然增长导致的正常耗时"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 60,
+      "tolerance": 10
+    },
+    "limitations_required": []
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_match",
+      "code_location_match",
+      "improvement_verified"
+    ],
+    "reward_profile": "default",
+    "timeout_seconds": 1800,
+    "notes": "单变量索引实验，验证候选索引对 duration_ms 的可区分改善"
+  },
+  "provenance": {
+    "author": "eval-team",
+    "created_at": "2026-10-02",
+    "source": "synthetic",
+    "license": "internal"
+  }
+}

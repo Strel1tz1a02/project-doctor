@@ -1,0 +1,123 @@
+{
+  "case_id": "case-05-slow-query-skewed-status",
+  "schema_version": "0.1",
+  "title": "状态过滤缺失 (status, created_at) 索引且状态分布倾斜导致收益不确定",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/by-status 在 20 万订单数据集下 P95 超过 400ms；orders 表仅有 idx_orders_user_id，按 status 过滤并 ORDER BY created_at DESC 无可用索引；且 status 取值高度倾斜（PAID 约占 80%），索引收益随被查询的状态取值而变，难以稳定证实",
+    "endpoint": "GET /api/orders/by-status?status=PAID&size=20",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/by-status?status=PAID&size=20 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，user_id 均匀分布于 1..50000；status 按业务权重倾斜：PAID 8/10、CREATED 1/10、SHIPPED 1/10）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "missing_composite_index",
+      "mechanism": "orders 表仅有 idx_orders_user_id；status 过滤 + ORDER BY created_at DESC 缺少 (status, created_at) 复合索引，执行计划为全表扫描 + Using filesort；因 status 高度倾斜，优化器在高占比取值（PAID）下可能仍选择全表扫描，指标收益不确定",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 19,
+          "symbol": "findOrdersByStatus"
+        }
+      ],
+      "expected_fix": "为 orders(status, created_at) 建立复合索引，并在倾斜取值下评估优化器是否真正采用该索引",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d2",
+      "role": "secondary",
+      "kind": "redundant_count",
+      "mechanism": "recentByStatus 在返回列表前额外执行一次同状态 COUNT(*)，其耗时贡献未在单变量实验下单独隔离",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 23,
+          "symbol": "countOrdersByStatus"
+        }
+      ],
+      "expected_fix": "去掉冗余 COUNT 或改为缓存/近似判断",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d3",
+      "role": "decoy",
+      "kind": "select_star",
+      "mechanism": "SELECT * 返回冗余列，无法利用覆盖索引；影响存在但非本用例耗时根因",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 14,
+          "symbol": "findOrdersByStatus"
+        }
+      ],
+      "expected_fix": "按需返回字段",
+      "expected_status": "unclassified"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+        "line": 19,
+        "symbol": "findOrdersByStatus"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 20,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明索引收益依赖被查询的 status 取值：PAID 等高占比取值下优化器可能仍走全表扫描，收益不稳定",
+      "必须声明 d2（冗余 COUNT(*)）的耗时贡献未在单变量实验下单独证实",
+      "必须声明结论依赖当前状态分布倾斜比例与数据规模，分布变化会改变结论"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "边界用例（状态路径 + 状态分布倾斜）：d1 为真实缺陷，但因 status 取值高度倾斜（PAID 约 80%），单变量索引实验的收益随被查询取值变化，无法稳定跨过可证实阈值，故期望整体 decision=lead 并显式声明限制。用于验证 Agent 是否会在『缺陷真实但收益依赖数据分布』时过度下结论（false_verified）。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-02",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

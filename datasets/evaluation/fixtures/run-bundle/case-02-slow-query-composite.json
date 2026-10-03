@@ -1,0 +1,53 @@
+{
+  "baseline": {
+    "repeats_ms": [210.0, 205.0, 214.0],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "completed" },
+    "findings": [
+      {
+        "status": "lead",
+        "code_locations": [
+          {
+            "commit": "local",
+            "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+            "line": 21,
+            "symbol": "findSlowOrders",
+            "association_evidence_ids": ["ev-sql-1", "ev-exp-1"]
+          }
+        ],
+        "excluded_explanations": [
+          { "explanation": "lock_contention", "evidence_ids": ["ev-obs-1"] },
+          { "explanation": "network_latency", "evidence_ids": ["ev-obs-2"] },
+          { "explanation": "jvm_gc_pause", "evidence_ids": ["ev-obs-3"] }
+        ],
+        "limitations": [
+          "d2（email 前导通配符）、d3（N+1）、d4（COUNT）、d5（深分页）未能在单变量索引实验下证实",
+          "d5/d4 的耗时结论依赖数据规模与 offset 大小"
+        ],
+        "evidence_flags": {}
+      }
+    ],
+    "reason": "主缺陷 d1（缺失复合索引）可由单变量索引实验证实为候选；其余候选变量无法在同一实验框架下证实，故整体维持 lead"
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization",
+      "verification"
+    ],
+    "hypothesis_count": 3,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 24
+  },
+  "cost": { "wall_seconds": 66.0, "tool_calls": 24, "artifact_bytes": 4096 }
+}

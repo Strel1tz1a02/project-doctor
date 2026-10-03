@@ -1,0 +1,93 @@
+{
+  "case_id": "case-99-slow-query-template",
+  "schema_version": "0.1",
+  "title": "【模板】一句话描述用例的缺陷与症状（复制本文件后请整体改写）",
+  "case_type": "normal",
+  "difficulty": "easy",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "给 Agent 看的症状描述：接口、数据集规模、可观测的延迟指标。只写表象，不写根因。",
+    "endpoint": "GET /api/orders/by-user?userId=123&size=20",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/by-user?userId=123&size=20 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，随机种子固定，保证可复现）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "missing_composite_index",
+      "mechanism": "一句话说明底层机制：例如表无二级索引，按 user_id 过滤并 ORDER BY created_at DESC 触发全表扫描 + filesort",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 17,
+          "symbol": "findOrdersByUser"
+        }
+      ],
+      "expected_fix": "预期修复动作：例如为 orders(user_id, created_at) 建立复合索引",
+      "expected_status": "verified"
+    }
+  ],
+  "expected": {
+    "decision": "verified",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+        "line": 17,
+        "symbol": "findOrdersByUser"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 70,
+      "tolerance": 10
+    },
+    "limitations_required": []
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "false_verified",
+      "evidence_compliance",
+      "excluded_explanation_coverage",
+      "recommendation_effective",
+      "correctness_preserved",
+      "artifact_integrity",
+      "restore_verified"
+    ],
+    "reward_profile": "normal_single",
+    "timeout_seconds": 1800,
+    "notes": "模板：复制到 case-NN-<problem_kind>-<variant>/ 后，重写 case_id、title、defects、expected 等全部占位内容；本文件因位于保留目录（以 _ 开头）不会被 validate_cases / isolation_guard 当作数据单元。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-02",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "baseline": {
+    "repeats_ms": [245.0, 238.5, 251.2],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "completed" },
+    "findings": [
+      {
+        "status": "verified",
+        "code_locations": [
+          {
+            "commit": "local",
+            "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+            "line": 17,
+            "symbol": "findOrdersByUser",
+            "association_evidence_ids": ["ev-sql-1", "ev-exp-1"]
+          }
+        ],
+        "evidence_refs": [
+          "artifact://case-04/plan.json",
+          "artifact://case-04/explain.json"
+        ],
+        "excluded_explanations": [
+          { "explanation": "lock_contention", "evidence_ids": ["ev-obs-1"] },
+          { "explanation": "network_latency", "evidence_ids": ["ev-obs-2"] },
+          { "explanation": "jvm_gc_pause", "evidence_ids": ["ev-obs-3"] }
+        ],
+        "recommendation": {
+          "validation_status": "retested",
+          "measured_gain_percent": 82.6
+        },
+        "evidence_flags": {
+          "scan_rows_decreased": true,
+          "duration_distinguishable": true,
+          "business_result_consistent": true,
+          "no_lock_wait": true,
+          "cache_known": true,
+          "linked_to_code": true
+        }
+      }
+    ],
+    "observations": [{ "business_valid": true }],
+    "reason": ""
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization",
+      "verification"
+    ],
+    "hypothesis_count": 2,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 15
+  },
+  "retest": {
+    "performed": true,
+    "improvement_percent": 81.4,
+    "business_assertions_passed": true
+  },
+  "artifacts": [
+    { "ref": "artifact://case-04/plan.json", "sha256_verified": true, "readable": true },
+    { "ref": "artifact://case-04/explain.json", "sha256_verified": true, "readable": true }
+  ],
+  "restore": { "rolled_back": true, "verified": true },
+  "cost": { "wall_seconds": 38.2, "tool_calls": 15, "artifact_bytes": 2048 }
+}

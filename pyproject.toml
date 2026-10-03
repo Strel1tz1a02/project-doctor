@@ -33,6 +33,9 @@ addopts = "-ra"
 [tool.ruff]
 target-version = "py313"
 line-length = 100
+# datasets/ 为独立的 Agent 评估数据集（目标 Python 3.12、纯标准库、风格自洽），
+# 不纳入本项目 SUT 的 lint/format 范围，避免 check.ps1 的 `ruff check .` 误报。
+exclude = ["datasets"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

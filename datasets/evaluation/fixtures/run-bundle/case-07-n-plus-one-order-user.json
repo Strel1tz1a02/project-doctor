@@ -1,0 +1,54 @@
+{
+  "baseline": {
+    "repeats_ms": [148.0, 152.5, 149.7],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "completed" },
+    "findings": [
+      {
+        "status": "lead",
+        "code_locations": [
+          {
+            "commit": "local",
+            "path": "src/main/java/com/example/slowquery/service/OrderService.java",
+            "line": 33,
+            "symbol": "recentOrdersWithUser",
+            "association_evidence_ids": ["ev-sql-1", "ev-exp-1"]
+          }
+        ],
+        "excluded_explanations": [
+          { "explanation": "lock_contention", "evidence_ids": ["ev-obs-1"] },
+          { "explanation": "network_latency", "evidence_ids": ["ev-obs-2"] },
+          { "explanation": "jvm_gc_pause", "evidence_ids": ["ev-obs-3"] }
+        ],
+        "limitations": [
+          "必须声明 N+1 的判定依据是『随列表条数线性增长的额外数据库往返次数』，而非任何单条 SQL 的执行计划",
+          "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，N+1 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+          "必须声明结论依赖列表页大小 size：逐条查询的开销在 size 较小时可忽略，本用例以 size=200 触发"
+        ],
+        "evidence_flags": {}
+      }
+    ],
+    "reason": "主缺陷 d1（OrderService.recentOrdersWithUser 在 for 循环内逐条 findUserById，形成 1+size 次数据库往返）机制明确，但单条查询走主键、无法由单变量索引实验证实；且当前 ProblemKind 仅支持 slow_query，故整体维持 lead"
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization",
+      "verification"
+    ],
+    "hypothesis_count": 3,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 28
+  },
+  "cost": { "wall_seconds": 84.0, "tool_calls": 28, "artifact_bytes": 4096 }
+}

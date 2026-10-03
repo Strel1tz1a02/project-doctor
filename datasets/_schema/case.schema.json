@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-doctor.local/datasets/case.schema.json",
+  "title": "Dataset Case Card",
+  "description": "数据单元的问题卡，记录注入缺陷与期望结论，供 Agent 评估使用。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_id",
+    "schema_version",
+    "title",
+    "case_type",
+    "difficulty",
+    "problem_kind",
+    "stack",
+    "symptom",
+    "runtime",
+    "dataset_profile",
+    "defects",
+    "expected",
+    "evaluation"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "pattern": "^case-[0-9]{2}-[a-z0-9-]+$"
+    },
+    "schema_version": { "const": "0.1" },
+    "title": { "type": "string", "minLength": 1 },
+    "case_type": { "enum": ["normal", "boundary", "failure"] },
+    "difficulty": { "enum": ["easy", "medium", "hard"] },
+    "problem_kind": {
+      "description": "问题类型。对齐 project-doctor 设计文档的 9 类性能问题；其中 connection_pool / large_response / connection_setup / excessive_logging / thread_pool / config_regression 为预留取值（当前无对应用例，待补）。",
+      "enum": [
+        "slow_query",
+        "n_plus_one",
+        "connection_pool",
+        "deep_pagination",
+        "large_response",
+        "connection_setup",
+        "excessive_logging",
+        "thread_pool",
+        "config_regression"
+      ]
+    },
+    "stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "framework", "database"],
+      "properties": {
+        "language": { "type": "string" },
+        "framework": { "type": "string" },
+        "database": { "type": "string" }
+      }
+    },
+    "symptom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "endpoint", "target_metric"],
+      "properties": {
+        "summary": { "type": "string" },
+        "endpoint": { "type": "string" },
+        "target_metric": { "type": "string" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compose_file", "start_command", "healthcheck", "load_profile"],
+      "properties": {
+        "compose_file": { "type": "string" },
+        "start_command": { "type": "string" },
+        "healthcheck": { "type": "string" },
+        "load_profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["concurrency", "duration_seconds", "warmup_seconds"],
+          "properties": {
+            "concurrency": { "type": "integer", "minimum": 1 },
+            "duration_seconds": { "type": "integer", "minimum": 1 },
+            "warmup_seconds": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "dataset_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row_counts", "init", "cache_profile"],
+      "properties": {
+        "row_counts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "init": { "type": "string" },
+        "cache_profile": { "enum": ["cold_after_restart", "warm", "unknown"] }
+      }
+    },
+    "defects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "defect_id",
+          "role",
+          "kind",
+          "mechanism",
+          "code_locations",
+          "expected_fix",
+          "expected_status"
+        ],
+        "properties": {
+          "defect_id": { "type": "string", "minLength": 1 },
+          "role": { "enum": ["primary", "secondary", "decoy"] },
+          "kind": { "type": "string", "minLength": 1 },
+          "mechanism": { "type": "string", "minLength": 1 },
+          "code_locations": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/$defs/code_location" }
+          },
+          "expected_fix": { "type": "string", "minLength": 1 },
+          "expected_status": { "enum": ["verified", "lead", "unclassified"] }
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "root_cause_ids", "code_locations"],
+      "properties": {
+        "decision": { "enum": ["verified", "lead", "unclassified"] },
+        "root_cause_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "code_locations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/code_location" }
+        },
+        "excluded_explanations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "improvement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["metric", "min_improvement_percent"],
+          "properties": {
+            "metric": { "type": "string" },
+            "min_improvement_percent": { "type": "number", "minimum": 0 },
+            "tolerance": { "type": "number", "minimum": 0 }
+          }
+        },
+        "limitations_required": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checks", "timeout_seconds"],
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "reward_profile": { "type": "string" },
+        "timeout_seconds": { "type": "integer", "minimum": 1 },
+        "cost_budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "本用例的成本预算上限，覆盖对应用例类型的默认预算；未列出的指标用默认值。",
+          "properties": {
+            "wall_seconds": { "type": "number", "exclusiveMinimum": 0 },
+            "tool_calls": { "type": "integer", "minimum": 1 },
+            "artifact_bytes": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "cost_gate": {
+          "type": "boolean",
+          "description": "为 true 时，任一成本指标超出预算即判本用例不通过（默认 false，仅按比例扣分）。"
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "author": { "type": "string" },
+        "created_at": { "type": "string" },
+        "source": { "type": "string" },
+        "license": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "code_location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "line"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1 },
+        "symbol": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "case_id": "case-07-n-plus-one-order-user",
+  "schema_version": "0.1",
+  "title": "订单列表接口在循环中逐条查询用户信息导致 N+1 查询",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "n_plus_one",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/recent 在 20 万订单数据集下 P95 超过 150ms；接口需在最近订单列表上附带下单用户的邮箱与姓名，负载升高时延迟随之上升",
+    "endpoint": "GET /api/orders/recent?size=200",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/recent?size=200 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "users": 50000,
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，users=50000，orders=200000，order.user_id 均匀分布于 1..50000）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "n_plus_one",
+      "mechanism": "recentOrdersWithUser 先用一次查询取回 size 条订单，再在 for 循环中逐条调用 findUserById(order.getUserId())，形成 1+size 次数据库往返（N+1）；单条 findUserById 走主键、执行计划无问题，开销来自调用次数随 size 线性增长",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/OrderService.java",
+          "line": 33,
+          "symbol": "recentOrdersWithUser"
+        }
+      ],
+      "expected_fix": "改为批量查询：对 order.getUserId() 去重收集后一次 findUsersByIds(List)，在内存中用 Map 回填订单的 userEmail/userName，使数据库往返降为 2 次",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d2",
+      "role": "decoy",
+      "kind": "select_star",
+      "mechanism": "findRecentOrders 使用 SELECT * 返回列表页不需要的 remark 等列；属代码异味，但列表查询走 idx_orders_created_at，不是本用例耗时根因（干扰项）",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 15,
+          "symbol": "findRecentOrders"
+        }
+      ],
+      "expected_fix": "按需返回字段（仅代码整洁，非性能根因）",
+      "expected_status": "unclassified"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/OrderService.java",
+        "line": 33,
+        "symbol": "recentOrdersWithUser"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 30,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明 N+1 的判定依据是『随列表条数线性增长的额外数据库往返次数』，而非任何单条 SQL 的执行计划",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，N+1 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明结论依赖列表页大小 size：逐条查询的开销在 size 较小时可忽略，本用例以 size=200 触发"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "边界用例（问题类型 n_plus_one，等待 Agent 支持）。设计意图：检验 Agent 能否识别『代码结构导致的查询次数放大』——primary d1 在 for 循环中对每条订单单独查询用户信息，真实且机制明确，理想情况下可由『统计一次请求的 SQL 调用次数』证实。可证实性判定：无法由单变量索引实验证实（单条 findUserById 本就走主键、执行计划无问题），且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：d2（SELECT *）是列表 mapper 上的代码异味，列表查询走 idx_orders_created_at，耗时贡献很小，不应被判为根因。待支持标注：等待 Agent 支持 N+1 问题类型。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-02",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

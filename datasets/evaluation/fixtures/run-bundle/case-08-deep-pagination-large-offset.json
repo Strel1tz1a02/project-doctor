@@ -1,0 +1,54 @@
+{
+  "baseline": {
+    "repeats_ms": [310.0, 306.4, 315.2],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "completed" },
+    "findings": [
+      {
+        "status": "lead",
+        "code_locations": [
+          {
+            "commit": "local",
+            "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+            "line": 16,
+            "symbol": "findOrdersByPage",
+            "association_evidence_ids": ["ev-sql-1", "ev-exp-1"]
+          }
+        ],
+        "excluded_explanations": [
+          { "explanation": "missing_index", "evidence_ids": ["ev-obs-0"] },
+          { "explanation": "lock_contention", "evidence_ids": ["ev-obs-1"] },
+          { "explanation": "network_latency", "evidence_ids": ["ev-obs-2"] }
+        ],
+        "limitations": [
+          "必须声明深分页的判定依据是『LIMIT offset, size 需顺序扫描并丢弃 offset 行』，而非缺索引（orders 已具备 idx_orders_created_at）",
+          "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，深分页在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+          "必须声明结论依赖翻页深度与数据规模：offset 较小时深分页代价可忽略，本用例以 page=10000、size=20（offset=199980）触发"
+        ],
+        "evidence_flags": {}
+      }
+    ],
+    "reason": "主缺陷 d1（OrderMapper.findOrdersByPage 使用 LIMIT #{offset}, #{size}，深页时 offset=199980 需沿 idx_orders_created_at 顺序扫描并丢弃近全表行数）机制明确；orders 已具备 idx_orders_created_at，缺索引不是根因，无法用常规补索引单变量实验证实，故整体维持 lead"
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization",
+      "verification"
+    ],
+    "hypothesis_count": 2,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 25
+  },
+  "cost": { "wall_seconds": 78.5, "tool_calls": 25, "artifact_bytes": 4096 }
+}

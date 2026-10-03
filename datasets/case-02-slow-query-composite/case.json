@@ -1,0 +1,168 @@
+{
+  "case_id": "case-02-slow-query-composite",
+  "schema_version": "0.1",
+  "title": "订单搜索接口组合缺陷（缺失复合索引 / 前导通配符 / N+1 / 深分页）",
+  "case_type": "boundary",
+  "difficulty": "hard",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/search 在 5 万用户、20 万订单数据集下 P95 超过 2s；当 email 取 user1 这类模糊值时会进一步放大耗时",
+    "endpoint": "GET /api/orders/search?email=user1&status=PAID&page=1&size=20",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/search?email=user1&status=PAID&page=1&size=20 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "users": 50000,
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "missing_composite_index",
+      "mechanism": "orders 表只有 idx_orders_user_id，status 过滤与 created_at 排序无可用索引，触发 Using filesort",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 21,
+          "symbol": "findSlowOrders"
+        }
+      ],
+      "expected_fix": "为 orders(status, created_at) 建立复合索引，消除 filesort",
+      "expected_status": "verified"
+    },
+    {
+      "defect_id": "d2",
+      "role": "secondary",
+      "kind": "full_table_scan",
+      "mechanism": "users.email 无索引，且谓词使用前导通配符 LIKE '%x%'，B+ 树索引无法生效，只能全表扫描",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 19,
+          "symbol": "findSlowOrders"
+        }
+      ],
+      "expected_fix": "改写为可走索引的匹配方式（前缀匹配、倒排或独立检索），单纯加索引无效",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d3",
+      "role": "secondary",
+      "kind": "n_plus_one",
+      "mechanism": "OrderService 对结果集中每条订单各调用一次 findUserById，产生 N+1 次查询",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/OrderService.java",
+          "line": 29,
+          "symbol": "searchSlow"
+        }
+      ],
+      "expected_fix": "改写为一次 JOIN 查询直接返回 OrderVO，消除逐条查询",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d4",
+      "role": "secondary",
+      "kind": "redundant_count",
+      "mechanism": "每次请求都执行同构的 COUNT(*) 子查询，深分页时 count 同样走全表扫描",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 30,
+          "symbol": "countSlowOrders"
+        }
+      ],
+      "expected_fix": "与主查询同构改写、缓存总数或改为有限页数的「加载更多」",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d5",
+      "role": "secondary",
+      "kind": "deep_offset",
+      "mechanism": "LIMIT offset, size 在大 offset 下需要扫描并丢弃大量行",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 22,
+          "symbol": "findSlowOrders"
+        }
+      ],
+      "expected_fix": "改用基于 created_at 的游标分页替代 offset 分页",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d6",
+      "role": "decoy",
+      "kind": "select_star",
+      "mechanism": "SELECT o.* 返回冗余列，无法利用覆盖索引；影响存在但不是本用例耗时的根因",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 15,
+          "symbol": "findSlowOrders"
+        }
+      ],
+      "expected_fix": "按需返回字段",
+      "expected_status": "unclassified"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+        "line": 21,
+        "symbol": "findSlowOrders"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 40,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明 d2（email 前导通配符）、d3（N+1）、d4（COUNT）、d5（深分页）未能在单变量索引实验下证实",
+      "必须声明 d5/d4 的耗时结论依赖数据规模与 offset 大小"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 3600,
+    "notes": "组合缺陷用例：主缺陷 d1 可由单变量索引实验（baseline vs candidate_index）证实；d3/d5 在 Agent 扩展 ProblemKind 之前不可能产出 verified，故期望整体 decision=lead。等待 Agent 支持 n_plus_one / deep_pagination。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-02",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

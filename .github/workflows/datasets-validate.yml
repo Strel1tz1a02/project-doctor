@@ -1,0 +1,74 @@
+name: Datasets validate cases
+
+# 数据集已并入本仓库的 datasets/ 目录（方案 B：并入 project-doctor）。
+# 说明：GitHub Actions 仅识别「仓库根」的 .github/workflows/，因此本工作流位于此处，
+# 所有 run 步骤通过 defaults.run.working-directory 下钻到 datasets/，
+# 从而复用数据集中原有的相对路径命令（tools/… 、evaluation/…）。
+on:
+  push:
+    paths:
+      - "datasets/**"
+      - ".github/workflows/datasets-validate.yml"
+  pull_request:
+    paths:
+      - "datasets/**"
+      - ".github/workflows/datasets-validate.yml"
+
+defaults:
+  run:
+    working-directory: datasets
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 全部脚本为纯标准库实现，无需安装任何第三方依赖
+      - name: Unit tests (schema validator)
+        run: python tools/test_validate_cases.py -v
+
+      - name: Validate all case.json against _schema/case.schema.json
+        run: python tools/validate_cases.py
+
+      # 答案隔离断言：<case-id>/project/ 内不得出现任何评测方答案资产
+      - name: Unit tests (isolation guard)
+        run: python tools/test_isolation_guard.py -v
+
+      - name: Assert answer isolation for every case
+        run: python tools/isolation_guard.py
+
+      # SUT 隔离断言：并入仓库后，确保 src/project_doctor 未引用 datasets/（金标准只读）
+      - name: Unit tests (SUT separation guard)
+        run: python tools/test_guard_sut_separation.py -v
+
+      - name: Assert SUT does not reference datasets ground truth
+        run: python tools/guard_sut_separation.py
+
+      # 评估器单测（一次覆盖全部）：指标模型与契约、双口径基线阈值、金标准运行包回归
+      - name: Unit tests (evaluation)
+        run: python -m unittest discover -s evaluation -p "test_*.py" -v
+
+      - name: Scoring flow dry-run (run_eval)
+        run: python evaluation/run_eval.py
+
+  # 金标准运行包回归：用 fixtures 里的冻结运行包跑完整七步流程，断言报告结构与数值。
+  # 单独成 job，便于在 CI 面板上独立看到“评估结论是否可复现”的信号。
+  golden-regression:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 退出码 0 = 整轮结论通过；数值断言（总分/双口径/无漏判误判）见 test_golden_bundle.py
+      # --only-bundled：数据集会持续新增用例，金标准 fixture 固定，只评估有运行包的用例，
+      # 使回归不受数据集扩充影响（缺包用例跳过而非判为缺失）。
+      - name: Golden run-bundle regression (run_eval on fixtures)
+        run: python evaluation/run_eval.py --runs evaluation/fixtures/run-bundle --out evaluation/out --only-bundled

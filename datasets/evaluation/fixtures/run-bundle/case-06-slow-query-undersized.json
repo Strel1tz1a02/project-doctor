@@ -1,0 +1,41 @@
+{
+  "baseline": {
+    "repeats_ms": [7.4, 7.2, 7.6],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "blocked" },
+    "findings": [
+      {
+        "status": "unclassified",
+        "code_locations": [],
+        "limitations": [
+          "必须声明工单所述偏慢在当前 300 条订单规模下无法复现（基线稳定在个位数毫秒）",
+          "必须声明 orders 缺少 (user_id, created_at) 复合索引这一缺陷真实存在，但补索引实验在当前规模下耗时无显著变化，无法证实其为根因",
+          "必须声明结论受数据规模限制，需在接近生产的数据规模下重新验证"
+        ],
+        "evidence_flags": {}
+      }
+    ],
+    "insufficient_evidence": true,
+    "reason": "在 300 条订单规模下按标准负载重复测量，基线稳定在个位数毫秒；补索引单变量实验耗时无可测变化（< minimum_delta_ms），无法证实缺索引为根因，故不作任何 verified 结论"
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization"
+    ],
+    "hypothesis_count": 2,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 12
+  },
+  "cost": { "wall_seconds": 30.5, "tool_calls": 12, "artifact_bytes": 512 }
+}

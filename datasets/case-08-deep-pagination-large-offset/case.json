@@ -1,0 +1,108 @@
+{
+  "case_id": "case-08-deep-pagination-large-offset",
+  "schema_version": "0.1",
+  "title": "订单分页接口使用大偏移 LIMIT/OFFSET 导致深分页越翻越慢",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "deep_pagination",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/page 在 20 万订单数据集下，翻到深页（page=10000、size=20）时 P95 超过 300ms，而首页稳定在个位数毫秒；orders 表已具备 idx_orders_created_at，越靠后的页越慢",
+    "endpoint": "GET /api/orders/page?page=10000&size=20",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/page?page=10000&size=20 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，orders=200000，user_id 均匀分布于 1..50000，created_at 随机分布于近 365 天）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "deep_offset",
+      "mechanism": "findOrdersByPage 使用 LIMIT #{offset}, #{size}，深页时 offset=(page-1)*size 接近全表行数（page=10000、size=20 时 offset=199980）；MySQL 须沿 idx_orders_created_at 顺序扫描并按序丢弃前 offset 行后才返回 size 行，代价随 offset 线性增长。schema 已具备 idx_orders_created_at，缺索引并非根因",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 16,
+          "symbol": "findOrdersByPage"
+        }
+      ],
+      "expected_fix": "改为键集/游标分页：WHERE created_at < :上一页末尾游标 ORDER BY created_at DESC LIMIT #{size}；或延迟关联——先用覆盖索引子查询取本页主键再回表查明细",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d2",
+      "role": "decoy",
+      "kind": "redundant_count",
+      "mechanism": "pageOrders 每次请求额外执行 SELECT COUNT(*) FROM orders 求总数；该成本对首页与深页恒定，无法解释『深页明显慢于首页』这一随 offset 变化的特征，属干扰项",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 20,
+          "symbol": "countOrders"
+        }
+      ],
+      "expected_fix": "总数改为缓存或近似估计（非本用例耗时根因）",
+      "expected_status": "unclassified"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+        "line": 16,
+        "symbol": "findOrdersByPage"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "lock_contention", "network_latency"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 40,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明深分页的判定依据是『LIMIT offset, size 需顺序扫描并丢弃 offset 行』，而非缺索引（orders 已具备 idx_orders_created_at）",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，深分页在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明结论依赖翻页深度与数据规模：offset 较小时深分页代价可忽略，本用例以 page=10000、size=20（offset=199980）触发"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "边界用例（问题类型 deep_pagination，等待 Agent 支持）。设计意图：检验 Agent 能否识别『查询代价随翻页深度线性增长』——primary d1 使用 LIMIT #{offset}, #{size}，深页时 offset 接近全表行数，MySQL 须沿 idx_orders_created_at 扫描并丢弃 offset 行，真实且机制明确，理想情况下可由『对比深浅页耗时随 offset 的变化』佐证。可证实性判定：orders 已具备 idx_orders_created_at，缺索引不是根因，故无法用常规『补索引单变量实验』证实；且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，本用例不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：d2（SELECT COUNT(*) 求总数）对所有页成本恒定，无法解释深页显著慢于首页，不应被判为根因。待支持标注：等待 Agent 支持深分页问题类型。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-02",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

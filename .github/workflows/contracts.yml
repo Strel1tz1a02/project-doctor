@@ -1,5 +1,13 @@
 name: P0 contracts
-on: [push, pull_request]
+# 数据集（datasets/）已并入本仓库，其校验由 datasets-validate.yml 负责；
+# 此处忽略纯数据集改动，避免每次数据用例改动都触发本工作流的 uv sync + 契约检查。
+on:
+  push:
+    paths-ignore:
+      - "datasets/**"
+  pull_request:
+    paths-ignore:
+      - "datasets/**"
 jobs:
   contracts:
     runs-on: windows-latest

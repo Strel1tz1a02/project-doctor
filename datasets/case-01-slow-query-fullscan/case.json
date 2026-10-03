@@ -1,0 +1,93 @@
+{
+  "case_id": "case-01-slow-query-fullscan",
+  "schema_version": "0.1",
+  "title": "订单状态查询缺失 (status, created_at) 索引导致全表扫描 + filesort",
+  "case_type": "normal",
+  "difficulty": "easy",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/recent 在 20 万订单数据集下 P95 超过 300ms；orders 表仅有 idx_orders_user_id，status 过滤与 created_at 排序无可用索引，执行计划为全表扫描 + Using filesort",
+    "endpoint": "GET /api/orders/recent?status=PAID&size=20",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/recent?status=PAID&size=20 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，status 均匀分布于 5 种取值）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "missing_composite_index",
+      "mechanism": "orders 表只有 idx_orders_user_id(user_id)；查询按 status 过滤并 ORDER BY created_at DESC，缺少 (status, created_at) 复合索引，执行计划为全表扫描 + Using filesort",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 17,
+          "symbol": "findOrdersByStatus"
+        }
+      ],
+      "expected_fix": "为 orders(status, created_at) 建立复合索引，使过滤与排序均可走索引，消除全表扫描与 filesort",
+      "expected_status": "verified"
+    }
+  ],
+  "expected": {
+    "decision": "verified",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+        "line": 17,
+        "symbol": "findOrdersByStatus"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 70,
+      "tolerance": 10
+    },
+    "limitations_required": []
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "false_verified",
+      "evidence_compliance",
+      "excluded_explanation_coverage",
+      "recommendation_effective",
+      "correctness_preserved",
+      "artifact_integrity",
+      "restore_verified"
+    ],
+    "reward_profile": "normal_single",
+    "timeout_seconds": 1800,
+    "notes": "单一主缺陷 normal 用例：仅存在 d1，可由平台唯一允许的单变量实验（variable=index，baseline vs candidate_index）证实，期望 decision=verified。用于验证 Agent 在无干扰缺陷时能给出 verified 结论并附完整结构化证据（experiment_ids / sql_call_ids / excluded_explanations / code_locations）。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-02",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

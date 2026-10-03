@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# Datasets 目录的忽略规则
+# 原则：只忽略「本地产物 / 缓存 / 运行输出」，绝不忽略任何用例资产。
+# 数据单元（case.json、README.md、project/）、_schema/、docs/、tools/、
+# evaluation/ 的源码都必须入库，否则评估不可复现。
+# ---------------------------------------------------------------------------
+
+# Python 缓存与字节码（工具链为纯标准库，无需任何虚拟环境）
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# 评估运行产物：由 evaluation/run_eval.py 生成，属于可复现结果，不入库
+evaluation/runs/
+evaluation/reports/
+evaluation/out/
+
+# 评测过程中可能落地的临时目录
+*.tmp
+*.log
+
+# 编辑器 / 操作系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

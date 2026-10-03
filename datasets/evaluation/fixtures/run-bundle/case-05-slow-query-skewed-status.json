@@ -1,0 +1,54 @@
+{
+  "baseline": {
+    "repeats_ms": [402.0, 398.5, 405.3],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "completed" },
+    "findings": [
+      {
+        "status": "lead",
+        "code_locations": [
+          {
+            "commit": "local",
+            "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+            "line": 19,
+            "symbol": "findOrdersByStatus",
+            "association_evidence_ids": ["ev-sql-1", "ev-exp-1"]
+          }
+        ],
+        "excluded_explanations": [
+          { "explanation": "lock_contention", "evidence_ids": ["ev-obs-1"] },
+          { "explanation": "network_latency", "evidence_ids": ["ev-obs-2"] },
+          { "explanation": "jvm_gc_pause", "evidence_ids": ["ev-obs-3"] }
+        ],
+        "limitations": [
+          "必须声明索引收益依赖被查询的 status 取值：PAID 等高占比取值下优化器可能仍走全表扫描，收益不稳定",
+          "必须声明 d2（冗余 COUNT(*)）的耗时贡献未在单变量实验下单独证实",
+          "必须声明结论依赖当前状态分布倾斜比例与数据规模，分布变化会改变结论"
+        ],
+        "evidence_flags": {}
+      }
+    ],
+    "reason": "主缺陷 d1（缺 (status, created_at) 复合索引）机制明确，但 status 取值高度倾斜使单变量索引实验收益随取值波动、无法稳定跨过可证实阈值；d2（冗余 COUNT）未单独隔离，故整体维持 lead"
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization",
+      "verification"
+    ],
+    "hypothesis_count": 3,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 26
+  },
+  "cost": { "wall_seconds": 72.0, "tool_calls": 26, "artifact_bytes": 4096 }
+}
