@@ -80,10 +80,14 @@ class DockerEnvironmentGateway:
         # The SQL probe reads performance_schema as the application user; the MySQL
         # entrypoint grants that user privileges only on the app database, so an
         # initdb script (run as root after user creation) grants perf_schema read.
+        # PROCESS is also needed so data_lock_waits can report InnoDB row-lock waits
+        # held by *other* connections (the request's connection), not just this one.
         initdb_dir = isolated_dir / "initdb"
         initdb_dir.mkdir(parents=True, exist_ok=True)
         (initdb_dir / "grant-perf-schema.sql").write_text(
-            f"GRANT SELECT ON performance_schema.* TO '{self._db_user}'@'%';\nFLUSH PRIVILEGES;\n",
+            f"GRANT SELECT ON performance_schema.* TO '{self._db_user}'@'%';\n"
+            f"GRANT PROCESS ON *.* TO '{self._db_user}'@'%';\n"
+            "FLUSH PRIVILEGES;\n",
             encoding="utf-8",
         )
         runner = self._runner(isolated_dir, project_name)

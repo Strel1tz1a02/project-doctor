@@ -18,14 +18,25 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from project_doctor.entrypoints.settings import Settings
 from project_doctor.features.experiments.interventions import parse_index_recipe
 from project_doctor.features.scenarios.discover import discover
-from project_doctor.integrations.docker.gateway import DockerEnvironmentGateway
+from project_doctor.integrations.artifacts.publish import publish_artifact
+from project_doctor.integrations.docker.gateway import (
+    DockerEnvironmentGateway,
+    compose_project_name,
+)
 from project_doctor.integrations.http.requests import RestrictedHttpClient, check_assertions
+from project_doctor.integrations.observation.sql_probe import (
+    PERF_SCHEMA_COLUMNS,
+    PerfSchemaSqlProbe,
+    parse_mysql_batch,
+)
+from project_doctor.models.common import EvidenceRef
 from project_doctor.models.environment import ProjectInput
 from project_doctor.models.scenario import Scenario
 from project_doctor.models.task import CallContext
@@ -173,3 +184,91 @@ def test_target_probe_end_to_end(real_target: tuple[Path, Path]) -> None:
         )
     )
     assert restored.verified, restored.reason
+
+
+def test_target_probe_collects_tagged_correlated_sql(real_target: tuple[Path, Path]) -> None:
+    """One valid request -> the real probe collects code-located SQL + lock-wait coverage.
+
+    This is the durable regression for the three 2026-10-02 gaps: the demo's MyBatis
+    interceptor must tag every SQL with a ``pd`` marker + request id, and the probe
+    must turn that into correlated SqlCalls with a non-None ``lock_wait_ms``.
+    """
+    tmp_path, target_repo = real_target
+    settings = _make_settings(tmp_path, target_repo)
+    gateway = DockerEnvironmentGateway(
+        settings,
+        db_service="db",
+        db_name="app",
+        db_user="app",
+        db_password="app",
+        db_image="mysql:8.4",
+        service_image="project-doctor-target:latest",
+        service_port=18080,
+    )
+    # Colons are forbidden in artifact paths (safe_relative_path), so use a
+    # colon-free operation id — the real MCP flow never emits "op:..." here.
+    context = CallContext(
+        task_id="task-a0-probe-sql",
+        operation_id="op-prepare-sql",
+        agh_session_id="session-a0",
+        tool_call_id="call-a0",
+    )
+
+    async def fetch_rows(ctx: CallContext, sql: str) -> list[dict[str, Any]]:
+        raw = await gateway.query_sql(compose_project_name(ctx.task_id), ctx, sql)
+        return parse_mysql_batch(raw, PERF_SCHEMA_COLUMNS)
+
+    async def fetch_lock_waits(ctx: CallContext, sql: str) -> int:
+        raw = await gateway.query_sql(compose_project_name(ctx.task_id), ctx, sql)
+        rows = parse_mysql_batch(raw, ("N",))
+        if not rows:
+            return 0
+        value = rows[0].get("N")
+        return int(str(value)) if value is not None else 0
+
+    async def explain(ctx: CallContext, sql: str) -> str:
+        raw = await gateway.query_sql(
+            compose_project_name(ctx.task_id), ctx, f"EXPLAIN FORMAT=JSON {sql}"
+        )
+        return raw
+
+    async def publish(path: str, content: bytes, media: str, version: str) -> EvidenceRef:
+        return await publish_artifact(settings.artifact_root, path, content, media, version)
+
+    probe = PerfSchemaSqlProbe(
+        fetch_rows=fetch_rows,
+        fetch_lock_waits=fetch_lock_waits,
+        explain=explain,
+        publish=publish,
+    )
+
+    async def run() -> None:
+        prepared = await gateway.prepare(make_project(), context)
+        try:
+            step = discover(make_project(), load_manifest())[0].steps[0]
+            http = RestrictedHttpClient(
+                base_url=prepared.isolated_base_url,
+                allowed_network=settings.allowed_target_network,
+                timeout=60.0,
+            )
+            response = await http.request(step)
+            assert response.status_code == 200
+            assert response.request_id
+
+            collection = await probe(step, response, context, COMMIT, "baseline")
+            assert collection.calls, "probe collected no SQL for the request"
+
+            # 信息获取: every call must be request-correlated with a code location.
+            assert all(call.code_location is not None for call in collection.calls)
+            # 信息获取: the slow-query marker (findSlowOrders) must be collected.
+            assert any(
+                "OrderMapper.java:14" in (call.code_location.path if call.code_location else "")
+                for call in collection.calls
+            )
+            # 锁覆盖: LOCK_TIME must be collected for every call (no None values).
+            assert all(call.lock_wait_ms is not None for call in collection.calls)
+            assert all("lock_wait_ms" in call.metric_sources for call in collection.calls)
+        finally:
+            await gateway.teardown(prepared.environment_id, context)
+
+    asyncio.run(run())

@@ -44,6 +44,7 @@ PERF_SCHEMA_COLUMNS: tuple[str, ...] = (
 
 SqlRowFetcher = Callable[[CallContext, str], Awaitable[list[dict[str, Any]]]]
 ExplainFetcher = Callable[[CallContext, str], Awaitable[str]]
+LockWaitCounter = Callable[[CallContext, str], Awaitable[int]]
 EvidencePublisher = Callable[[str, bytes, str, str], Awaitable[EvidenceRef]]
 
 
@@ -76,6 +77,17 @@ def recent_tagged_statements_sql(limit: int, request_id: str | None = None) -> s
     )
 
 
+def row_lock_waits_sql() -> str:
+    """Return the query that counts active InnoDB row lock waits.
+
+    ``data_lock_waits`` is a live snapshot of currently blocked transactions; it
+    cannot recover a row-lock wait that resolved before collection. Combined with
+    ``LOCK_TIME`` (table/metadata locks) it decides whether the sampled statement's
+    lock wait is fully covered at collection time.
+    """
+    return "SELECT COUNT(*) FROM performance_schema.data_lock_waits"
+
+
 def normalize_sql(sql_text: str) -> str:
     """Strip the marker comment and collapse whitespace to a single line."""
     text = _CODE_MARKER.sub("", sql_text)
@@ -93,9 +105,12 @@ def timer_wait_to_ms(timer_wait: Any) -> float | None:
 
 
 def lock_wait_to_ms(lock_time: Any) -> float | None:
-    """Convert table/metadata LOCK_TIME without discarding nonzero waits.
+    """Convert table/metadata ``LOCK_TIME`` without discarding nonzero waits.
 
-    This value is not the complete lock_wait_ms required by the diagnosis gate.
+    ``LOCK_TIME`` covers table/metadata locks only; it never includes InnoDB row
+    locks. A nonzero value must stay nonzero (no rounding) so a tiny wait cannot
+    be smuggled past the diagnosis gate's zero-wait threshold. Callers that want
+    a complete lock-wait measurement must combine this with a row-lock check.
     """
     if lock_time is None or lock_time == "":
         return None
@@ -143,8 +158,16 @@ def perf_schema_row_to_sql_call(
     commit: str,
     evidence_id: str,
     call_id: str,
+    lock_wait_complete: bool = False,
+    lock_wait_evidence_id: str | None = None,
 ) -> SqlCall:
-    """Convert one ``performance_schema`` row into a SqlCall with actual metric sources."""
+    """Convert one ``performance_schema`` row into a SqlCall with actual metric sources.
+
+    ``lock_wait_ms`` is reported only when ``lock_wait_complete`` is true, i.e. the
+    caller also verified there is no InnoDB row-lock wait so that ``LOCK_TIME`` is
+    the total lock wait. Otherwise it stays unknown rather than fabricating a
+    zero from an incomplete measurement.
+    """
     sql_text = str(row.get("SQL_TEXT", ""))
     normalized = normalize_sql(sql_text)
     if not normalized:
@@ -154,8 +177,7 @@ def perf_schema_row_to_sql_call(
     duration_ms = timer_wait_to_ms(row.get("TIMER_WAIT"))
     rows_examined = _as_int(row.get("ROWS_EXAMINED"))
     rows_returned = _as_int(row.get("ROWS_SENT"))
-    # LOCK_TIME excludes InnoDB row locks; it cannot establish total lock wait.
-    lock_wait_ms = None
+    lock_wait_ms = lock_wait_to_ms(row.get("LOCK_TIME")) if lock_wait_complete else None
 
     metric_sources: dict[MetricName, MetricSource] = {}
     actual = MetricSource(
@@ -168,7 +190,14 @@ def perf_schema_row_to_sql_call(
     if rows_returned is not None:
         metric_sources["rows_returned"] = actual
     if lock_wait_ms is not None:
-        metric_sources["lock_wait_ms"] = actual
+        lock_ids = [evidence_id]
+        if lock_wait_evidence_id is not None and lock_wait_evidence_id not in lock_ids:
+            lock_ids.append(lock_wait_evidence_id)
+        metric_sources["lock_wait_ms"] = MetricSource(
+            source="performance_schema",
+            measurement="actual",
+            evidence_ids=lock_ids,
+        )
 
     return SqlCall(
         id=call_id,
@@ -214,11 +243,13 @@ class PerfSchemaSqlProbe:
         fetch_rows: SqlRowFetcher,
         explain: ExplainFetcher,
         publish: EvidencePublisher,
+        fetch_lock_waits: LockWaitCounter | None = None,
         history_limit: int = 64,
     ) -> None:
         self._fetch_rows = fetch_rows
         self._explain = explain
         self._publish = publish
+        self._fetch_lock_waits = fetch_lock_waits
         self._history_limit = history_limit
 
     async def __call__(
@@ -259,6 +290,21 @@ class PerfSchemaSqlProbe:
             evidence,
         )
 
+        lock_wait_complete = False
+        lock_wait_evidence_id: str | None = None
+        if self._fetch_lock_waits is not None:
+            count = await self._fetch_lock_waits(context, row_lock_waits_sql())
+            lock_wait_complete = count == 0
+            lock_ref = await self._publish_evidence(
+                base,
+                "row-lock-waits",
+                json.dumps({"data_lock_waits_count": count}, ensure_ascii=False).encode("utf-8"),
+                "application/json",
+                "row-lock-waits.v1",
+                evidence,
+            )
+            lock_wait_evidence_id = lock_ref.artifact_id
+
         calls: list[SqlCall] = []
         for index, row in enumerate(rows):
             try:
@@ -267,6 +313,8 @@ class PerfSchemaSqlProbe:
                     commit=commit,
                     evidence_id=raw_ref.artifact_id,
                     call_id=f"sql-{request_id}-{index}",
+                    lock_wait_complete=lock_wait_complete,
+                    lock_wait_evidence_id=lock_wait_evidence_id,
                 )
             except ValueError:
                 continue

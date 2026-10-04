@@ -19,6 +19,7 @@ from project_doctor.integrations.observation.sql_probe import (
     parse_mysql_batch,
     perf_schema_row_to_sql_call,
     recent_tagged_statements_sql,
+    row_lock_waits_sql,
     substitute_placeholders,
     timer_wait_to_ms,
 )
@@ -104,11 +105,18 @@ def test_timer_wait_to_ms_rejects_garbage() -> None:
     assert timer_wait_to_ms("not-a-number") is None
 
 
-def test_lock_wait_to_ms_zeroes_timer_noise() -> None:
-    assert lock_wait_to_ms(2_000_000) == 0.002  # 2 µs of MDL timing, not contention
+def test_lock_wait_to_ms_preserves_tiny_nonzero_waits() -> None:
+    # 2 µs of MDL timing must stay non-zero; rounding it to zero would let a
+    # real wait slip past the diagnosis gate's zero-wait threshold.
+    assert lock_wait_to_ms(2_000_000) == 0.002
     assert lock_wait_to_ms(5_000_000_000) == 5.0  # 5 ms stays clearly non-zero
     assert lock_wait_to_ms("0") == 0.0
     assert lock_wait_to_ms("NULL") is None
+
+
+def test_row_lock_waits_sql_counts_data_lock_waits() -> None:
+    assert "performance_schema.data_lock_waits" in row_lock_waits_sql()
+    assert "COUNT(*)" in row_lock_waits_sql()
 
 
 # --- code location ----------------------------------------------------------
@@ -174,6 +182,40 @@ def test_perf_schema_row_to_sql_call_builds_actual_sources() -> None:
     )
     assert call.code_location is not None
     assert call.code_location.line == 14
+
+
+def test_perf_schema_row_to_sql_call_reports_lock_wait_only_when_covered() -> None:
+    row = {
+        "SQL_TEXT": "/* pd:src/main/OrderMapper.java:14 */ SELECT o.* FROM orders o",
+        "TIMER_WAIT": "412000000000",
+        "ROWS_EXAMINED": "200000",
+        "ROWS_SENT": "20",
+        "LOCK_TIME": "0",
+    }
+    # Without row-lock coverage the total lock wait is unknown, so it must stay None
+    # rather than fabricate a zero from an incomplete LOCK_TIME measurement.
+    uncovered = perf_schema_row_to_sql_call(
+        row, commit=COMMIT, evidence_id=EVIDENCE_ID, call_id="sql-op-1-3"
+    )
+    assert uncovered.lock_wait_ms is None
+    assert "lock_wait_ms" not in uncovered.metric_sources
+
+    # With row-lock coverage confirmed (no InnoDB row lock wait), LOCK_TIME becomes
+    # the complete lock wait and is reported with both evidence citations.
+    covered = perf_schema_row_to_sql_call(
+        row,
+        commit=COMMIT,
+        evidence_id=EVIDENCE_ID,
+        call_id="sql-op-1-3",
+        lock_wait_complete=True,
+        lock_wait_evidence_id="row-lock-evidence",
+    )
+    assert covered.lock_wait_ms == 0.0
+    assert covered.metric_sources["lock_wait_ms"].measurement == "actual"
+    assert covered.metric_sources["lock_wait_ms"].evidence_ids == [
+        EVIDENCE_ID,
+        "row-lock-evidence",
+    ]
 
 
 def test_perf_schema_row_to_sql_call_omits_missing_metrics() -> None:
@@ -347,3 +389,68 @@ def test_perf_schema_probe_degrades_when_explain_is_not_json() -> None:
     assert len(collection.calls) == 1
     assert collection.calls[0].plan_evidence_ids == []
     assert len(collection.evidence_refs) == 1  # raw only, no plan
+
+
+def test_perf_schema_probe_collects_lock_wait_when_no_row_locks() -> None:
+    async def fake_fetcher(context: CallContext, sql: str) -> list[dict[str, Any]]:
+        return [_GOOD_ROW]
+
+    async def fake_explain(context: CallContext, sql: str) -> str:
+        return '{"query_block":{"table":{"access_type":"ALL","rows":1}}}'
+
+    async def fake_lock_waits(context: CallContext, sql: str) -> int:
+        assert "data_lock_waits" in sql
+        return 0
+
+    publish, refs = _publisher()
+    probe = PerfSchemaSqlProbe(
+        fetch_rows=fake_fetcher,
+        explain=fake_explain,
+        publish=publish,
+        fetch_lock_waits=fake_lock_waits,
+    )
+    collection = asyncio.run(
+        probe(
+            None,
+            HttpResponse(200, {}, 1, {}, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            _context(),
+            COMMIT,
+            "baseline",
+        )
+    )  # type: ignore[arg-type]
+    call = collection.calls[0]
+    assert call.lock_wait_ms == 0.0
+    assert call.metric_sources["lock_wait_ms"].measurement == "actual"
+    # Both the raw perf-schema row and the row-lock snapshot must be cited.
+    assert len(call.metric_sources["lock_wait_ms"].evidence_ids) == 2
+    assert any("row-lock-waits" in ref.relative_path for ref in refs)
+
+
+def test_perf_schema_probe_downgrades_lock_wait_when_row_locks_observed() -> None:
+    async def fake_fetcher(context: CallContext, sql: str) -> list[dict[str, Any]]:
+        return [_GOOD_ROW]
+
+    async def fake_explain(context: CallContext, sql: str) -> str:
+        return '{"query_block":{"table":{"access_type":"ALL","rows":1}}}'
+
+    async def fake_lock_waits(context: CallContext, sql: str) -> int:
+        return 2  # some transaction is blocked on an InnoDB row lock
+
+    publish, refs = _publisher()
+    probe = PerfSchemaSqlProbe(
+        fetch_rows=fake_fetcher,
+        explain=fake_explain,
+        publish=publish,
+        fetch_lock_waits=fake_lock_waits,
+    )
+    collection = asyncio.run(
+        probe(
+            None,
+            HttpResponse(200, {}, 1, {}, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            _context(),
+            COMMIT,
+            "baseline",
+        )
+    )  # type: ignore[arg-type]
+    assert collection.calls[0].lock_wait_ms is None
+    assert "lock_wait_ms" not in collection.calls[0].metric_sources

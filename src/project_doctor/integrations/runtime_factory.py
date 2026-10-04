@@ -557,6 +557,20 @@ def build_runtime(settings: Settings, store: TaskStore) -> Runtime:
         raw = await gateway.query_sql(environment_id, context, sql)
         return parse_mysql_batch(raw, PERF_SCHEMA_COLUMNS)
 
+    async def fetch_lock_waits(context: CallContext, sql: str) -> int:
+        environment_id = compose_project_name(context.task_id)
+        raw = await gateway.query_sql(environment_id, context, sql)
+        rows = parse_mysql_batch(raw, ("N",))
+        if not rows:
+            return 0
+        value = rows[0].get("N")
+        if value is None:
+            return 0
+        try:
+            return int(str(value))
+        except ValueError:
+            return 0
+
     async def explain(context: CallContext, sql: str) -> str:
         environment_id = compose_project_name(context.task_id)
         return await gateway.query_sql(environment_id, context, f"EXPLAIN FORMAT=JSON {sql}")
@@ -568,5 +582,7 @@ def build_runtime(settings: Settings, store: TaskStore) -> Runtime:
             settings.artifact_root, relative_path, content, media_type, format_version
         )
 
-    probe = PerfSchemaSqlProbe(fetch_rows=fetch_rows, explain=explain, publish=publish)
+    probe = PerfSchemaSqlProbe(
+        fetch_rows=fetch_rows, explain=explain, publish=publish, fetch_lock_waits=fetch_lock_waits
+    )
     return RuntimeService(settings, store, engine, gateway, service_port=18080, probe=probe)
