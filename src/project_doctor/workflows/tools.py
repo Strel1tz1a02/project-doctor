@@ -166,14 +166,14 @@ class ToolWorkflows:
         return await self.runtime.reconcile(context.task_id)
 
     async def finish_task(self, context: CallContext) -> ReportResult:
+        from project_doctor.features.environments.prepare import compose_project_name
+
         bundle = await self.store.load_bundle(context.task_id)
-        restored = False
-        if bundle.task.environment_id:
-            close_context = context.model_copy(
-                update={"operation_id": context.operation_id + ":close"}
-            )
-            result = await self.runtime.close(bundle.task.environment_id, close_context)
-            restored = result.verified
+        close_context = context.model_copy(update={"operation_id": context.operation_id + ":close"})
+        result = await self.runtime.close(
+            bundle.task.environment_id or compose_project_name(context.task_id), close_context
+        )
+        restored = result.verified
         bundle = await self.store.load_bundle(context.task_id)
         refreshed = await evaluate(bundle, self.reader, self.policy) if bundle.experiments else []
         if not restored:
@@ -216,7 +216,7 @@ class ToolWorkflows:
         current = await self.store.load_bundle(context.task_id)
         report = build_report(current)
         if not restored:
-            report.limitations.append("收尾恢复未验证，环境需核对或已隔离。")
+            report.limitations.append(result.reason or "收尾恢复未验证，环境需核对或已隔离。")
             # Build once more with the warning as persisted finding/coverage context is unchanged.
             import json
 

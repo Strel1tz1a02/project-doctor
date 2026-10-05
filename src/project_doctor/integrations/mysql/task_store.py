@@ -8,6 +8,7 @@ so a replayed finish never double-charges budget.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections.abc import Sequence
 from typing import Any
 
@@ -152,12 +153,15 @@ class MySQLTaskStore:
         self, task_id: str, operation_id: str, input_digest: str, request_allowance: int
     ) -> Reservation:
         with self._engine.begin() as conn:
+            record = self._load_task(conn, task_id)
             return reserve_operation(
                 conn,
                 task_id=task_id,
                 operation_id=operation_id,
                 input_digest=input_digest,
                 request_allowance=request_allowance,
+                exclusive_preparation=input_digest
+                == hashlib.sha256(record.project.model_dump_json().encode("utf-8")).hexdigest(),
             )
 
     def _load_operation_sync(self, task_id: str, operation_id: str) -> OperationResult | None:
@@ -257,6 +261,17 @@ class MySQLTaskStore:
         )
 
     def _dispatch(self, conn: Connection, task_id: str, result: OperationResult) -> None:
+        if result.failure:
+            record = self._load_task(conn, task_id)
+            note = f"操作 {result.operation_id}: {result.failure.code}: {result.failure.message}"
+            updated = record.model_copy(
+                update={"coverage": list(dict.fromkeys([*record.coverage, note]))}
+            )
+            conn.execute(
+                update(tasks)
+                .where(tasks.c.id == task_id)
+                .values(record_json=self._record_json(updated))
+            )
         payload = result.payload
         if isinstance(payload, EnvironmentHandle):
             conn.execute(

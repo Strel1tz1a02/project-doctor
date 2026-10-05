@@ -14,10 +14,11 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import anyio
 from sqlalchemy import Engine, create_engine
 
 from project_doctor.entrypoints.settings import Settings
-from project_doctor.features.environments.ports import EnvironmentGateway
+from project_doctor.features.environments.ports import EnvironmentGateway, RestoredState
 from project_doctor.features.environments.prepare import compose_project_name
 from project_doctor.features.experiments.interventions import IndexRecipe, parse_index_recipe
 from project_doctor.features.experiments.ports import Runtime
@@ -148,10 +149,17 @@ class RuntimeService:
             input_digest=digest,
             request_allowance=0,
             work=work,
+            failure_cleanup=lambda: self._gateway.teardown(
+                compose_project_name(context.task_id), context
+            ),
         )
         payload = operation.payload
         if not isinstance(payload, EnvironmentHandle):
-            raise RuntimeError("prepare operation did not persist an environment handle")
+            raise RuntimeError(
+                operation.failure.message
+                if operation.failure
+                else "prepare operation did not persist an environment handle"
+            )
         return payload
 
     async def run(
@@ -255,16 +263,26 @@ class RuntimeService:
         async def work() -> tuple[OperationResult, Usage]:
             start = time.monotonic()
             state = await asyncio.to_thread(load_environment_state, self._engine, task_id)
-            baseline_path = await asyncio.to_thread(
-                resolve_contained,
-                self._settings.artifact_root,
-                f"tasks/{task_id}/environment/{environment_id}/baseline.sql",
-            )
-            baseline_dump = await asyncio.to_thread(baseline_path.read_bytes)
-            snapshot_id = _digest_bytes(baseline_dump)
+            snapshot_id = None
             try:
+                baseline_path = await asyncio.to_thread(
+                    resolve_contained,
+                    self._settings.artifact_root,
+                    f"tasks/{task_id}/environment/{environment_id}/baseline.sql",
+                )
+                baseline_dump = await asyncio.to_thread(baseline_path.read_bytes)
+                snapshot_id = _digest_bytes(baseline_dump)
                 restored = await self._gateway.restore(
                     environment_id, snapshot_id, context, baseline_dump
+                )
+            except Exception as exc:
+                restored = RestoredState(
+                    verified=False,
+                    fingerprint=None,
+                    snapshot_id=None,
+                    index_removed=False,
+                    reason=f"收尾恢复未完成: {type(exc).__name__}: {exc}",
+                    restored_dump=None,
                 )
             finally:
                 await self._gateway.teardown(environment_id, context)
@@ -288,7 +306,7 @@ class RuntimeService:
             )
             result = OperationResult(
                 operation_id=context.operation_id,
-                state="completed" if restored.verified else "needs_reconcile",
+                state="completed",
                 input_digest=_sha256(f"{environment_id}:close"),
                 payload=restore_result,
             )
@@ -335,6 +353,7 @@ class RuntimeService:
                 task_status=data.task.status,
                 json_ref=json_ref,
                 html_ref=html_ref,
+                limitations=data.limitations,
             )
             result = OperationResult(
                 operation_id=context.operation_id,
@@ -369,6 +388,7 @@ class RuntimeService:
         input_digest: str,
         request_allowance: int,
         work: Work,
+        failure_cleanup: Callable[[], Awaitable[None]] | None = None,
     ) -> OperationResult:
         reservation = await self._store.reserve(
             task_id, operation_id, input_digest, request_allowance
@@ -378,7 +398,47 @@ class RuntimeService:
         if not reservation.accepted:
             raise ValueError(reservation.reason or "operation conflict")
         await asyncio.to_thread(mark_operation_running, self._engine, task_id, operation_id)
-        result, consumed = await work()
+        start = time.monotonic()
+        try:
+            result, consumed = await work()
+        except BaseException as exc:
+            with anyio.CancelScope(shield=True):
+                cleaned = False
+                cleanup_reason = ""
+                if failure_cleanup:
+                    try:
+                        await asyncio.shield(failure_cleanup())
+                        cleaned = True
+                    except BaseException as cleanup_error:
+                        cleanup_reason = (
+                            f"; cleanup failed: {type(cleanup_error).__name__}: {cleanup_error}"
+                        )
+                failure = OperationResult(
+                    operation_id=operation_id,
+                    state="failed" if cleaned else "needs_reconcile",
+                    input_digest=input_digest,
+                    failure=Failure(
+                        code="tool_failure",
+                        message=(
+                            "operation cancelled"
+                            if isinstance(exc, asyncio.CancelledError)
+                            else f"{type(exc).__name__}: {exc}"
+                        )
+                        + cleanup_reason
+                        + (
+                            "; preparation resources removed"
+                            if cleaned
+                            else "; reconcile before replay"
+                        ),
+                        retry_policy="never" if cleaned else "reconcile_first",
+                    ),
+                )
+                await asyncio.shield(
+                    self._store.finish_operation(
+                        task_id, operation_id, failure, Usage(wall_seconds=time.monotonic() - start)
+                    )
+                )
+            raise
         await self._store.finish_operation(task_id, operation_id, result, consumed)
         return result
 

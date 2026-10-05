@@ -9,9 +9,16 @@ database to that snapshot and verifies it; final teardown is a separate close st
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import os
 import shlex
 import shutil
+import stat
+import time
 from pathlib import Path
+
+import anyio
 
 from project_doctor.entrypoints.settings import Settings
 from project_doctor.features.environments.ports import PreparedEnvironment, RestoredState
@@ -65,9 +72,49 @@ class DockerEnvironmentGateway:
     def _prepare_sync(self, project: ProjectInput, context: CallContext) -> PreparedEnvironment:
         project_name = compose_project_name(context.task_id)
         isolated_dir = isolated_workspace_path(self._settings.workspace_root, context.task_id)
+        root = self._settings.workspace_root.resolve()
+        if not isolated_dir.resolve().is_relative_to(root) or isolated_dir.resolve() == root:
+            raise ValueError("isolated workspace escaped configured root")
         if isolated_dir.exists():
-            shutil.rmtree(isolated_dir)
-        shutil.copytree(self._settings.target_repo_root, isolated_dir)
+            # Old workspaces may contain Windows read-only Git objects.
+            def writable_remove(function: object, path: str, error: BaseException) -> None:
+                if not isinstance(error, PermissionError):
+                    raise error
+                os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+                os.remove(path)
+
+            shutil.rmtree(isolated_dir, onexc=writable_remove)
+        shutil.copytree(
+            self._settings.target_repo_root,
+            isolated_dir,
+            ignore=shutil.ignore_patterns(".git", ".hg", ".svn"),
+        )
+        source_hashes = {
+            path.relative_to(isolated_dir).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(isolated_dir.rglob("*"))
+            if path.is_file()
+        }
+        status: dict[str, object] = {
+            "commit": project.commit,
+            "source_hashes": source_hashes,
+            "stages": {},
+        }
+        timings: dict[str, float] = {}
+        deadline = time.monotonic() + self._settings.tool_timeouts["prepare_environment"]
+
+        def record(stage: str, start: float) -> None:
+            timings[stage] = time.monotonic() - start
+            status["stages"] = timings
+            (isolated_dir / "preparation-status.json").write_text(
+                json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+        def remaining() -> float:
+            seconds = deadline - time.monotonic()
+            if seconds <= 0:
+                raise TimeoutError("environment preparation budget exhausted")
+            return seconds
+
         compose = render_compose(
             service_image=self._service_image,
             service_port=self._service_port,
@@ -91,10 +138,15 @@ class DockerEnvironmentGateway:
             encoding="utf-8",
         )
         runner = self._runner(isolated_dir, project_name)
-        runner.up(timeout=self._settings.tool_timeouts["prepare_environment"])
-        baseline_dump = self._snapshots(runner).dump(
-            timeout=self._settings.tool_timeouts["prepare_environment"]
-        )
+        started = time.monotonic()
+        runner.up_database(timeout=remaining())
+        record("database_ready_seconds", started)
+        started = time.monotonic()
+        runner.up(timeout=remaining())
+        record("application_seed_ready_seconds", started)
+        started = time.monotonic()
+        baseline_dump = self._snapshots(runner).dump(timeout=remaining())
+        record("snapshot_seconds", started)
         snapshot_id = SnapshotManager.digest(baseline_dump)
         return PreparedEnvironment(
             environment_id=project_name,
@@ -138,7 +190,19 @@ class DockerEnvironmentGateway:
             raise
 
     async def prepare(self, project: ProjectInput, context: CallContext) -> PreparedEnvironment:
-        return await asyncio.to_thread(self._prepare_sync, project, context)
+        worker = asyncio.create_task(asyncio.to_thread(self._prepare_sync, project, context))
+        try:
+            return await asyncio.shield(worker)
+        except BaseException:
+            # to_thread cannot stop Docker. Drain it before teardown, otherwise
+            # a delayed `up` could recreate containers after `down` completed.
+            with anyio.CancelScope(shield=True):
+                try:
+                    await asyncio.shield(worker)
+                except BaseException:
+                    pass
+                await self.teardown(compose_project_name(context.task_id), context)
+            raise
 
     async def restore(
         self,
@@ -177,6 +241,8 @@ class DockerEnvironmentGateway:
 
     async def teardown(self, environment_id: str, context: CallContext) -> None:
         isolated_dir = isolated_workspace_path(self._settings.workspace_root, context.task_id)
+        if not (isolated_dir / "docker-compose.yml").is_file():
+            return
         await asyncio.to_thread(
             self._runner(isolated_dir, environment_id).down,
             timeout=self._settings.tool_timeouts["run_experiment"],

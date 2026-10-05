@@ -245,3 +245,21 @@ def test_experiment_lock_windows_round_trip_through_mysql_json(store) -> None:
     assert [item.id for item in bundle.hypotheses] == ["hypothesis-1"]
     assert [item.id for item in bundle.findings] == ["finding-1"]
     assert bundle.task.environment_id == "environment-1"
+
+
+def test_parallel_preparations_with_different_ids_are_serialized(store) -> None:
+    import hashlib
+
+    task = make_task("prepare-race-" + uuid.uuid4().hex)
+    digest = hashlib.sha256(task.project.model_dump_json().encode("utf-8")).hexdigest()
+
+    async def run():
+        await store.create(task)
+        results = await asyncio.gather(
+            store.reserve(task.id, "prepare-1", digest, 0),
+            store.reserve(task.id, "prepare-2", digest, 0),
+        )
+        assert sum(result.accepted for result in results) == 1
+        assert any("unresolved" in (result.reason or "") for result in results)
+
+    asyncio.run(run())

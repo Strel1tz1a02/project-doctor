@@ -138,6 +138,11 @@ class ComposeRunner:
         if result.returncode != 0:
             raise RuntimeError(f"docker compose up failed: {result.stderr.strip()}")
 
+    def up_database(self, timeout: float) -> None:
+        result = self._run("up", "-d", "--wait", "db", timeout=timeout)
+        if result.returncode != 0:
+            raise RuntimeError(f"docker compose database startup failed: {result.stderr.strip()}")
+
     def down(self, timeout: float) -> None:
         result = self._run("down", "-v", "--remove-orphans", timeout=timeout)
         if result.returncode != 0:

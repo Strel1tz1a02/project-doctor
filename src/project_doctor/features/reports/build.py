@@ -15,6 +15,7 @@ def build_report(bundle: TaskBundle) -> ReportData:
     leads = [item for item in bundle.findings if item.status in {"lead", "refuted"}]
     unknown = [item for item in bundle.findings if item.status == "unclassified"]
     limits = ["影响仅对应本次测试负载，不代表线上业务优先级。"]
+    limits.extend(note for note in bundle.task.coverage if note.startswith("操作 "))
     if shared_impact(verified):
         limits.append("多项诊断共享 SQL／实验耗时，不累计为总收益。")
     if bundle.task.correlation.missing_correlation:

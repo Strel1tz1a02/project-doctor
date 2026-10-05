@@ -6,7 +6,7 @@ from sqlalchemy import Connection, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import IntegrityError
 
-from project_doctor.integrations.mysql.migrations.schema import operations
+from project_doctor.integrations.mysql.migrations.schema import operations, tasks
 from project_doctor.models.task import OperationResult, Reservation
 
 
@@ -17,8 +17,23 @@ def reserve_operation(
     operation_id: str,
     input_digest: str,
     request_allowance: int,
+    exclusive_preparation: bool = False,
 ) -> Reservation:
     """Reserve once per (task, operation). Idempotent via the unique key, never read-then-write."""
+    # Serialize reservations for a task, including callers that change operation IDs.
+    conn.execute(select(tasks.c.id).where(tasks.c.id == task_id).with_for_update()).one()
+    if exclusive_preparation:
+        pending = conn.execute(
+            select(operations.c.operation_id).where(
+                operations.c.task_id == task_id,
+                operations.c.operation_id != operation_id,
+                operations.c.state.in_(("reserved", "running", "needs_reconcile")),
+            )
+        ).first()
+        if pending:
+            return Reservation(
+                accepted=False, reason="unresolved operation; reconcile before preparation"
+            )
     try:
         conn.execute(
             mysql_insert(operations).values(

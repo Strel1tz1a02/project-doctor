@@ -90,6 +90,9 @@ def test_restore_verified_when_dump_matches_baseline(tmp_path: Path, monkeypatch
     # another experiment or the final restore verification before report publication.
     again = asyncio.run(gateway.restore("environment-1", snapshot_id, context(), baseline))
     assert again.verified
+    isolated = gateway._settings.workspace_root / "task-1"
+    isolated.mkdir(parents=True)
+    (isolated / "docker-compose.yml").write_text("services: {}", encoding="utf-8")
     asyncio.run(gateway.teardown("environment-1", context()))
     assert runner.down_calls == 1
 
