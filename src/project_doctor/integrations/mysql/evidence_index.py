@@ -16,8 +16,8 @@ def index_evidence(conn: Connection, ref: EvidenceRef) -> None:
     """Upsert one artifact ref; called inside the caller's transaction."""
     conn.execute(
         mysql_insert(evidence_index)
-        .values(artifact_id=ref.artifact_id, record_json=ref.model_dump())
-        .on_duplicate_key_update(record_json=ref.model_dump())
+        .values(artifact_id=ref.artifact_id, record_json=ref.model_dump(mode="json"))
+        .on_duplicate_key_update(record_json=ref.model_dump(mode="json"))
     )
 
 

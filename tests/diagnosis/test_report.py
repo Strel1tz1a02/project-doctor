@@ -30,3 +30,13 @@ def test_report_does_not_count_shared_sql_twice(bundle: TaskBundle) -> None:
     assert len(report.verified_findings) == 2
     assert "共享" in "".join(report.limitations)
     assert "total_gain_ms" not in report.json_content
+
+
+def test_report_separates_warmup_and_formal_evidence(bundle: TaskBundle) -> None:
+    report = build_report(bundle)
+    protocol = json.loads(report.json_content)["measurement_protocols"][0]
+    assert protocol["warmup_attempts"] == protocol["warmup_successes"] == 2
+    assert protocol["formal_samples"] == 6
+    assert protocol["preparation_verified"] is True
+    assert protocol["lock_statuses"][0]["status"] == "covered_no_wait"
+    assert "预热不计入正式收益" in report.html_content

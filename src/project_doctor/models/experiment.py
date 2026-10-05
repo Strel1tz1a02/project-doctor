@@ -11,12 +11,43 @@ from project_doctor.models.common import (
     Identifier,
     Limits,
     PositiveInt,
+    Sha256,
 )
 from project_doctor.models.environment import RestoreResult
 from project_doctor.models.errors import Failure
 from project_doctor.models.observation import Observation
 
 ExperimentPhase = Literal["prepared", "running", "restoring", "finished", "needs_reconcile"]
+
+
+class WarmupSpec(Contract):
+    protocol_id: Literal["serial-readonly-warmup.v1"] = "serial-readonly-warmup.v1"
+    preparation_recipe_ref: Literal["builtin:serial-readonly-warmup.v1"] = (
+        "builtin:serial-readonly-warmup.v1"
+    )
+    requests_per_level: PositiveInt = 5
+
+
+class PreparationResult(Contract):
+    level: Literal["baseline", "candidate_index"]
+    protocol_id: Identifier
+    snapshot_id: Identifier
+    observation_config_id: Identifier
+    prepared_fingerprint: Identifier
+    final_fingerprint: Identifier | None = None
+    recipe_digest: Sha256
+    verified: bool = False
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+
+
+class WarmupResult(Contract):
+    level: Literal["baseline", "candidate_index"]
+    ordinal: PositiveInt
+    request_id: Identifier
+    business_valid: bool
+    result_digest: Sha256 | None = None
+    failure: Failure | None = None
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
 
 
 class ExperimentSpec(Contract):
@@ -33,6 +64,7 @@ class ExperimentSpec(Contract):
     baseline_fingerprint: Identifier
     snapshot_id: Identifier
     observation_config_id: Identifier
+    warmup: WarmupSpec | None = None
 
 
 class ExperimentResult(Contract):
@@ -45,6 +77,8 @@ class ExperimentResult(Contract):
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     failure: Failure | None = None
     spec: ExperimentSpec | None = None
+    preparation_results: list[PreparationResult] = Field(default_factory=list)
+    warmup_results: list[WarmupResult] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def consistent_lifecycle(self) -> ExperimentResult:
@@ -55,6 +89,11 @@ class ExperimentResult(Contract):
         keys = [(item.level, item.repetition, item.request_id) for item in self.observations]
         if len(keys) != len(set(keys)):
             raise ValueError("duplicate observation identity")
+        request_ids = [item.request_id for item in self.observations] + [
+            item.request_id for item in self.warmup_results
+        ]
+        if len(request_ids) != len(set(request_ids)):
+            raise ValueError("duplicate request identity across warmup and measurement")
         if self.phase == "finished":
             if self.restore_result is None:
                 raise ValueError("finished experiment requires a restore result")

@@ -16,6 +16,7 @@ MODULES = (
     "experiment",
     "finding",
     "hypothesis",
+    "lock",
     "observation",
     "scenario",
     "task",

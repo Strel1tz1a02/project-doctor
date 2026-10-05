@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -19,6 +21,7 @@ from project_doctor.features.environments.ports import EnvironmentGateway
 from project_doctor.features.environments.prepare import compose_project_name
 from project_doctor.features.experiments.interventions import IndexRecipe, parse_index_recipe
 from project_doctor.features.experiments.ports import Runtime
+from project_doctor.features.experiments.preparation import preparation_digest
 from project_doctor.features.experiments.validate import validate_experiment
 from project_doctor.integrations.artifacts.publish import publish_artifact
 from project_doctor.integrations.artifacts.verify import resolve_contained
@@ -33,16 +36,24 @@ from project_doctor.integrations.mysql.environment_state import (
     mark_operation_running,
 )
 from project_doctor.integrations.mysql.factory import resolve_secret_ref
+from project_doctor.integrations.observation.lock_probe import LockProbe
 from project_doctor.integrations.observation.sql_probe import (
     PERF_SCHEMA_COLUMNS,
     PerfSchemaSqlProbe,
     SqlCollection,
+    lock_wait_to_ms,
     parse_mysql_batch,
 )
 from project_doctor.models.common import EvidenceRef, Usage
 from project_doctor.models.environment import EnvironmentHandle, ProjectInput, RestoreResult
 from project_doctor.models.errors import Failure
-from project_doctor.models.experiment import ExperimentResult, ExperimentSpec, ReconcileResult
+from project_doctor.models.experiment import (
+    ExperimentResult,
+    ExperimentSpec,
+    PreparationResult,
+    ReconcileResult,
+    WarmupResult,
+)
 from project_doctor.models.finding import ReportData, ReportResult
 from project_doctor.models.observation import ExperimentLevel, Observation
 from project_doctor.models.scenario import RequestStep, Scenario
@@ -82,6 +93,7 @@ class RuntimeService:
         *,
         service_port: int = 18080,
         probe: SqlProbe | None = None,
+        lock_probe: LockProbe | None = None,
     ) -> None:
         self._settings = settings
         self._store = store
@@ -93,6 +105,7 @@ class RuntimeService:
             timeout=15.0,
         )
         self._probe = probe
+        self._lock_probe = lock_probe
 
     # -- Runtime protocol ----------------------------------------------------
 
@@ -179,7 +192,10 @@ class RuntimeService:
             )
 
         needed = needed_requests(spec)
-        if task.usage.requests + needed > task.limits.max_requests:
+        if (
+            task.usage.requests + needed > task.limits.max_requests
+            or needed > spec.limits.max_requests
+        ):
             return self._reject(
                 spec,
                 context,
@@ -203,7 +219,17 @@ class RuntimeService:
 
         async def work() -> tuple[OperationResult, Usage]:
             return await self._run_work(
-                environment_id, scenario, spec, context, recipe, commit=task.project.commit
+                environment_id,
+                scenario,
+                spec,
+                context,
+                recipe,
+                commit=task.project.commit,
+                remaining_seconds=task.limits.max_wall_seconds - task.usage.wall_seconds,
+                artifact_limit=min(
+                    spec.limits.max_artifact_bytes,
+                    task.limits.max_artifact_bytes - task.usage.artifact_bytes,
+                ),
             )
 
         operation = await self._settle(
@@ -375,17 +401,53 @@ class RuntimeService:
         context: CallContext,
         recipe: IndexRecipe,
         commit: str,
+        remaining_seconds: float | None = None,
+        artifact_limit: int | None = None,
     ) -> tuple[OperationResult, Usage]:
         start = time.monotonic()
         observations: list[Observation] = []
         requests_made = 0
+        attempts = [0]
+        preparations: list[PreparationResult] = []
+        warmups: list[WarmupResult] = []
+        preparation_refs: list[EvidenceRef] = []
         measurement_failure: Failure | None = None
         step = scenario.steps[0]
         try:
-            for level in ("baseline", "candidate_index"):
+            if spec.warmup:
+                deadline = (
+                    start
+                    + min(
+                        spec.limits.max_wall_seconds,
+                        remaining_seconds
+                        if remaining_seconds is not None
+                        else spec.limits.max_wall_seconds,
+                        self._settings.tool_timeouts["run_experiment"],
+                    )
+                    - spec.limits.restore_reserve_seconds
+                )
+                await self._run_prepared_groups(
+                    environment_id,
+                    scenario,
+                    spec,
+                    context,
+                    recipe,
+                    commit,
+                    deadline,
+                    observations,
+                    preparations,
+                    warmups,
+                    preparation_refs,
+                    attempts,
+                    artifact_limit
+                    if artifact_limit is not None
+                    else spec.limits.max_artifact_bytes,
+                )
+            for level in () if spec.warmup else ("baseline", "candidate_index"):
                 if level == "candidate_index":
                     await self._gateway.execute_sql(environment_id, context, recipe.create_sql)
                 for repetition in range(1, spec.repetitions + 1):
+                    requests_made += 1
                     observations.append(
                         await self._measure(
                             step=step,
@@ -397,7 +459,6 @@ class RuntimeService:
                             environment_id=environment_id,
                         )
                     )
-                    requests_made += 1
         except Exception as exc:
             # A timeout or failed request must not skip restoration; partial
             # observations collected before the failure are preserved.
@@ -417,8 +478,10 @@ class RuntimeService:
             observations=observations,
             restore=restore,
             failure=failure,
-            evidence_refs=evidence_refs,
+            evidence_refs=evidence_refs + preparation_refs,
         )
+        result.preparation_results = preparations
+        result.warmup_results = warmups
         operation = OperationResult(
             operation_id=context.operation_id,
             state="completed" if result.phase == "finished" else "needs_reconcile",
@@ -428,19 +491,174 @@ class RuntimeService:
         )
         usage = Usage(
             wall_seconds=time.monotonic() - start,
-            requests=requests_made,
+            requests=requests_made + attempts[0],
             experiments=1,
             artifact_bytes=sum(
                 ref.size_bytes
                 for ref in {
                     ref.artifact_id: ref
                     for ref in (
-                        evidence_refs + [ref for obs in observations for ref in obs.evidence_refs]
+                        result.evidence_refs
+                        + [ref for obs in observations for ref in obs.evidence_refs]
                     )
                 }.values()
             ),
         )
         return operation, usage
+
+    async def _run_prepared_groups(
+        self,
+        environment_id: str,
+        scenario: Scenario,
+        spec: ExperimentSpec,
+        context: CallContext,
+        recipe: IndexRecipe,
+        commit: str,
+        deadline: float,
+        observations: list[Observation],
+        preparations: list[PreparationResult],
+        warmups: list[WarmupResult],
+        refs: list[EvidenceRef],
+        attempts: list[int],
+        artifact_limit: int,
+    ) -> None:
+        assert spec.warmup is not None
+        step = scenario.steps[0]
+        digest = preparation_digest(spec.warmup, step)
+        base = f"tasks/{context.task_id}/experiments/{spec.id}"
+
+        async def publish(name: str, payload: object) -> EvidenceRef:
+            ref = await publish_artifact(
+                self._settings.artifact_root,
+                f"{base}/{name}.json",
+                json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8"),
+                "application/json",
+                "preparation.v1",
+            )
+            refs.append(ref)
+            return ref
+
+        def check_budget() -> None:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("measurement deadline reached; restoration budget reserved")
+            if (
+                sum(ref.size_bytes for ref in {ref.artifact_id: ref for ref in refs}.values())
+                > artifact_limit
+            ):
+                raise ValueError("preparation artifact budget exhausted")
+
+        await publish(
+            "protocol",
+            {
+                "spec": spec.model_dump(mode="json"),
+                "recipe_digest": digest,
+                "step": step.model_dump(mode="json"),
+                "limitations": [
+                    "Fixed workload preparation; no claim of universal cache stability",
+                    "Application cache is not cleared by this built-in protocol",
+                ],
+            },
+        )
+        for level in spec.levels:
+            check_budget()
+            restored, failure, restore_refs = await self._restore_after_run(
+                environment_id, spec, context
+            )
+            refs.extend(restore_refs)
+            if failure or restored is None or not restored.verified:
+                raise ValueError("group baseline restore could not be verified")
+            if level == "candidate_index":
+                await self._gateway.execute_sql(environment_id, context, recipe.create_sql)
+            fingerprint = await self._gateway.fingerprint(environment_id, context, commit)
+            if level == "baseline" and fingerprint != spec.baseline_fingerprint:
+                raise ValueError("live baseline fingerprint does not match experiment")
+            preparation = PreparationResult(
+                level=level,
+                protocol_id=spec.warmup.protocol_id,
+                snapshot_id=spec.snapshot_id,
+                observation_config_id=spec.observation_config_id,
+                prepared_fingerprint=fingerprint,
+                recipe_digest=digest,
+            )
+            preparations.append(preparation)
+            preparation.evidence_refs.append(
+                await publish(f"preparation/{level}-start", preparation.model_dump(mode="json"))
+            )
+            for ordinal in range(1, spec.warmup.requests_per_level + 1):
+                check_budget()
+                request_id = uuid.uuid4().hex
+                attempts[0] += 1
+                record = WarmupResult(
+                    level=level, ordinal=ordinal, request_id=request_id, business_valid=False
+                )
+                warmups.append(record)
+                try:
+                    response = await asyncio.wait_for(
+                        self._http.request(step, request_id=request_id),
+                        timeout=max(0.001, deadline - time.monotonic()),
+                    )
+                    record.business_valid, _ = check_assertions(step.assertions, response)
+                    record.result_digest = (
+                        normalized_result_digest(response.body) if record.business_valid else None
+                    )
+                    if not record.business_valid:
+                        raise ValueError("warmup business assertions failed")
+                except Exception as exc:
+                    record.failure = Failure(
+                        code="tool_failure",
+                        message=str(exc) or "warmup failed",
+                        retry_policy="reconcile_first",
+                    )
+                    raise
+                finally:
+                    record.evidence_refs.append(
+                        await publish(f"warmup/{level}/{ordinal}", record.model_dump(mode="json"))
+                    )
+            for repetition in range(1, spec.repetitions + 1):
+                check_budget()
+                request_id = uuid.uuid4().hex
+                attempts[0] += 1
+                try:
+                    observation = await asyncio.wait_for(
+                        self._measure(
+                            step=step,
+                            spec=spec,
+                            level=level,
+                            repetition=repetition,
+                            context=context,
+                            commit=commit,
+                            environment_id=environment_id,
+                            prepared_fingerprint=fingerprint,
+                            request_id=request_id,
+                            retained_refs=refs,
+                        ),
+                        timeout=max(0.001, deadline - time.monotonic()),
+                    )
+                except Exception as exc:
+                    await publish(
+                        f"measurement-failures/{level}/{repetition}",
+                        {
+                            "request_id": request_id,
+                            "level": level,
+                            "repetition": repetition,
+                            "failure": str(exc) or "measurement timed out",
+                        },
+                    )
+                    raise
+                observations.append(observation)
+                refs.extend(observation.evidence_refs)
+                if not observation.business_valid:
+                    raise ValueError("measurement business assertions failed")
+            preparation.final_fingerprint = await self._gateway.fingerprint(
+                environment_id, context, commit
+            )
+            preparation.verified = preparation.final_fingerprint == fingerprint
+            preparation.evidence_refs.append(
+                await publish(f"preparation/{level}-end", preparation.model_dump(mode="json"))
+            )
+            if not preparation.verified:
+                raise ValueError("group environment changed during measurement")
+            check_budget()
 
     async def _measure(
         self,
@@ -452,12 +670,33 @@ class RuntimeService:
         context: CallContext,
         commit: str,
         environment_id: str,
+        prepared_fingerprint: str | None = None,
+        request_id: str | None = None,
+        retained_refs: list[EvidenceRef] | None = None,
     ) -> Observation:
-        fingerprint_before = await self._gateway.fingerprint(environment_id, context, commit)
+        fingerprint_before = prepared_fingerprint or await self._gateway.fingerprint(
+            environment_id, context, commit
+        )
         if level == "baseline" and fingerprint_before != spec.baseline_fingerprint:
             raise ValueError("live baseline fingerprint does not match experiment")
-        response = await self._http.request(step)
-        fingerprint_after = await self._gateway.fingerprint(environment_id, context, commit)
+        request_id = request_id or uuid.uuid4().hex
+        capture = await self._lock_probe.begin(context, request_id) if self._lock_probe else None
+        try:
+            response = (
+                await self._http.request(step, request_id=request_id)
+                if capture or prepared_fingerprint
+                else await self._http.request(step)
+            )
+        finally:
+            if capture:
+                await capture.finish()
+                if retained_refs is not None:
+                    retained_refs.extend(capture.refs)
+        fingerprint_after = (
+            fingerprint_before
+            if prepared_fingerprint
+            else await self._gateway.fingerprint(environment_id, context, commit)
+        )
         if fingerprint_before != fingerprint_after:
             raise ValueError("environment changed during observation")
         valid, _ = check_assertions(step.assertions, response)
@@ -467,6 +706,31 @@ class RuntimeService:
             if self._probe
             else SqlCollection(calls=[], evidence_refs=[])
         )
+        if capture:
+            collection.evidence_refs.extend(capture.refs)
+            for call in collection.calls:
+                row = collection.statement_rows.get(call.id, {})
+
+                def identifier(name: str, row: dict[str, Any] = row) -> int | None:
+                    try:
+                        return int(row[name])
+                    except (KeyError, ValueError, TypeError):
+                        return None
+
+                call.lock_evidence = capture.evidence_for(
+                    str(row.get("SQL_TEXT", "")),
+                    identifier("THREAD_ID"),
+                    identifier("EVENT_ID"),
+                    lock_wait_to_ms(row.get("LOCK_TIME")),
+                )
+                statement_sources = {
+                    evidence_id
+                    for source in call.metric_sources.values()
+                    for evidence_id in source.evidence_ids
+                }
+                call.lock_evidence.evidence_refs.extend(
+                    ref for ref in collection.evidence_refs if ref.artifact_id in statement_sources
+                )
         return Observation(
             id=f"{spec.id}-{level}-{repetition}",
             experiment_id=spec.id,
@@ -492,9 +756,19 @@ class RuntimeService:
             f"tasks/{context.task_id}/environment/{environment_id}/baseline.sql",
         )
         baseline_dump = await asyncio.to_thread(baseline_path.read_bytes)
-        restored = await self._gateway.restore(
-            environment_id, spec.snapshot_id, context, baseline_dump
-        )
+        try:
+            restored = await self._gateway.restore(
+                environment_id, spec.snapshot_id, context, baseline_dump
+            )
+        except Exception as exc:
+            reason = str(exc) or "restoration raised an exception"
+            return (
+                RestoreResult(verified=False, reason=reason),
+                Failure(
+                    code="environment_contaminated", message=reason, retry_policy="reconcile_first"
+                ),
+                [],
+            )
         evidence_refs: list[EvidenceRef] = []
         if restored.verified and restored.restored_dump is not None:
             evidence_refs.append(
@@ -557,20 +831,6 @@ def build_runtime(settings: Settings, store: TaskStore) -> Runtime:
         raw = await gateway.query_sql(environment_id, context, sql)
         return parse_mysql_batch(raw, PERF_SCHEMA_COLUMNS)
 
-    async def fetch_lock_waits(context: CallContext, sql: str) -> int:
-        environment_id = compose_project_name(context.task_id)
-        raw = await gateway.query_sql(environment_id, context, sql)
-        rows = parse_mysql_batch(raw, ("N",))
-        if not rows:
-            return 0
-        value = rows[0].get("N")
-        if value is None:
-            return 0
-        try:
-            return int(str(value))
-        except ValueError:
-            return 0
-
     async def explain(context: CallContext, sql: str) -> str:
         environment_id = compose_project_name(context.task_id)
         return await gateway.query_sql(environment_id, context, f"EXPLAIN FORMAT=JSON {sql}")
@@ -582,7 +842,11 @@ def build_runtime(settings: Settings, store: TaskStore) -> Runtime:
             settings.artifact_root, relative_path, content, media_type, format_version
         )
 
-    probe = PerfSchemaSqlProbe(
-        fetch_rows=fetch_rows, explain=explain, publish=publish, fetch_lock_waits=fetch_lock_waits
+    async def lock_query(context: CallContext, sql: str) -> str:
+        return await gateway.query_sql(compose_project_name(context.task_id), context, sql)
+
+    probe = PerfSchemaSqlProbe(fetch_rows=fetch_rows, explain=explain, publish=publish)
+    locks = LockProbe(query=lock_query, publish=publish)
+    return RuntimeService(
+        settings, store, engine, gateway, service_port=18080, probe=probe, lock_probe=locks
     )
-    return RuntimeService(settings, store, engine, gateway, service_port=18080, probe=probe)

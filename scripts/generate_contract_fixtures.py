@@ -4,8 +4,10 @@ import copy
 import json
 from pathlib import Path
 
+from project_doctor.features.experiments.preparation import preparation_digest
 from project_doctor.models.common import EvidenceCheck
-from project_doctor.models.experiment import ExperimentSpec
+from project_doctor.models.experiment import ExperimentSpec, WarmupSpec
+from project_doctor.models.scenario import RequestStep
 from project_doctor.models.task import TaskBundle
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,7 +77,7 @@ def generate() -> None:
             "applicability_unknowns": ["Real-world data distribution is unknown"],
         },
         "load": {"mode": "serial"},
-        "cache": {"state": "warm", "preparation_recipe_ref": "recipe:warm"},
+        "cache": {"state": "warm", "preparation_recipe_ref": "builtin:serial-readonly-warmup.v1"},
     }
     spec = {
         "id": "experiment-1",
@@ -91,6 +93,7 @@ def generate() -> None:
         "baseline_fingerprint": "fingerprint-baseline",
         "snapshot_id": "snapshot-1",
         "observation_config_id": "observation-config-1",
+        "warmup": {"requests_per_level": 1},
     }
     observations = []
     for level in spec["levels"]:
@@ -123,6 +126,16 @@ def generate() -> None:
                             **values,
                             "code_location": location,
                             "plan_evidence_ids": [evidence["artifact_id"]],
+                            "lock_evidence": {
+                                "status": "covered_no_wait",
+                                "coverage": "complete",
+                                "covered_kinds": ["table", "metadata", "innodb_data"],
+                                "thread_id": 1,
+                                "statement_event_id": repetition,
+                                "window_start": "2026-10-04T00:00:00Z",
+                                "window_end": "2026-10-04T00:00:01Z",
+                                "evidence_refs": [evidence],
+                            },
                             "metric_sources": {
                                 name: {
                                     "source": "synthetic_sample",
@@ -178,7 +191,7 @@ def generate() -> None:
             },
             "status": "completed",
             "limits": limits,
-            "usage": {"requests": 6, "experiments": 1},
+            "usage": {"requests": 8, "experiments": 1},
             "environment_id": "environment-1",
             "scenario_ids": ["scenario-1"],
             "experiment_ids": ["experiment-1"],
@@ -197,6 +210,34 @@ def generate() -> None:
                 "observations": observations,
                 "restore_result": restore,
                 "evidence_refs": [evidence],
+                "preparation_results": [
+                    {
+                        "level": level,
+                        "protocol_id": "serial-readonly-warmup.v1",
+                        "snapshot_id": "snapshot-1",
+                        "observation_config_id": "observation-config-1",
+                        "prepared_fingerprint": f"fingerprint-{level}",
+                        "final_fingerprint": f"fingerprint-{level}",
+                        "verified": True,
+                        "recipe_digest": preparation_digest(
+                            WarmupSpec(requests_per_level=1),
+                            RequestStep.model_validate(scenario["steps"][0]),
+                        ),
+                        "evidence_refs": [evidence],
+                    }
+                    for level in spec["levels"]
+                ],
+                "warmup_results": [
+                    {
+                        "level": level,
+                        "ordinal": 1,
+                        "request_id": f"warmup-{level}",
+                        "business_valid": True,
+                        "result_digest": "b" * 64,
+                        "evidence_refs": [evidence],
+                    }
+                    for level in spec["levels"]
+                ],
             }
         ],
         "findings": [finding],

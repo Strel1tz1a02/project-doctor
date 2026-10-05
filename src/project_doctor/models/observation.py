@@ -14,6 +14,7 @@ from project_doctor.models.common import (
     PositiveInt,
     Sha256,
 )
+from project_doctor.models.lock import LockEvidence
 
 ExperimentLevel = Literal["baseline", "candidate_index"]
 MetricName = Literal["duration_ms", "rows_examined", "rows_returned", "lock_wait_ms"]
@@ -43,6 +44,7 @@ class SqlCall(Contract):
     code_location: CodeLocation | None = None
     plan_evidence_ids: list[Identifier] = Field(default_factory=list)
     span_id: Identifier | None = None
+    lock_evidence: LockEvidence | None = None
 
     @model_validator(mode="after")
     def measurements_have_actual_sources(self) -> SqlCall:
@@ -55,6 +57,12 @@ class SqlCall(Contract):
                 )
             if value is None and source is not None:
                 raise ValueError(f"{name} source cannot stand in for a missing value")
+        if self.lock_evidence is not None:
+            status = self.lock_evidence.status
+            if status == "covered_no_wait" and self.lock_wait_ms != 0:
+                raise ValueError("covered_no_wait requires an actual zero lock metric")
+            if status != "covered_no_wait" and self.lock_wait_ms == 0:
+                raise ValueError("incomplete or observed lock evidence cannot assert zero wait")
         return self
 
 

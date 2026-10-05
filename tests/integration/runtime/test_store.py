@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import uuid
 from pathlib import Path
 
 import pytest
@@ -13,6 +15,7 @@ from project_doctor.integrations.mysql.factory import build_store, resolve_secre
 from project_doctor.models.common import Limits, Usage
 from project_doctor.models.dataset import DatasetProfile
 from project_doctor.models.environment import EnvironmentHandle, ProjectInput
+from project_doctor.models.experiment import ExperimentSpec
 from project_doctor.models.finding import Finding, Impact
 from project_doctor.models.hypothesis import Hypothesis
 from project_doctor.models.scenario import (
@@ -23,7 +26,7 @@ from project_doctor.models.scenario import (
     RequestStep,
     Scenario,
 )
-from project_doctor.models.task import CallContext, OperationResult, TaskRecord
+from project_doctor.models.task import CallContext, OperationResult, TaskBundle, TaskRecord
 
 DSN_ENV = "PROJECT_DOCTOR_PLATFORM_DSN"
 
@@ -172,22 +175,22 @@ def store(tmp_path: Path):
 
 
 def test_store_round_trip(store) -> None:
-    task = make_task()
+    task = make_task("store-round-trip-" + uuid.uuid4().hex)
     asyncio.run(store.create(task))
-    assert asyncio.run(store.get("task-1")) == task
+    assert asyncio.run(store.get(task.id)) == task
 
     # transition is race-safe on the status column
-    assert asyncio.run(store.transition("task-1", "created", "running")) is True
-    assert asyncio.run(store.transition("task-1", "created", "blocked")) is False
-    assert asyncio.run(store.get("task-1")).status == "running"
+    assert asyncio.run(store.transition(task.id, "created", "running")) is True
+    assert asyncio.run(store.transition(task.id, "created", "blocked")) is False
+    assert asyncio.run(store.get(task.id)).status == "running"
 
     # child records upsert and appear in the bundle
-    asyncio.run(store.save_scenario("task-1", make_scenario()))
-    asyncio.run(store.save_hypotheses("task-1", [make_hypothesis()]))
-    asyncio.run(store.save_findings("task-1", [make_finding()]))
+    asyncio.run(store.save_scenario(task.id, make_scenario()))
+    asyncio.run(store.save_hypotheses(task.id, [make_hypothesis()]))
+    asyncio.run(store.save_findings(task.id, [make_finding(task_id=task.id)]))
 
     # reserve -> finish with an environment handle, then reload
-    reservation = asyncio.run(store.reserve("task-1", "op:prepare", "a" * 64, 10))
+    reservation = asyncio.run(store.reserve(task.id, "op:prepare", "a" * 64, 10))
     assert reservation.accepted
     result = OperationResult(
         operation_id="op:prepare",
@@ -202,16 +205,40 @@ def test_store_round_trip(store) -> None:
         ),
     )
     asyncio.run(
-        store.finish_operation("task-1", "op:prepare", result, Usage(wall_seconds=5.0, requests=3))
+        store.finish_operation(task.id, "op:prepare", result, Usage(wall_seconds=5.0, requests=3))
     )
 
-    assert asyncio.run(store.load_operation("task-1", "op:prepare")) == result
+    assert asyncio.run(store.load_operation(task.id, "op:prepare")) == result
 
-    record = asyncio.run(store.get("task-1"))
+    record = asyncio.run(store.get(task.id))
     assert record.environment_id == "environment-1"
     assert record.status == "running"
     assert record.usage.wall_seconds == 5.0
     assert record.usage.requests == 3
+
+
+def test_experiment_lock_windows_round_trip_through_mysql_json(store) -> None:
+    fixture = Path(__file__).resolve().parents[2] / "contracts/fixtures/verified_slow_query.json"
+    case = json.loads(fixture.read_text(encoding="utf-8"))
+    bundle = TaskBundle.model_validate(case["bundle"])
+    result = bundle.experiments[0]
+    task_id = "json-window-" + uuid.uuid4().hex
+    task = make_task(task_id)
+    result.spec = ExperimentSpec.model_validate(case["spec"])
+    result.spec.task_id = task_id
+    operation_id = "json-lock-window"
+    result.operation_id = operation_id
+    operation = OperationResult(
+        operation_id=operation_id, state="completed", input_digest="b" * 64, payload=result
+    )
+    asyncio.run(store.create(task))
+    assert asyncio.run(store.reserve(task_id, operation_id, "b" * 64, 0)).accepted
+    asyncio.run(store.finish_operation(task_id, operation_id, operation, Usage(experiments=1)))
+    loaded = asyncio.run(store.load_operation(task_id, operation_id))
+    assert loaded == operation
+    persisted = asyncio.run(store.load_bundle(task_id)).experiments[0]
+    assert persisted == result
+    assert persisted.observations[0].sql_calls[0].lock_evidence.window_start.tzinfo is not None
 
     bundle = asyncio.run(store.load_bundle("task-1"))
     assert [item.id for item in bundle.scenarios] == ["scenario-1"]

@@ -23,7 +23,8 @@ def experiment_input_digest(spec: ExperimentSpec) -> str:
 
 def needed_requests(spec: ExperimentSpec) -> int:
     """One business request per repetition per level (baseline and candidate_index)."""
-    return spec.repetitions * len(spec.levels)
+    warmup = spec.warmup.requests_per_level if spec.warmup else 0
+    return (spec.repetitions + warmup) * len(spec.levels)
 
 
 def normalized_result_digest(body: object) -> str:

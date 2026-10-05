@@ -43,6 +43,11 @@ def check_slow_query(
                 reasons.append("缺少实际扫描工作量或 SQL 耗时。")
             if call.lock_wait_ms is None or call.lock_wait_ms != 0:
                 reasons.append("锁等待尚未排除；本判据要求零锁等待的可比测量。")
+            locks = call.lock_evidence
+            if locks is None or locks.status != "covered_no_wait" or locks.coverage != "complete":
+                reasons.append("锁等待覆盖证据不完整；轮询空结果不能证明零等待。")
+            elif locks:
+                expected_ids.update(ref.artifact_id for ref in locks.evidence_refs)
         if not expected_ids.issubset(known_ids) or not refs:
             reasons.append("证据引用不完整。")
         groups = [

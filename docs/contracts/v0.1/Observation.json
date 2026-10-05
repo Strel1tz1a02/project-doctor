@@ -97,6 +97,119 @@
       "title": "EvidenceRef",
       "type": "object"
     },
+    "LockEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "covered_no_wait",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ],
+          "title": "Coverage",
+          "type": "string"
+        },
+        "covered_kinds": {
+          "items": {
+            "enum": [
+              "table",
+              "metadata",
+              "innodb_data"
+            ],
+            "type": "string"
+          },
+          "title": "Covered Kinds",
+          "type": "array"
+        },
+        "missing_kinds": {
+          "items": {
+            "enum": [
+              "table",
+              "metadata",
+              "innodb_data"
+            ],
+            "type": "string"
+          },
+          "title": "Missing Kinds",
+          "type": "array"
+        },
+        "thread_id": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thread Id"
+        },
+        "statement_event_id": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Statement Event Id"
+        },
+        "window_start": {
+          "format": "date-time",
+          "title": "Window Start",
+          "type": "string"
+        },
+        "window_end": {
+          "format": "date-time",
+          "title": "Window End",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "coverage",
+        "window_start",
+        "window_end"
+      ],
+      "title": "LockEvidence",
+      "type": "object"
+    },
     "MetricSource": {
       "additionalProperties": false,
       "properties": {
@@ -303,6 +416,17 @@
           ],
           "default": null,
           "title": "Span Id"
+        },
+        "lock_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LockEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [

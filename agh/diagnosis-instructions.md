@@ -7,6 +7,9 @@
 3. 提出至多三个竞争假设及可检验预测。本轮只支持 slow_query 与 unclassified。
    索引访问代价机制使用 explanation=`index_access_cost`；只有该明确机制的预测被程序验证时可更新为 supported，任意文字假设仍保持 unresolved。
 4. 优先提出单变量索引对照：baseline/candidate_index，每组至少三次，使用允许的配方引用。
+   本轮 GET 串行场景使用 warmup={"requests_per_level":5}，缓存声明为 warm，
+   preparation_recipe_ref 使用 builtin:serial-readonly-warmup.v1；预算同时包含两组预热和正式请求。
+   旧实验可以读取，但没有实际准备记录和完整锁覆盖证据时只能输出 lead。
 5. 调 run_experiment；程序约束预算、权限、独占、测量和恢复。失败／未知先 reconcile_task，不盲重放。
 6. 调 evaluate_evidence，仅提供持久实验／假设 ID；工具决定是否 verified，模型不能提交观测或提高结论状态。
 7. 无法排除锁等待、缓存差异或测量波动时保留线索；发现预算耗尽后收尾，不增加新实验。

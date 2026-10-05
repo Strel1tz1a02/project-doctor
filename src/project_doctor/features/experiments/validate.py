@@ -31,6 +31,15 @@ def validate_experiment(
         add("scenario_invalid", "experiment references unknown hypotheses")
     if spec.repetitions < 3:
         add("scenario_invalid", "experiment requires at least three repetitions")
+    if spec.warmup is not None:
+        if scenario.cache.state != "warm":
+            add("scenario_invalid", "workload warmup requires cache state warm")
+        if len(scenario.steps) != 1 or scenario.steps[0].method != "GET":
+            add("scenario_invalid", "warmup protocol supports one read-only GET request")
+        if scenario.cache.preparation_recipe_ref != spec.warmup.preparation_recipe_ref:
+            add("scenario_invalid", "cache preparation recipe does not match warmup protocol")
+        if scenario.load.mode != "serial":
+            add("scenario_invalid", "warmup protocol requires serial measurement")
     if task.usage.experiments >= task.limits.max_experiments:
         add("budget_exhausted", "experiment budget is exhausted")
     return failures

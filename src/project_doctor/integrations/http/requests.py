@@ -99,10 +99,10 @@ class RestrictedHttpClient:
             raise ValueError("request target host is outside the allowed network")
         return url
 
-    async def request(self, step: RequestStep) -> HttpResponse:
+    async def request(self, step: RequestStep, *, request_id: str | None = None) -> HttpResponse:
         url = self.endpoint(step.relative_path)
-        request_id = uuid.uuid4().hex
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        request_id = request_id or uuid.uuid4().hex
+        async with httpx.AsyncClient(timeout=self._timeout, trust_env=False) as client:
             response = await client.request(
                 step.method,
                 url,

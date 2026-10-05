@@ -37,7 +37,9 @@ def load_bundle_and_spec() -> tuple[TaskBundle, ExperimentSpec]:
     bundle = TaskBundle.model_validate(case["bundle"])
     bundle.task.usage.experiments = 0
     bundle.task.usage.requests = 0
-    return bundle, ExperimentSpec.model_validate(case["spec"])
+    spec = ExperimentSpec.model_validate(case["spec"])
+    spec.warmup = None  # These tests cover the legacy execution path.
+    return bundle, spec
 
 
 def make_settings(tmp_path: Path) -> Settings:

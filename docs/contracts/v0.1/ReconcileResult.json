@@ -181,6 +181,20 @@
             }
           ],
           "default": null
+        },
+        "preparation_results": {
+          "items": {
+            "$ref": "#/$defs/PreparationResult"
+          },
+          "title": "Preparation Results",
+          "type": "array"
+        },
+        "warmup_results": {
+          "items": {
+            "$ref": "#/$defs/WarmupResult"
+          },
+          "title": "Warmup Results",
+          "type": "array"
         }
       },
       "required": [
@@ -286,6 +300,17 @@
           "pattern": "\\S",
           "title": "Observation Config Id",
           "type": "string"
+        },
+        "warmup": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WarmupSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -402,6 +427,119 @@
         "restore_reserve_seconds"
       ],
       "title": "Limits",
+      "type": "object"
+    },
+    "LockEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "covered_no_wait",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ],
+          "title": "Coverage",
+          "type": "string"
+        },
+        "covered_kinds": {
+          "items": {
+            "enum": [
+              "table",
+              "metadata",
+              "innodb_data"
+            ],
+            "type": "string"
+          },
+          "title": "Covered Kinds",
+          "type": "array"
+        },
+        "missing_kinds": {
+          "items": {
+            "enum": [
+              "table",
+              "metadata",
+              "innodb_data"
+            ],
+            "type": "string"
+          },
+          "title": "Missing Kinds",
+          "type": "array"
+        },
+        "thread_id": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thread Id"
+        },
+        "statement_event_id": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Statement Event Id"
+        },
+        "window_start": {
+          "format": "date-time",
+          "title": "Window Start",
+          "type": "string"
+        },
+        "window_end": {
+          "format": "date-time",
+          "title": "Window End",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "coverage",
+        "window_start",
+        "window_end"
+      ],
+      "title": "LockEvidence",
       "type": "object"
     },
     "MetricSource": {
@@ -591,6 +729,90 @@
         "source_ref"
       ],
       "title": "ParameterProvenance",
+      "type": "object"
+    },
+    "PreparationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "baseline",
+            "candidate_index"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "protocol_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Protocol Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "observation_config_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Observation Config Id",
+          "type": "string"
+        },
+        "prepared_fingerprint": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Prepared Fingerprint",
+          "type": "string"
+        },
+        "final_fingerprint": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Final Fingerprint"
+        },
+        "recipe_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Recipe Digest",
+          "type": "string"
+        },
+        "verified": {
+          "default": false,
+          "title": "Verified",
+          "type": "boolean"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "level",
+        "protocol_id",
+        "snapshot_id",
+        "observation_config_id",
+        "prepared_fingerprint",
+        "recipe_digest"
+      ],
+      "title": "PreparationResult",
       "type": "object"
     },
     "ReconciledOperation": {
@@ -853,6 +1075,17 @@
           ],
           "default": null,
           "title": "Span Id"
+        },
+        "lock_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LockEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -860,6 +1093,110 @@
         "normalized_sql"
       ],
       "title": "SqlCall",
+      "type": "object"
+    },
+    "WarmupResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "baseline",
+            "candidate_index"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "ordinal": {
+          "exclusiveMinimum": 0,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "request_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "business_valid": {
+          "title": "Business Valid",
+          "type": "boolean"
+        },
+        "result_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Result Digest"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Failure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "level",
+        "ordinal",
+        "request_id",
+        "business_valid"
+      ],
+      "title": "WarmupResult",
+      "type": "object"
+    },
+    "WarmupSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "protocol_id": {
+          "const": "serial-readonly-warmup.v1",
+          "default": "serial-readonly-warmup.v1",
+          "title": "Protocol Id",
+          "type": "string"
+        },
+        "preparation_recipe_ref": {
+          "const": "builtin:serial-readonly-warmup.v1",
+          "default": "builtin:serial-readonly-warmup.v1",
+          "title": "Preparation Recipe Ref",
+          "type": "string"
+        },
+        "requests_per_level": {
+          "default": 5,
+          "exclusiveMinimum": 0,
+          "title": "Requests Per Level",
+          "type": "integer"
+        }
+      },
+      "title": "WarmupSpec",
       "type": "object"
     }
   },

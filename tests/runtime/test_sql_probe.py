@@ -200,8 +200,7 @@ def test_perf_schema_row_to_sql_call_reports_lock_wait_only_when_covered() -> No
     assert uncovered.lock_wait_ms is None
     assert "lock_wait_ms" not in uncovered.metric_sources
 
-    # With row-lock coverage confirmed (no InnoDB row lock wait), LOCK_TIME becomes
-    # the complete lock wait and is reported with both evidence citations.
+    # A legacy flag and a post-request snapshot cannot prove interval coverage.
     covered = perf_schema_row_to_sql_call(
         row,
         commit=COMMIT,
@@ -210,12 +209,8 @@ def test_perf_schema_row_to_sql_call_reports_lock_wait_only_when_covered() -> No
         lock_wait_complete=True,
         lock_wait_evidence_id="row-lock-evidence",
     )
-    assert covered.lock_wait_ms == 0.0
-    assert covered.metric_sources["lock_wait_ms"].measurement == "actual"
-    assert covered.metric_sources["lock_wait_ms"].evidence_ids == [
-        EVIDENCE_ID,
-        "row-lock-evidence",
-    ]
+    assert covered.lock_wait_ms is None
+    assert "lock_wait_ms" not in covered.metric_sources
 
 
 def test_perf_schema_row_to_sql_call_omits_missing_metrics() -> None:
@@ -247,11 +242,13 @@ def test_perf_schema_row_to_sql_call_rejects_empty_sql() -> None:
 
 
 def test_parse_mysql_batch_roundtrip() -> None:
-    output = "SELECT 1\t1000000000\t10\t2\t0\nSELECT 2\t2000000000\t5\t1\t0\n"
+    output = "SELECT 1\t1000000000\t10\t2\t0\t10\t1\nSELECT 2\t2000000000\t5\t1\t0\t10\t2\n"
     rows = parse_mysql_batch(output, PERF_SCHEMA_COLUMNS)
     assert rows == [
         {
             "SQL_TEXT": "SELECT 1",
+            "THREAD_ID": "10",
+            "EVENT_ID": "1",
             "TIMER_WAIT": "1000000000",
             "ROWS_EXAMINED": "10",
             "ROWS_SENT": "2",
@@ -259,6 +256,8 @@ def test_parse_mysql_batch_roundtrip() -> None:
         },
         {
             "SQL_TEXT": "SELECT 2",
+            "THREAD_ID": "10",
+            "EVENT_ID": "2",
             "TIMER_WAIT": "2000000000",
             "ROWS_EXAMINED": "5",
             "ROWS_SENT": "1",
@@ -391,7 +390,7 @@ def test_perf_schema_probe_degrades_when_explain_is_not_json() -> None:
     assert len(collection.evidence_refs) == 1  # raw only, no plan
 
 
-def test_perf_schema_probe_collects_lock_wait_when_no_row_locks() -> None:
+def test_post_request_empty_snapshot_does_not_prove_zero_wait() -> None:
     async def fake_fetcher(context: CallContext, sql: str) -> list[dict[str, Any]]:
         return [_GOOD_ROW]
 
@@ -419,10 +418,9 @@ def test_perf_schema_probe_collects_lock_wait_when_no_row_locks() -> None:
         )
     )  # type: ignore[arg-type]
     call = collection.calls[0]
-    assert call.lock_wait_ms == 0.0
-    assert call.metric_sources["lock_wait_ms"].measurement == "actual"
-    # Both the raw perf-schema row and the row-lock snapshot must be cited.
-    assert len(call.metric_sources["lock_wait_ms"].evidence_ids) == 2
+    assert call.lock_wait_ms is None
+    assert "lock_wait_ms" not in call.metric_sources
+    # The snapshot remains raw context, not an actual total-wait measurement.
     assert any("row-lock-waits" in ref.relative_path for ref in refs)
 
 

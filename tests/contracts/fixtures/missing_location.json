@@ -27,7 +27,7 @@
       "usage": {
         "schema_version": "0.1",
         "wall_seconds": 0.0,
-        "requests": 6,
+        "requests": 8,
         "experiments": 1,
         "artifact_bytes": 0
       },
@@ -120,7 +120,7 @@
         "cache": {
           "schema_version": "0.1",
           "state": "warm",
-          "preparation_recipe_ref": "recipe:warm",
+          "preparation_recipe_ref": "builtin:serial-readonly-warmup.v1",
           "notes": []
         },
         "credential_refs": [],
@@ -211,7 +211,34 @@
                 "plan_evidence_ids": [
                   "synthetic-evidence"
                 ],
-                "span_id": null
+                "span_id": null,
+                "lock_evidence": {
+                  "schema_version": "0.1",
+                  "status": "covered_no_wait",
+                  "coverage": "complete",
+                  "covered_kinds": [
+                    "table",
+                    "metadata",
+                    "innodb_data"
+                  ],
+                  "missing_kinds": [],
+                  "thread_id": 1,
+                  "statement_event_id": 1,
+                  "window_start": "2026-10-04T00:00:00Z",
+                  "window_end": "2026-10-04T00:00:01Z",
+                  "reasons": [],
+                  "evidence_refs": [
+                    {
+                      "schema_version": "0.1",
+                      "artifact_id": "synthetic-evidence",
+                      "relative_path": "synthetic/evidence.json",
+                      "media_type": "application/json",
+                      "format_version": "synthetic-0.1",
+                      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "size_bytes": 1
+                    }
+                  ]
+                }
               }
             ],
             "fingerprint": "fingerprint-baseline",
@@ -287,7 +314,34 @@
                 "plan_evidence_ids": [
                   "synthetic-evidence"
                 ],
-                "span_id": null
+                "span_id": null,
+                "lock_evidence": {
+                  "schema_version": "0.1",
+                  "status": "covered_no_wait",
+                  "coverage": "complete",
+                  "covered_kinds": [
+                    "table",
+                    "metadata",
+                    "innodb_data"
+                  ],
+                  "missing_kinds": [],
+                  "thread_id": 1,
+                  "statement_event_id": 2,
+                  "window_start": "2026-10-04T00:00:00Z",
+                  "window_end": "2026-10-04T00:00:01Z",
+                  "reasons": [],
+                  "evidence_refs": [
+                    {
+                      "schema_version": "0.1",
+                      "artifact_id": "synthetic-evidence",
+                      "relative_path": "synthetic/evidence.json",
+                      "media_type": "application/json",
+                      "format_version": "synthetic-0.1",
+                      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "size_bytes": 1
+                    }
+                  ]
+                }
               }
             ],
             "fingerprint": "fingerprint-baseline",
@@ -363,7 +417,34 @@
                 "plan_evidence_ids": [
                   "synthetic-evidence"
                 ],
-                "span_id": null
+                "span_id": null,
+                "lock_evidence": {
+                  "schema_version": "0.1",
+                  "status": "covered_no_wait",
+                  "coverage": "complete",
+                  "covered_kinds": [
+                    "table",
+                    "metadata",
+                    "innodb_data"
+                  ],
+                  "missing_kinds": [],
+                  "thread_id": 1,
+                  "statement_event_id": 3,
+                  "window_start": "2026-10-04T00:00:00Z",
+                  "window_end": "2026-10-04T00:00:01Z",
+                  "reasons": [],
+                  "evidence_refs": [
+                    {
+                      "schema_version": "0.1",
+                      "artifact_id": "synthetic-evidence",
+                      "relative_path": "synthetic/evidence.json",
+                      "media_type": "application/json",
+                      "format_version": "synthetic-0.1",
+                      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "size_bytes": 1
+                    }
+                  ]
+                }
               }
             ],
             "fingerprint": "fingerprint-baseline",
@@ -439,7 +520,34 @@
                 "plan_evidence_ids": [
                   "synthetic-evidence"
                 ],
-                "span_id": null
+                "span_id": null,
+                "lock_evidence": {
+                  "schema_version": "0.1",
+                  "status": "covered_no_wait",
+                  "coverage": "complete",
+                  "covered_kinds": [
+                    "table",
+                    "metadata",
+                    "innodb_data"
+                  ],
+                  "missing_kinds": [],
+                  "thread_id": 1,
+                  "statement_event_id": 1,
+                  "window_start": "2026-10-04T00:00:00Z",
+                  "window_end": "2026-10-04T00:00:01Z",
+                  "reasons": [],
+                  "evidence_refs": [
+                    {
+                      "schema_version": "0.1",
+                      "artifact_id": "synthetic-evidence",
+                      "relative_path": "synthetic/evidence.json",
+                      "media_type": "application/json",
+                      "format_version": "synthetic-0.1",
+                      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "size_bytes": 1
+                    }
+                  ]
+                }
               }
             ],
             "fingerprint": "fingerprint-candidate_index",
@@ -515,7 +623,34 @@
                 "plan_evidence_ids": [
                   "synthetic-evidence"
                 ],
-                "span_id": null
+                "span_id": null,
+                "lock_evidence": {
+                  "schema_version": "0.1",
+                  "status": "covered_no_wait",
+                  "coverage": "complete",
+                  "covered_kinds": [
+                    "table",
+                    "metadata",
+                    "innodb_data"
+                  ],
+                  "missing_kinds": [],
+                  "thread_id": 1,
+                  "statement_event_id": 2,
+                  "window_start": "2026-10-04T00:00:00Z",
+                  "window_end": "2026-10-04T00:00:01Z",
+                  "reasons": [],
+                  "evidence_refs": [
+                    {
+                      "schema_version": "0.1",
+                      "artifact_id": "synthetic-evidence",
+                      "relative_path": "synthetic/evidence.json",
+                      "media_type": "application/json",
+                      "format_version": "synthetic-0.1",
+                      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "size_bytes": 1
+                    }
+                  ]
+                }
               }
             ],
             "fingerprint": "fingerprint-candidate_index",
@@ -591,7 +726,34 @@
                 "plan_evidence_ids": [
                   "synthetic-evidence"
                 ],
-                "span_id": null
+                "span_id": null,
+                "lock_evidence": {
+                  "schema_version": "0.1",
+                  "status": "covered_no_wait",
+                  "coverage": "complete",
+                  "covered_kinds": [
+                    "table",
+                    "metadata",
+                    "innodb_data"
+                  ],
+                  "missing_kinds": [],
+                  "thread_id": 1,
+                  "statement_event_id": 3,
+                  "window_start": "2026-10-04T00:00:00Z",
+                  "window_end": "2026-10-04T00:00:01Z",
+                  "reasons": [],
+                  "evidence_refs": [
+                    {
+                      "schema_version": "0.1",
+                      "artifact_id": "synthetic-evidence",
+                      "relative_path": "synthetic/evidence.json",
+                      "media_type": "application/json",
+                      "format_version": "synthetic-0.1",
+                      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "size_bytes": 1
+                    }
+                  ]
+                }
               }
             ],
             "fingerprint": "fingerprint-candidate_index",
@@ -641,7 +803,95 @@
           }
         ],
         "failure": null,
-        "spec": null
+        "spec": null,
+        "preparation_results": [
+          {
+            "schema_version": "0.1",
+            "level": "baseline",
+            "protocol_id": "serial-readonly-warmup.v1",
+            "snapshot_id": "snapshot-1",
+            "observation_config_id": "observation-config-1",
+            "prepared_fingerprint": "fingerprint-baseline",
+            "final_fingerprint": "fingerprint-baseline",
+            "recipe_digest": "65773cd5046460611da77d5248d690553b0ae3330246ddf6a5a75b249b956276",
+            "verified": true,
+            "evidence_refs": [
+              {
+                "schema_version": "0.1",
+                "artifact_id": "synthetic-evidence",
+                "relative_path": "synthetic/evidence.json",
+                "media_type": "application/json",
+                "format_version": "synthetic-0.1",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "size_bytes": 1
+              }
+            ]
+          },
+          {
+            "schema_version": "0.1",
+            "level": "candidate_index",
+            "protocol_id": "serial-readonly-warmup.v1",
+            "snapshot_id": "snapshot-1",
+            "observation_config_id": "observation-config-1",
+            "prepared_fingerprint": "fingerprint-candidate_index",
+            "final_fingerprint": "fingerprint-candidate_index",
+            "recipe_digest": "65773cd5046460611da77d5248d690553b0ae3330246ddf6a5a75b249b956276",
+            "verified": true,
+            "evidence_refs": [
+              {
+                "schema_version": "0.1",
+                "artifact_id": "synthetic-evidence",
+                "relative_path": "synthetic/evidence.json",
+                "media_type": "application/json",
+                "format_version": "synthetic-0.1",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "size_bytes": 1
+              }
+            ]
+          }
+        ],
+        "warmup_results": [
+          {
+            "schema_version": "0.1",
+            "level": "baseline",
+            "ordinal": 1,
+            "request_id": "warmup-baseline",
+            "business_valid": true,
+            "result_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "failure": null,
+            "evidence_refs": [
+              {
+                "schema_version": "0.1",
+                "artifact_id": "synthetic-evidence",
+                "relative_path": "synthetic/evidence.json",
+                "media_type": "application/json",
+                "format_version": "synthetic-0.1",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "size_bytes": 1
+              }
+            ]
+          },
+          {
+            "schema_version": "0.1",
+            "level": "candidate_index",
+            "ordinal": 1,
+            "request_id": "warmup-candidate_index",
+            "business_valid": true,
+            "result_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "failure": null,
+            "evidence_refs": [
+              {
+                "schema_version": "0.1",
+                "artifact_id": "synthetic-evidence",
+                "relative_path": "synthetic/evidence.json",
+                "media_type": "application/json",
+                "format_version": "synthetic-0.1",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "size_bytes": 1
+              }
+            ]
+          }
+        ]
       }
     ],
     "findings": [
@@ -747,7 +997,13 @@
     },
     "baseline_fingerprint": "fingerprint-baseline",
     "snapshot_id": "snapshot-1",
-    "observation_config_id": "observation-config-1"
+    "observation_config_id": "observation-config-1",
+    "warmup": {
+      "schema_version": "0.1",
+      "protocol_id": "serial-readonly-warmup.v1",
+      "preparation_recipe_ref": "builtin:serial-readonly-warmup.v1",
+      "requests_per_level": 1
+    }
   },
   "evidence_check": {
     "schema_version": "0.1",

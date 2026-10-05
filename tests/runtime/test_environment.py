@@ -111,7 +111,7 @@ def test_render_compose_gives_app_connection_vars() -> None:
     assert "DB_PASSWORD: secret" in text
 
 
-def test_render_compose_publishes_host_port_on_plain_project_network() -> None:
+def test_render_compose_publishes_loopback_ingress_with_internal_target_network() -> None:
     text = render_compose(
         service_image="project-doctor-target:latest",
         service_port=18080,
@@ -121,12 +121,11 @@ def test_render_compose_publishes_host_port_on_plain_project_network() -> None:
         db_password="secret",
     )
     # The experiment address is the isolated host port, never an external host.
-    assert '"18080:8080"' in text
+    assert '"127.0.0.1:18080:8080"' in text
     assert "http://" not in text
-    # The network must stay a plain project-scoped bridge: `internal: true`
-    # silently disables port publishing, so the host port above would not bind.
+    # Application/database stay internal; only the ingress publishes a port.
     assert "networks:\n  internal:" in text
-    assert "internal: true" not in text
+    assert "internal: true" in text
 
 
 def test_render_compose_keeps_db_env_and_volume_on_separate_lines() -> None:

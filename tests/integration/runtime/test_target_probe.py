@@ -17,6 +17,7 @@ import asyncio
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from project_doctor.entrypoints.settings import Settings
 from project_doctor.features.experiments.interventions import parse_index_recipe
 from project_doctor.features.scenarios.discover import discover
 from project_doctor.integrations.artifacts.publish import publish_artifact
+from project_doctor.integrations.docker.compose import render_compose
 from project_doctor.integrations.docker.gateway import (
     DockerEnvironmentGateway,
     compose_project_name,
@@ -162,28 +164,31 @@ def test_target_probe_end_to_end(real_target: tuple[Path, Path]) -> None:
     )
 
     prepared = asyncio.run(gateway.prepare(make_project(), context))
-    assert prepared.baseline_snapshot_id
+    try:
+        assert prepared.baseline_snapshot_id
 
-    step = discover(make_project(), load_manifest())[0].steps[0]
-    http = RestrictedHttpClient(
-        base_url=prepared.isolated_base_url,
-        allowed_network=settings.allowed_target_network,
-        timeout=60.0,
-    )
-    response = asyncio.run(http.request(step))
-    valid, reasons = check_assertions(step.assertions, response)
-    assert response.status_code == 200, f"unexpected status {response.status_code}"
-    assert valid, reasons
-
-    restored = asyncio.run(
-        gateway.restore(
-            prepared.environment_id,
-            prepared.baseline_snapshot_id,
-            context,
-            prepared.baseline_dump,
+        step = discover(make_project(), load_manifest())[0].steps[0]
+        http = RestrictedHttpClient(
+            base_url=prepared.isolated_base_url,
+            allowed_network=settings.allowed_target_network,
+            timeout=60.0,
         )
-    )
-    assert restored.verified, restored.reason
+        response = asyncio.run(http.request(step))
+        valid, reasons = check_assertions(step.assertions, response)
+        assert response.status_code == 200, f"unexpected status {response.status_code}"
+        assert valid, reasons
+
+        restored = asyncio.run(
+            gateway.restore(
+                prepared.environment_id,
+                prepared.baseline_snapshot_id,
+                context,
+                prepared.baseline_dump,
+            )
+        )
+        assert restored.verified, restored.reason
+    finally:
+        asyncio.run(gateway.teardown(prepared.environment_id, context))
 
 
 def test_target_probe_collects_tagged_correlated_sql(real_target: tuple[Path, Path]) -> None:
@@ -191,7 +196,8 @@ def test_target_probe_collects_tagged_correlated_sql(real_target: tuple[Path, Pa
 
     This is the durable regression for the three 2026-10-02 gaps: the demo's MyBatis
     interceptor must tag every SQL with a ``pd`` marker + request id, and the probe
-    must turn that into correlated SqlCalls with a non-None ``lock_wait_ms``.
+    must correlate SqlCalls while keeping total ``lock_wait_ms`` unknown
+    until interval coverage is proved.
     """
     tmp_path, target_repo = real_target
     settings = _make_settings(tmp_path, target_repo)
@@ -262,13 +268,57 @@ def test_target_probe_collects_tagged_correlated_sql(real_target: tuple[Path, Pa
             assert all(call.code_location is not None for call in collection.calls)
             # 信息获取: the slow-query marker (findSlowOrders) must be collected.
             assert any(
-                "OrderMapper.java:14" in (call.code_location.path if call.code_location else "")
+                call.code_location is not None
+                and call.code_location.path.endswith("OrderMapper.java")
+                and call.code_location.line == 14
                 for call in collection.calls
             )
-            # 锁覆盖: LOCK_TIME must be collected for every call (no None values).
-            assert all(call.lock_wait_ms is not None for call in collection.calls)
-            assert all("lock_wait_ms" in call.metric_sources for call in collection.calls)
+            # Snapshot-only evidence cannot establish complete zero-wait coverage.
+            assert all(call.lock_wait_ms is None for call in collection.calls)
+            assert all("lock_wait_ms" not in call.metric_sources for call in collection.calls)
         finally:
             await gateway.teardown(prepared.environment_id, context)
 
     asyncio.run(run())
+
+
+def test_rendered_compose_is_accepted_by_docker(tmp_path: Path) -> None:
+    if not shutil.which("docker"):
+        pytest.skip("Docker CLI unavailable; compose parser not tested")
+    config = tmp_path / "compose.yml"
+    config.write_text(
+        render_compose(
+            service_image="project-doctor-target:latest",
+            service_port=18080,
+            db_image="mysql:8.4",
+            db_name="app",
+            db_user="app",
+            db_password="app",
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-p",
+            "pd-config-validation",
+            "-f",
+            str(config),
+            "config",
+            "--format",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+        check=True,
+    )
+    parsed = json.loads(result.stdout)
+    assert parsed["services"]["db"]["environment"]["MYSQL_USER"] == "app"
+    assert parsed["services"]["db"]["volumes"][0]["target"] == "/docker-entrypoint-initdb.d"
+    assert set(parsed["services"]["app"]["networks"]) == {"internal"}
+    assert set(parsed["services"]["db"]["networks"]) == {"internal"}
+    assert parsed["networks"]["internal"]["internal"] is True
+    assert parsed["services"]["ingress"]["ports"][0]["host_ip"] == "127.0.0.1"

@@ -1,9 +1,7 @@
 """Docker Compose adapter: isolated project names, rendered files and subprocess calls.
 
-The target service is published on a dedicated host port and a project-scoped network, so
-the experiment address can never be the original production address. The network must be a
-plain bridge: ``internal: true`` silently disables port publishing, breaking the host-port
-path the experiment HTTP client relies on.
+The application and database stay on an internal network. A separate, fixed-destination
+ingress publishes only on loopback, preserving reachability without giving the target egress.
 """
 
 from __future__ import annotations
@@ -85,8 +83,6 @@ def render_compose(
         f"    image: {service_image}\n"
         "    depends_on:\n"
         "      - db\n"
-        f"    ports:\n"
-        f'      - "{service_port}:8080"\n'
         "    environment:\n"
         f"{app_env}"
         f"{app_healthcheck}"
@@ -102,8 +98,20 @@ def render_compose(
         "      - ./initdb:/docker-entrypoint-initdb.d:ro\n"
         "    networks:\n"
         "      - internal\n"
+        "  ingress:\n"
+        "    image: project-doctor-ingress:latest\n"
+        "    depends_on:\n"
+        "      - app\n"
+        "    ports:\n"
+        f'      - "127.0.0.1:{service_port}:8080"\n'
+        "    read_only: true\n"
+        "    cap_drop: [ALL]\n"
+        "    security_opt: ['no-new-privileges:true']\n"
+        "    networks: [internal, ingress]\n"
         "networks:\n"
         "  internal:\n"
+        "    internal: true\n"
+        "  ingress: {}\n"
     )
 
 
@@ -120,6 +128,7 @@ class ComposeRunner:
             cwd=self._project_dir,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=timeout,
             check=False,
         )
@@ -151,6 +160,7 @@ class ComposeRunner:
             input=data,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=timeout,
             check=False,
         )

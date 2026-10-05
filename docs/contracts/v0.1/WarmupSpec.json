@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "protocol_id": {
+      "const": "serial-readonly-warmup.v1",
+      "default": "serial-readonly-warmup.v1",
+      "title": "Protocol Id",
+      "type": "string"
+    },
+    "preparation_recipe_ref": {
+      "const": "builtin:serial-readonly-warmup.v1",
+      "default": "builtin:serial-readonly-warmup.v1",
+      "title": "Preparation Recipe Ref",
+      "type": "string"
+    },
+    "requests_per_level": {
+      "default": 5,
+      "exclusiveMinimum": 0,
+      "title": "Requests Per Level",
+      "type": "integer"
+    }
+  },
+  "title": "WarmupSpec",
+  "type": "object"
+}

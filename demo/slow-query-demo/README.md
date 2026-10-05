@@ -126,6 +126,9 @@ CREATE TABLE IF NOT EXISTS orders (
 
 ## 优化方向提示
 
+Project Doctor 隔离联调还需构建 `demo/ingress` 入口镜像。
+预热配置、锁证据限制及检查命令见 [预热与锁证据协议](../../docs/development/warmup-and-lock-protocol.md)。
+
 1. **加索引**：`users.email` 建索引（若前缀匹配可用），`orders(user_id, status, created_at)` 建复合索引。
 2. **改写 SQL**：去掉子查询，改为 `JOIN`，一次查询直接返回 `OrderVO`，消除 N+1。
 3. **优化 COUNT**：与主查询同构改写；必要时限制最大页数、缓存总数或改为「加载更多」。

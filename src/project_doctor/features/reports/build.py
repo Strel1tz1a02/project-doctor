@@ -1,3 +1,5 @@
+from typing import cast
+
 from pydantic import JsonValue
 
 from project_doctor.features.reports.rank import rank, shared_impact
@@ -57,6 +59,40 @@ def build_report(bundle: TaskBundle) -> ReportData:
             }
         )
     payload["cards"] = cards
+    payload["measurement_protocols"] = [
+        {
+            "experiment_id": result.experiment_id,
+            "warmup_protocol": result.spec.warmup.model_dump(mode="json")
+            if result.spec and result.spec.warmup
+            else None,
+            "warmup_attempts": len(result.warmup_results),
+            "warmup_successes": sum(
+                item.business_valid and item.failure is None for item in result.warmup_results
+            ),
+            "formal_samples": len(result.observations),
+            "preparation_verified": len(result.preparation_results) == 2
+            and all(item.verified for item in result.preparation_results),
+            "lock_statuses": [
+                {
+                    "request_id": item.request_id,
+                    "sql_call_id": call.id,
+                    "status": call.lock_evidence.status if call.lock_evidence else "unknown",
+                    "coverage": call.lock_evidence.coverage if call.lock_evidence else "unknown",
+                    "missing_kinds": cast(JsonValue, call.lock_evidence.missing_kinds)
+                    if call.lock_evidence
+                    else ["table", "metadata", "innodb_data"],
+                    "reasons": cast(JsonValue, call.lock_evidence.reasons)
+                    if call.lock_evidence
+                    else ["缺少锁覆盖证据。"],
+                }
+                for item in result.observations
+                for call in item.sql_calls
+            ],
+        }
+        for result in bundle.experiments
+    ]
+    report.limitations.append("预热只证明规定准备动作已执行；轮询空结果不证明零锁等待。")
+    payload["limitations"] = list(report.limitations)
     report.json_content = render_json(payload)
     report.html_content = render_html(report.json_content)
     return report

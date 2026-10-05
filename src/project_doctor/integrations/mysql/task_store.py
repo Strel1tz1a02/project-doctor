@@ -105,9 +105,9 @@ class MySQLTaskStore:
                     task_id=task_id,
                     scenario_id=scenario.id,
                     version=scenario.version,
-                    record_json=scenario.model_dump(),
+                    record_json=scenario.model_dump(mode="json"),
                 )
-                .on_duplicate_key_update(record_json=scenario.model_dump())
+                .on_duplicate_key_update(record_json=scenario.model_dump(mode="json"))
             )
             self._add_id(conn, task_id, "scenario_ids", scenario.id)
 
@@ -116,8 +116,12 @@ class MySQLTaskStore:
             for item in items:
                 conn.execute(
                     mysql_insert(hypotheses)
-                    .values(task_id=task_id, hypothesis_id=item.id, record_json=item.model_dump())
-                    .on_duplicate_key_update(record_json=item.model_dump())
+                    .values(
+                        task_id=task_id,
+                        hypothesis_id=item.id,
+                        record_json=item.model_dump(mode="json"),
+                    )
+                    .on_duplicate_key_update(record_json=item.model_dump(mode="json"))
                 )
                 self._add_id(conn, task_id, "hypothesis_ids", item.id)
 
@@ -126,8 +130,12 @@ class MySQLTaskStore:
             for item in items:
                 conn.execute(
                     mysql_insert(findings)
-                    .values(task_id=task_id, finding_id=item.id, record_json=item.model_dump())
-                    .on_duplicate_key_update(record_json=item.model_dump())
+                    .values(
+                        task_id=task_id,
+                        finding_id=item.id,
+                        record_json=item.model_dump(mode="json"),
+                    )
+                    .on_duplicate_key_update(record_json=item.model_dump(mode="json"))
                 )
                 self._add_id(conn, task_id, "finding_ids", item.id)
 
@@ -175,8 +183,8 @@ class MySQLTaskStore:
                 )
                 .values(
                     state=result.state,
-                    result_json=result.model_dump(),
-                    consumed_json=consumed.model_dump(),
+                    result_json=result.model_dump(mode="json"),
+                    consumed_json=consumed.model_dump(mode="json"),
                 )
             )
             self._dispatch(conn, task_id, result)
@@ -223,7 +231,7 @@ class MySQLTaskStore:
 
     @staticmethod
     def _record_json(task: TaskRecord) -> dict[str, object]:
-        return task.model_dump(exclude={"status"})
+        return task.model_dump(mode="json", exclude={"status"})
 
     def _load_task(self, conn: Connection, task_id: str) -> TaskRecord:
         row = conn.execute(
@@ -281,9 +289,9 @@ class MySQLTaskStore:
                 .values(
                     task_id=task_id,
                     experiment_id=payload.experiment_id,
-                    record_json=payload.model_dump(),
+                    record_json=payload.model_dump(mode="json"),
                 )
-                .on_duplicate_key_update(record_json=payload.model_dump())
+                .on_duplicate_key_update(record_json=payload.model_dump(mode="json"))
             )
             self._add_id(conn, task_id, "experiment_ids", payload.experiment_id)
         elif isinstance(payload, RestoreResult):
@@ -315,9 +323,16 @@ class MySQLTaskStore:
     def _gather_refs(experiment_models: list[ExperimentResult]) -> list[EvidenceRef]:
         by_id: dict[str, EvidenceRef] = {}
         for experiment in experiment_models:
+            for item in experiment.preparation_results + experiment.warmup_results:
+                for ref in item.evidence_refs:
+                    by_id[ref.artifact_id] = ref
             for ref in experiment.evidence_refs:
                 by_id[ref.artifact_id] = ref
             for observation in experiment.observations:
+                for call in observation.sql_calls:
+                    if call.lock_evidence:
+                        for ref in call.lock_evidence.evidence_refs:
+                            by_id[ref.artifact_id] = ref
                 for ref in observation.evidence_refs:
                     by_id[ref.artifact_id] = ref
             if experiment.restore_result is not None:

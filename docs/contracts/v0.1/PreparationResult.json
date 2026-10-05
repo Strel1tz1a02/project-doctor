@@ -1,0 +1,139 @@
+{
+  "$defs": {
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "artifact_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "relative_path": {
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "media_type": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "format_version": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Format Version",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "relative_path",
+        "media_type",
+        "format_version",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "level": {
+      "enum": [
+        "baseline",
+        "candidate_index"
+      ],
+      "title": "Level",
+      "type": "string"
+    },
+    "protocol_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Protocol Id",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "observation_config_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Observation Config Id",
+      "type": "string"
+    },
+    "prepared_fingerprint": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Prepared Fingerprint",
+      "type": "string"
+    },
+    "final_fingerprint": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Final Fingerprint"
+    },
+    "recipe_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Recipe Digest",
+      "type": "string"
+    },
+    "verified": {
+      "default": false,
+      "title": "Verified",
+      "type": "boolean"
+    },
+    "evidence_refs": {
+      "items": {
+        "$ref": "#/$defs/EvidenceRef"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "level",
+    "protocol_id",
+    "snapshot_id",
+    "observation_config_id",
+    "prepared_fingerprint",
+    "recipe_digest"
+  ],
+  "title": "PreparationResult",
+  "type": "object"
+}

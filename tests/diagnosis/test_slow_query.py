@@ -79,6 +79,7 @@ def test_incomplete_or_confounded_evidence_is_never_verified(
     elif condition == "unknown_cache":
         bundle.scenarios[0].cache.state = "unknown"
     elif condition == "lock_wait":
+        call.lock_evidence = None
         call.lock_wait_ms = 100
     elif condition == "missing_rows":
         call.metric_sources.pop("rows_examined")

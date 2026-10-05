@@ -151,3 +151,7 @@ AGH 保存会话与调用记录；MySQL 保存可恢复的业务事实。用任�
 B 侧已实现显式场景 manifest、慢查询规则、报告及八个 MCP 工具；官方 SDK 协议与 scripted 假实现链路已验证。真实 A 工厂、目标实验、MySQL 与 AGH 会话仍待联调。用户已授权兼容新增 ExperimentResult.spec；A 必须持久化实际 spec，缺失时 B 降级线索。见 [B → A 交接](docs/development/b/handoff-to-a.md)。
 
 用户的新指令优先于本指南；架构变更需同时更新对应设计文档，避免文档与代码长期不一致。
+
+2026-10-05 修复：索引对照可配置独立预热，准备、预热及正式测量均需原始证据；旧记录缺证据只输出 lead。
+当前锁采样仅支持 observed/unknown、partial 覆盖，不把空快照当零等待。应用和数据库保持内部网络，通过回环入口访问。
+配置和验证入口见 [预热与锁证据协议](docs/development/warmup-and-lock-protocol.md)，实际验收以对应验收记录为准。
