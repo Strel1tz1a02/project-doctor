@@ -5,7 +5,13 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from project_doctor.models.common import Contract, EvidenceRef, Identifier, NonNegativeInt
+from project_doctor.models.common import (
+    Contract,
+    EvidenceRef,
+    Identifier,
+    NonNegativeFloat,
+    NonNegativeInt,
+)
 
 LockKind = Literal["table", "metadata", "innodb_data"]
 LOCK_KINDS: set[LockKind] = {"table", "metadata", "innodb_data"}
@@ -16,6 +22,10 @@ class LockEvidence(Contract):
     coverage: Literal["complete", "partial", "unknown"]
     covered_kinds: list[LockKind] = Field(default_factory=list)
     missing_kinds: list[LockKind] = Field(default_factory=list)
+    # Upper bound on lock-wait kinds only observable by sampling (InnoDB row locks
+    # have no persistent performance_schema history). None means every covered kind
+    # is proven exactly zero; a value declares "zero within this many milliseconds".
+    residual_ms: NonNegativeFloat | None = None
     thread_id: NonNegativeInt | None = None
     statement_event_id: NonNegativeInt | None = None
     window_start: datetime
@@ -31,15 +41,19 @@ class LockEvidence(Contract):
             raise ValueError("lock window ends before it starts")
         if set(self.covered_kinds) & set(self.missing_kinds):
             raise ValueError("lock category cannot be both covered and missing")
-        if self.status == "covered_no_wait" and (
-            self.coverage != "complete"
-            or set(self.covered_kinds) != LOCK_KINDS
-            or self.missing_kinds
-            or self.thread_id is None
-            or self.statement_event_id is None
-            or not self.evidence_refs
-        ):
-            raise ValueError("zero wait requires complete associated coverage evidence")
+        if self.status == "covered_no_wait":
+            if self.coverage != "complete":
+                raise ValueError("zero wait requires complete associated coverage evidence")
+            if "table" not in self.covered_kinds or "metadata" not in self.covered_kinds:
+                raise ValueError("zero wait requires proven table and metadata lock coverage")
+            if "innodb_data" not in self.covered_kinds and self.residual_ms is None:
+                raise ValueError(
+                    "zero wait requires innodb_data coverage or a declared residual bound"
+                )
+            if self.missing_kinds:
+                raise ValueError("zero wait requires no unaddressed lock kinds")
+            if self.thread_id is None or self.statement_event_id is None or not self.evidence_refs:
+                raise ValueError("zero wait requires associated coverage evidence")
         if self.status == "observed" and not self.evidence_refs:
             raise ValueError("observed wait requires raw evidence")
         return self

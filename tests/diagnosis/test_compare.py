@@ -32,11 +32,15 @@ def test_stable_rejects_negative_or_zero_center() -> None:
     assert stable([-1.0, -1.0, -1.0], POLICY) is False
 
 
-def test_stable_enforces_relative_spread_boundary() -> None:
-    # Relative spread exactly at 25% passes (inclusive); a hair above fails.
-    assert stable([100.0, 112.5, 125.0], POLICY) is True  # (125-100)/112.5 ≈ 0.2222
-    assert stable([100.0, 100.0, 125.0], POLICY) is True  # (125-100)/100 == 0.25
-    assert stable([100.0, 100.0, 125.1], POLICY) is False  # 0.251 > 0.25
+def test_stable_uses_iqr_dispersion_with_absolute_floor() -> None:
+    # Dispersion is the interquartile range (middle 50%), robust to a single
+    # extreme: a lone outlier no longer fails an otherwise-stable group.
+    assert stable([100.0, 100.0, 100.0, 100.0, 200.0], POLICY) is True  # IQR == 0
+    # Middle-50% spread beyond the 25% relative tolerance fails (n=3 → IQR is half the range).
+    assert stable([75.0, 100.0, 140.0], POLICY) is False  # IQR 32.5 > 25.0
+    # Sub-millisecond groups fall back to the absolute floor, not the relative check.
+    assert stable([0.4, 0.4, 0.9], POLICY) is True  # IQR 0.25 ≤ 0.5 ms floor
+    assert stable([0.4, 0.4, 1.5], POLICY) is False  # IQR 0.55 > 0.5 ms floor
 
 
 def test_distinguishable_requires_both_sides_stable() -> None:
@@ -51,11 +55,9 @@ def test_distinguishable_rejects_when_delta_below_minimum() -> None:
 
 
 def test_distinguishable_requires_delta_above_noise() -> None:
-    # Medians differ by 2 ms, but the noise floor exceeds it.
+    # Medians differ by 2 ms, but the IQR noise floor (2 + 1 = 3) exceeds it.
     baseline = [98.0, 100.0, 102.0]
     candidate = [97.0, 98.0, 99.0]
-    noise = (max(baseline) - min(baseline)) + (max(candidate) - min(candidate))  # 4 + 2 = 6
-    assert noise > 2
     assert distinguishable(baseline, candidate, POLICY) is False
 
 

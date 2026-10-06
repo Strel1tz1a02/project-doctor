@@ -111,7 +111,9 @@ def lock_wait_to_ms(lock_time: Any) -> float | None:
     ``LOCK_TIME`` covers table/metadata locks only; it never includes InnoDB row
     locks. A nonzero value must stay nonzero (no rounding) so a tiny wait cannot
     be smuggled past the diagnosis gate's zero-wait threshold. Callers that want
-    a complete lock-wait measurement must combine this with a row-lock check.
+    a complete lock-exclusion conclusion must combine a zero ``LOCK_TIME`` here
+    with a row-lock observation from ``lock_probe``, which yields a bounded
+    residual for InnoDB row locks rather than an exact zero.
     """
     if lock_time is None or lock_time == "":
         return None

@@ -1102,6 +1102,19 @@
           "title": "Missing Kinds",
           "type": "array"
         },
+        "residual_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Residual Ms"
+        },
         "thread_id": {
           "anyOf": [
             {

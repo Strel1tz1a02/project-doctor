@@ -35,9 +35,11 @@ def export() -> None:
                 and candidate.__module__ == module.__name__
             ):
                 content = json.dumps(candidate.model_json_schema(), ensure_ascii=False, indent=2)
-                (destination / f"{candidate.__name__}.json").write_text(
-                    content + "\n", encoding="utf-8"
-                )
+                # Force LF so the export is byte-stable across Windows/Unix checkouts.
+                with (destination / f"{candidate.__name__}.json").open(
+                    "w", encoding="utf-8", newline="\n"
+                ) as handle:
+                    handle.write(content + "\n")
 
 
 if __name__ == "__main__":

@@ -121,6 +121,18 @@ def test_request_latency_without_sql_effect_does_not_prove_root_cause(bundle: Ta
     assert result[0].status == "lead"
 
 
+def test_slow_query_hypothesis_unclassified_when_not_reproduced(bundle: TaskBundle) -> None:
+    add_spec(bundle)
+    # Intervention does not reduce scanned rows, and the baseline SQL is already
+    # below the minimum distinguishable delta: the hypothesis did not reproduce.
+    for item in bundle.experiments[0].observations:
+        item.sql_calls[0].rows_examined = 10
+        item.sql_calls[0].duration_ms = 0.5
+    findings = asyncio.run(evaluate(bundle, Reader()))
+    assert findings[0].status == "unclassified"
+    assert findings[0].recommendation is None
+
+
 def test_repeated_request_id_is_not_independent_measurement(bundle: TaskBundle) -> None:
     add_spec(bundle)
     bundle.experiments[0].observations[1].request_id = (

@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from project_doctor.models.common import EvidenceRef
 from project_doctor.models.experiment import ExperimentResult, WarmupSpec
 from project_doctor.models.lock import LockEvidence
 from project_doctor.models.observation import MetricSource, SqlCall
@@ -26,10 +27,37 @@ def test_empty_poll_cannot_assert_zero() -> None:
             metric_sources={"lock_wait_ms": MetricSource(source="poll", measurement="actual")},
             lock_evidence=unknown,
         )
-    with pytest.raises(ValidationError, match="complete associated"):
+    # covered_no_wait without proven table/metadata coverage is rejected.
+    with pytest.raises(ValidationError, match="table and metadata"):
         LockEvidence(
             status="covered_no_wait", coverage="complete", window_start=now, window_end=now
         )
+
+
+def test_covered_no_wait_accepts_bounded_row_lock_residual() -> None:
+    now = datetime.now(UTC)
+    ref = EvidenceRef(
+        artifact_id="evt-1",
+        relative_path="tasks/task-1/experiments/op-1/locks/req-1/coverage.json",
+        media_type="application/json",
+        format_version="lock-sampling.v1",
+        sha256="a" * 64,
+        size_bytes=1,
+    )
+    # table/metadata proven by LOCK_TIME==0; InnoDB row lock bounded by polling residual.
+    evidence = LockEvidence(
+        status="covered_no_wait",
+        coverage="complete",
+        covered_kinds=["table", "metadata"],
+        missing_kinds=[],
+        residual_ms=0.05,
+        thread_id=1,
+        statement_event_id=1,
+        window_start=now,
+        window_end=now,
+        evidence_refs=[ref],
+    )
+    assert evidence.residual_ms == 0.05
 
 
 def test_warmup_cannot_reuse_a_formal_request_id() -> None:

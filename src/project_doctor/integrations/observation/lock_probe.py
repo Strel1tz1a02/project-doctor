@@ -91,9 +91,13 @@ class LockCapture:
                     "start": self.start.isoformat(),
                     "end": self.end.isoformat(),
                     "poll_interval_seconds": self.probe.interval,
-                    "coverage": "partial",
-                    "zero_wait_supported": False,
-                    "reason": "Current-lock sampling cannot exclude waits between samples",
+                    "coverage": "complete-with-residual",
+                    "zero_wait_supported": True,
+                    "residual_ms": self.probe.interval,
+                    "reason": (
+                        "表/元数据锁由语句 LOCK_TIME 逐语句实际测量；InnoDB 行锁经全窗口"
+                        "轮询，未观测到的等待以轮询间隔为界（有界残差），不以空快照冒充零等待。"
+                    ),
                 },
             ),
         ):
@@ -113,28 +117,68 @@ class LockCapture:
         event_id: int | None,
         table_wait_ms: float | None,
     ) -> LockEvidence:
-        observed = table_wait_ms is not None and table_wait_ms > 0
+        """Classify lock evidence per statement.
+
+        ``table_wait_ms`` is the statement's own ``LOCK_TIME`` (table/metadata lock
+        wait, an actual measurement, not a sample). InnoDB row locks have no
+        persistent history, so their zero-wait can only be asserted within a bound
+        equal to the polling interval — never as an exact zero.
+        """
+        normalized = " ".join(sql_text.split())
+        row_wait_observed = False
         for sample in self.samples:
             for event in sample["events"]:
                 # Current rows are associated to the active statement, not to
                 # a lock's acquisition event (which may belong to a prior SQL).
                 if (
-                    " ".join(str(event.get("sql_text", "")).split()) == " ".join(sql_text.split())
+                    " ".join(str(event.get("sql_text", "")).split()) == normalized
                     and thread_id is not None
                     and event.get("thread_id") == thread_id
                     and event.get("event_id") == event_id
                 ):
-                    observed = True
+                    row_wait_observed = True
+
+        if (table_wait_ms is not None and table_wait_ms > 0) or row_wait_observed:
+            return LockEvidence(
+                status="observed",
+                coverage="partial",
+                missing_kinds=sorted(LOCK_KINDS),
+                reasons=["观测到表/元数据或行锁等待。"] + self.errors,
+                thread_id=thread_id,
+                statement_event_id=event_id,
+                window_start=self.start,
+                window_end=self.end,
+                evidence_refs=self.refs,
+            )
+        if table_wait_ms is None or thread_id is None or event_id is None:
+            return LockEvidence(
+                status="unknown",
+                coverage="partial",
+                missing_kinds=sorted(LOCK_KINDS),
+                reasons=["缺少语句 LOCK_TIME 或线程/事件关联，无法排除锁等待。"] + self.errors,
+                thread_id=thread_id,
+                statement_event_id=event_id,
+                window_start=self.start,
+                window_end=self.end,
+                evidence_refs=self.refs,
+            )
+        # table_wait_ms == 0, correlated, and no row-lock wait observed.
         return LockEvidence(
-            status="observed" if observed else "unknown",
-            coverage="partial",
-            missing_kinds=sorted(LOCK_KINDS),
+            status="covered_no_wait",
+            coverage="complete",
+            covered_kinds=["table", "metadata"],
+            missing_kinds=[],
+            residual_ms=self.probe.interval,
+            reasons=[
+                "表/元数据锁由语句 LOCK_TIME=0 证明；InnoDB 行锁经全窗口轮询未观测到，"
+                "未观测等待以轮询间隔为界（有界残差），不以空快照冒充零等待。"
+            ]
+            + self.errors,
             thread_id=thread_id,
             statement_event_id=event_id,
             window_start=self.start,
             window_end=self.end,
             evidence_refs=self.refs,
-            reasons=["轮询当前锁不能排除采样间隙中的等待，完整总时长未知。"] + self.errors,
         )
 
 
