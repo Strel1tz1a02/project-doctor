@@ -1,0 +1,76 @@
+{
+  "case_id": "case-01-slow-query-fullscan",
+  "run_id": "run-case-01-0001",
+  "source": "run-bundle",
+  "steps": [
+    {
+      "index": 0,
+      "phase": "baseline",
+      "tool": "create_task",
+      "status": "ok",
+      "input": { "task": "排查订单查询慢（全表扫描嫌疑）" },
+      "latency_ms": 120.0,
+      "cost": { "tokens": 300 }
+    },
+    {
+      "index": 1,
+      "phase": "baseline",
+      "tool": "prepare_environment",
+      "status": "ok",
+      "input": { "repository": "case-01-slow-query-fullscan" },
+      "latency_ms": 800.0
+    },
+    {
+      "index": 2,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": { "task": "排查订单查询慢（全表扫描嫌疑）" },
+      "latency_ms": 1500.0
+    },
+    {
+      "index": 3,
+      "phase": "hypotheses",
+      "tool": "propose_hypotheses",
+      "status": "ok",
+      "input": { "observations": [{ "scan_rows": 480000, "duration_ms": 12.1 }] },
+      "latency_ms": 900.0,
+      "cost": { "tokens": 1200 }
+    },
+    {
+      "index": 4,
+      "phase": "discriminating_experiment",
+      "tool": "run_experiment",
+      "status": "ok",
+      "input": { "hypothesis": "missing_composite_index" },
+      "latency_ms": 5000.0,
+      "cost": { "tokens": 2000 }
+    },
+    {
+      "index": 5,
+      "phase": "localization",
+      "tool": "evaluate_evidence",
+      "status": "ok",
+      "input": { "hypothesis": "missing_composite_index" },
+      "latency_ms": 700.0,
+      "output": { "evidence_sufficient": true, "decision": "verified" }
+    },
+    {
+      "index": 6,
+      "phase": "verification",
+      "tool": "reconcile_task",
+      "status": "ok",
+      "input": { "findings": [{ "status": "verified" }] },
+      "latency_ms": 400.0
+    },
+    {
+      "index": 7,
+      "phase": "verification",
+      "tool": "finish_task",
+      "status": "ok",
+      "input": { "report": { "decision": "verified" } },
+      "latency_ms": 100.0,
+      "output": { "decision": "verified" }
+    }
+  ]
+}

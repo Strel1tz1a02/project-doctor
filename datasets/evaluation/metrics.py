@@ -42,6 +42,7 @@ from contract import (  # noqa: E402
     Location,
     Report,
     Retest,
+    StepTrace,
     Trajectory,
     Artifact,
     Restore,
@@ -52,6 +53,7 @@ from contract import (  # noqa: E402
     STATUS_UNCLASSIFIED,
     STATUS_VERIFIED,
 )
+import steps as _steps  # noqa: E402  （白盒层确定性步骤评估器）
 from scores import (  # noqa: E402
     CaseType,
     Score,
@@ -138,12 +140,20 @@ class CaseResult:
     passed: bool
     notes: list[str] = field(default_factory=list)
     reward: dict[str, Any] = field(default_factory=dict)
+    # 白盒层：逐步明细与阶段上卷（仅当运行包带 steps 时非空；D4 不进总分，只作归因）。
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    phases: list[dict[str, Any]] = field(default_factory=list)
+    step_summary: dict[str, Any] = field(default_factory=dict)
 
     def score_map(self) -> dict[str, Any]:
         return {s.name: s.value for s in self.scores}
 
     def failed_gates(self) -> list[str]:
         return [name for name, ok in self.gates.items() if not ok]
+
+    def step_scores(self) -> dict[str, Any]:
+        """步骤层指标（group == ``step``）的取值快照，便于归因下钻。"""
+        return {s.name: s.value for s in self.scores if s.metadata.get("group") == "step"}
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -155,6 +165,9 @@ class CaseResult:
             "scores": [s.to_dict() for s in self.scores],
             "notes": list(self.notes),
             "reward": dict(self.reward),
+            "steps": [dict(row) for row in self.steps],
+            "phases": [dict(row) for row in self.phases],
+            "step_summary": dict(self.step_summary),
         }
 
 
@@ -317,6 +330,15 @@ def _metric_values(inp: EvalInput) -> dict[str, Any]:
     values["tool_calls"] = int(inp.cost.tool_calls)
     values["artifact_bytes"] = int(inp.cost.artifact_bytes)
 
+    # ---- 步骤层（白盒，D3/D4）----
+    # 仅当运行包/轨迹携带 steps 时产出 7 项步骤指标（group == "step"）。这些取值会由
+    # compute_scores 归入 cases[].scores 供归因下钻，但 scores.metric_score 对
+    # group="step" 返回 None，故不进入 group_scores / total_score（不进硬闸门/总分）。
+    trace_eval = _steps.evaluate_trace(inp.trajectory.steps)
+    if trace_eval.has_steps:
+        for name, value in trace_eval.summary.items():
+            values[name] = value
+
     # 失败用例闸门用到的中间量（非分数）：断言了缺陷目录之外的根因
     values["_asserted_outside"] = [
         f for f, inside in zip(report.asserted_findings, hits_catalog) if not inside
@@ -453,6 +475,14 @@ def evaluate_case(inp: EvalInput) -> CaseResult:
     if inp.case_type is CaseType.FAILURE and "honesty" in values:
         notes.append(f"诚实性判定：{values['honesty']}")
 
+    # 白盒层明细与阶段上卷：仅当轨迹带 steps 时非空；D4 不参与通过判定与总分。
+    trace_eval = _steps.evaluate_trace(inp.trajectory.steps)
+    if trace_eval.has_steps:
+        notes.append(
+            f"步骤层：{len(trace_eval.steps)} 步、"
+            f"{len(trace_eval.phases)} 个诊断阶段（仅供归因，不进总分）"
+        )
+
     return CaseResult(
         case_id=inp.case_id,
         case_type=inp.case_type,
@@ -461,6 +491,9 @@ def evaluate_case(inp: EvalInput) -> CaseResult:
         passed=passed,
         notes=notes,
         reward=reward,
+        steps=list(trace_eval.steps),
+        phases=list(trace_eval.phases),
+        step_summary=dict(trace_eval.summary),
     )
 
 
@@ -642,7 +675,48 @@ def _self_check() -> None:
     assert gated_result.passed is False
     assert "cost_within_budget" in gated_result.failed_gates()
 
-    print("[ OK ] metrics.py 自检通过：四层指标计算 + 三类用例硬闸门 + 成本预算均符合预期")
+    # 7) 步骤层：轨迹带 steps 时产出逐步明细 + 阶段上卷，且不改变通过判定/总分（D4）
+    steps = [
+        {"tool": "create_task", "status": "ok", "input": {"task_id": "t1"}},
+        {"tool": "prepare_environment", "status": "ok", "input": {"repository": "repo"}},
+        {"tool": "discover_scenarios", "status": "ok", "input": {"task": "t1"}},
+        {"tool": "propose_hypotheses", "status": "ok", "input": {"observations": ["o1"]}},
+        {"tool": "run_experiment", "status": "ok", "input": {"hypothesis": "h1"},
+         "latency_ms": 1200.0, "cost": {"tokens": 400}},
+        {"tool": "evaluate_evidence", "status": "ok", "input": {"hypothesis": "h1"},
+         "output": {"insufficient_evidence": False, "evidence_sufficient": True}},
+        {"tool": "reconcile_task", "status": "ok", "input": {"findings": ["f1"]}},
+        {"tool": "finish_task", "status": "ok", "input": {"report": "done"}},
+    ]
+    base = _good_input()
+    with_steps = evaluate_case(EvalInput(
+        case=base.case,
+        report=base.report,
+        trajectory=Trajectory.from_obj({
+            "required_steps_done": list(C.REQUIRED_STEPS),
+            "hypothesis_count": 2, "experiments_single_variable": True,
+            "records_retained": True, "steps": steps,
+        }),
+        retest=base.retest, artifacts=base.artifacts,
+        restore=base.restore, cost=base.cost,
+    ))
+    assert len(with_steps.steps) == 8
+    assert with_steps.step_summary, "步骤指标上卷摘要不应为空"
+    step_metric_names = {
+        s.name for s in with_steps.scores if s.metadata.get("group") == "step"
+    }
+    assert step_metric_names, "步骤层分数应并入 cases[].scores 供归因"
+    assert any(p["phase"] == "baseline" for p in with_steps.phases)
+    # D4：步骤层不进分组总分，也不改变通过结论
+    assert "step" not in with_steps.reward["group_scores"]
+    assert with_steps.passed == good.passed
+    assert with_steps.reward["total"] == good.reward["total"]
+    # 无 steps 的用例：步骤字段为空，向后兼容
+    assert good.steps == [] and good.phases == [] and good.step_summary == {}
+    assert good.step_scores() == {}
+
+    print("[ OK ] metrics.py 自检通过：四层指标计算 + 三类用例硬闸门 + 成本预算 "
+          "+ 步骤层归因（D4 不进总分）均符合预期")
 
 
 if __name__ == "__main__":

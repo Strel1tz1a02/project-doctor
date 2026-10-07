@@ -1,0 +1,79 @@
+{
+  "case_id": "case-02-slow-query-composite",
+  "run_id": "run-case-02-0001",
+  "source": "run-bundle",
+  "steps": [
+    {
+      "index": 0,
+      "phase": "baseline",
+      "tool": "create_task",
+      "status": "ok",
+      "input": { "task": "排查复合慢查询（多个候选成因）" },
+      "latency_ms": 110.0,
+      "cost": { "tokens": 250 }
+    },
+    {
+      "index": 1,
+      "phase": "baseline",
+      "tool": "prepare_environment",
+      "status": "ok",
+      "input": { "repository": "case-02-slow-query-composite" },
+      "latency_ms": 950.0
+    },
+    {
+      "index": 2,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": { "task": "排查复合慢查询（多个候选成因）" },
+      "latency_ms": 1200.0,
+      "cost": { "tokens": 800 }
+    },
+    {
+      "index": 3,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": { "task": "排查复合慢查询（多个候选成因）" },
+      "latency_ms": 1150.0,
+      "cost": { "tokens": 700 }
+    },
+    {
+      "index": 4,
+      "phase": "discriminating_experiment",
+      "tool": "run_experiment",
+      "status": "ok",
+      "input": { "hypothesis": "missing_composite_index" },
+      "latency_ms": 40000.0,
+      "cost": { "tokens": 6000 }
+    },
+    {
+      "index": 5,
+      "phase": "localization",
+      "tool": "evaluate_evidence",
+      "status": "ok",
+      "input": { "hypothesis": "missing_composite_index" },
+      "latency_ms": 520.0,
+      "cost": { "tokens": 400 },
+      "output": { "insufficient_evidence": true, "decision": "lead" }
+    },
+    {
+      "index": 6,
+      "phase": "verification",
+      "tool": "reconcile_task",
+      "status": "skipped",
+      "input": { "findings": [{ "status": "lead" }] },
+      "latency_ms": 0.0
+    },
+    {
+      "index": 7,
+      "phase": "verification",
+      "tool": "finish_task",
+      "status": "ok",
+      "input": { "report": { "decision": "lead" } },
+      "latency_ms": 85.0,
+      "cost": { "tokens": 120 },
+      "output": { "decision": "lead" }
+    }
+  ]
+}

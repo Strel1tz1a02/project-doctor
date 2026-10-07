@@ -39,6 +39,8 @@ __all__ = [
     "DEFAULT_LINE_TOLERANCE",
     "REQUIRED_STEPS",
     "EVIDENCE_FLAGS",
+    "STEP_STATUSES",
+    "DIAGNOSTIC_PHASES",
     "paths_equal",
     "location_matches",
     "text_covers",
@@ -46,6 +48,9 @@ __all__ = [
     "Recommendation",
     "Finding",
     "Report",
+    "StepCost",
+    "TraceStep",
+    "StepTrace",
     "Trajectory",
     "Retest",
     "Artifact",
@@ -85,6 +90,18 @@ EVIDENCE_FLAGS: tuple[str, ...] = (
     "no_lock_wait",              # 无锁等待
     "cache_known",               # 缓存状态已知
     "linked_to_code",            # 能关联到代码位置
+)
+
+#: 白盒层「单步轨迹」的合法状态（确定性判定，不含主观打分，见 D3/D4）。
+STEP_STATUSES: tuple[str, ...] = ("ok", "error", "skipped")
+
+#: 8 个 MCP 工具对应的 5 个诊断阶段（见《步骤级评价与Langfuse接入方案》§4，D6 以 8 工具为准）。
+DIAGNOSTIC_PHASES: tuple[str, ...] = (
+    "baseline",
+    "hypotheses",
+    "discriminating_experiment",
+    "localization",
+    "verification",
 )
 
 
@@ -153,6 +170,26 @@ def _as_flag_map(value: Any) -> dict[str, bool]:
     if not isinstance(value, Mapping):
         return {}
     return {str(k): bool(v) for k, v in value.items()}
+
+
+def _opt_int(value: Any) -> int | None:
+    """宽容解析可空整数：``None``/空串保留为 ``None``（表示未记录）。"""
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _opt_float(value: Any) -> float | None:
+    """宽容解析可空浮点：``None``/空串保留为 ``None``（表示未记录）。"""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -336,6 +373,152 @@ class Report:
 
 
 @dataclass(frozen=True)
+class StepCost:
+    """单步的资源消耗（缺省为 ``None`` 表示「未记录」，区别于 0）。"""
+
+    tokens: int | None = None
+    tool_calls: int | None = None
+    bytes: int | None = None
+
+    @classmethod
+    def from_obj(cls, obj: Any) -> "StepCost":
+        if obj is None or isinstance(obj, cls):
+            return obj or cls()
+        if not isinstance(obj, Mapping):
+            return cls()
+        return cls(
+            tokens=_opt_int(obj.get("tokens")),
+            tool_calls=_opt_int(obj.get("tool_calls")),
+            bytes=_opt_int(obj.get("bytes")),
+        )
+
+
+@dataclass(frozen=True)
+class TraceStep:
+    """白盒层「单步轨迹」的规范化视图（统一中间表示 IR）。
+
+    一步对应被测 Agent 的一次工具/模型动作。本对象只承载**可确定性观测**的字段，
+    主观质量判断由 ``steps.py`` 的确定性规则在消费端完成（D3/D4：不做逐步骤正解、
+    不进入硬门，仅作评分项/归因）。
+    """
+
+    index: int = 0
+    step_type: str = ""                 # 工具名 / 模型名 / 自定义类型
+    phase: str = ""                     # 诊断阶段，取值见 DIAGNOSTIC_PHASES
+    status: str = "ok"                  # ok / error / skipped
+    tool: str = ""                      # 命中的 MCP 工具名（8 工具之一，可空）
+    input: Any = None
+    output: Any = None
+    ts_start: float | None = None
+    ts_end: float | None = None
+    latency_ms: float | None = None
+    cost: StepCost = field(default_factory=StepCost)
+    error: str = ""
+    evidence_refs: tuple[str, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
+
+    @property
+    def failed(self) -> bool:
+        return self.status == "error"
+
+    @property
+    def skipped(self) -> bool:
+        return self.status == "skipped"
+
+    @property
+    def effective_latency_ms(self) -> float | None:
+        """优先取显式 latency_ms，缺省时由 ts_start/ts_end 推导。"""
+        if self.latency_ms is not None:
+            return self.latency_ms
+        if self.ts_start is not None and self.ts_end is not None:
+            return (self.ts_end - self.ts_start) * 1000.0
+        return None
+
+    @classmethod
+    def from_obj(cls, obj: Any, index: int = 0) -> "TraceStep":
+        if isinstance(obj, cls):
+            return obj
+        if not isinstance(obj, Mapping):
+            raise TypeError(f"无法解析 TraceStep：{obj!r}")
+        raw_index = obj.get("index")
+        return cls(
+            index=(index if raw_index is None else int(raw_index)),
+            step_type=str(obj.get("step_type", obj.get("type", "")) or ""),
+            phase=str(obj.get("phase", "") or ""),
+            status=str(obj.get("status", "ok") or "ok"),
+            tool=str(obj.get("tool", obj.get("tool_name", "")) or ""),
+            input=obj.get("input"),
+            output=obj.get("output"),
+            ts_start=_opt_float(obj.get("ts_start")),
+            ts_end=_opt_float(obj.get("ts_end")),
+            latency_ms=_opt_float(obj.get("latency_ms")),
+            cost=StepCost.from_obj(obj.get("cost")),
+            error=str(obj.get("error", "") or ""),
+            evidence_refs=_as_str_tuple(obj.get("evidence_refs")),
+        )
+
+    @classmethod
+    def parse_many(cls, value: Any) -> tuple["TraceStep", ...]:
+        """把 ``steps`` 字段（对象序列）解析为 TraceStep 序列。
+
+        对旧式「步骤名列表」（元素为字符串）保持宽容：直接忽略并返回空元组，
+        以免与 ``Trajectory.required_steps_done`` 的旧写法冲突（向后兼容）。
+        """
+        if value is None:
+            return ()
+        if isinstance(value, Mapping):
+            value = [value]
+        if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+            return ()
+        out: list[TraceStep] = []
+        for i, item in enumerate(value):
+            if isinstance(item, TraceStep):
+                out.append(item)
+            elif isinstance(item, Mapping):
+                out.append(cls.from_obj(item, index=i))
+        return tuple(out)
+
+
+@dataclass(frozen=True)
+class StepTrace:
+    """一次运行的完整步骤轨迹（白盒层入口，来自 run-bundle / 接口 / Langfuse 归一化）。"""
+
+    case_id: str = ""
+    run_id: str = ""
+    source: str = "run-bundle"          # run-bundle / interface / langfuse
+    steps: tuple[TraceStep, ...] = ()
+
+    def by_phase(self) -> dict[str, tuple[TraceStep, ...]]:
+        out: dict[str, list[TraceStep]] = {}
+        for step in self.steps:
+            out.setdefault(step.phase, []).append(step)
+        return {k: tuple(v) for k, v in out.items()}
+
+    def phases_present(self) -> tuple[str, ...]:
+        seen: list[str] = []
+        for step in self.steps:
+            if step.phase and step.phase not in seen:
+                seen.append(step.phase)
+        return tuple(seen)
+
+    @classmethod
+    def from_obj(cls, obj: Any) -> "StepTrace":
+        if obj is None or isinstance(obj, cls):
+            return obj or cls()
+        if not isinstance(obj, Mapping):
+            return cls(steps=TraceStep.parse_many(obj))
+        return cls(
+            case_id=str(obj.get("case_id", "") or ""),
+            run_id=str(obj.get("run_id", "") or ""),
+            source=str(obj.get("source", "run-bundle") or "run-bundle"),
+            steps=TraceStep.parse_many(obj.get("steps")),
+        )
+
+
+@dataclass(frozen=True)
 class Trajectory:
     """Agent 执行轨迹的规范化视图。"""
 
@@ -344,6 +527,7 @@ class Trajectory:
     experiments_single_variable: bool = False
     records_retained: bool = False
     tool_calls: int | None = None
+    steps: tuple[TraceStep, ...] = ()   # 白盒层可选字段，缺省为空（向后兼容）
 
     @property
     def steps_coverage(self) -> float:
@@ -362,15 +546,27 @@ class Trajectory:
             return obj or cls()
         if not isinstance(obj, Mapping):
             raise TypeError(f"无法解析 Trajectory：{obj!r}")
-        steps = obj.get("required_steps_done") or obj.get("steps") or ()
-        if isinstance(steps, Mapping):
-            steps = [k for k, v in steps.items() if v]
+
+        raw_steps = obj.get("required_steps_done")
+        if raw_steps is None:
+            # 向后兼容：旧式写法把「已完成步骤名」放在 steps 里（名称序列 / 名称->bool 映射）。
+            # 只有当它不是「步骤轨迹对象数组」时才回退，避免与白盒层新字段冲突。
+            legacy = obj.get("steps")
+            if isinstance(legacy, Mapping):
+                raw_steps = [k for k, v in legacy.items() if v]
+            elif (isinstance(legacy, Sequence) and not isinstance(legacy, (str, bytes))
+                  and all(isinstance(x, str) for x in legacy)):
+                raw_steps = list(legacy)
+        names = raw_steps or ()
+        if isinstance(names, Mapping):
+            names = [k for k, v in names.items() if v]
         return cls(
-            required_steps_done=frozenset(str(s) for s in steps),
+            required_steps_done=frozenset(str(s) for s in names),
             hypothesis_count=int(obj.get("hypothesis_count", 0) or 0),
             experiments_single_variable=bool(obj.get("experiments_single_variable", False)),
             records_retained=bool(obj.get("records_retained", False)),
             tool_calls=(None if obj.get("tool_calls") is None else int(obj["tool_calls"])),
+            steps=TraceStep.parse_many(obj.get("steps")),
         )
 
 

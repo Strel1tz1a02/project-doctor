@@ -79,8 +79,12 @@ FROZEN_RELATIVE: tuple[str, ...] = (
     "evaluation/contract.py",
     "evaluation/scores.py",
     "evaluation/metrics.py",
+    "evaluation/steps.py",
+    "evaluation/trace_adapter.py",
+    "evaluation/langfuse_export.py",
     "evaluation/run_eval.py",
     "evaluation/test_metrics.py",
+    "evaluation/test_steps.py",
     "evaluation/test_run_eval.py",
     "evaluation/test_golden_bundle.py",
     "tools/validate_cases.py",
@@ -266,6 +270,23 @@ def aggregate(results: list[CaseResult]) -> dict[str, Any]:
     def _rate(count: int) -> float | None:
         return _round(count / len(results)) if results else None
 
+    # 白盒层（D3/D4）：仅对携带 steps 的用例聚合步骤级信号（供归因下钻）。
+    # 步骤指标既不进 group_scores / total_score，也不影响任何通过判定（D4）。
+    step_cases = [r for r in results if r.steps]
+    step_phase_roll: dict[str, dict[str, Any]] = {}
+    for _r in step_cases:
+        for _ph in _r.phases:
+            _acc = step_phase_roll.setdefault(_ph["phase"] or "(未归类)", {
+                "case_count": 0, "step_count": 0, "error_count": 0,
+                "retry_count": 0, "latency_ms_sum": 0.0, "tokens_sum": 0,
+            })
+            _acc["case_count"] += 1
+            _acc["step_count"] += _ph["step_count"]
+            _acc["error_count"] += _ph["error_count"]
+            _acc["retry_count"] += _ph["retry_count"]
+            _acc["latency_ms_sum"] = round(_acc["latency_ms_sum"] + _ph["latency_ms_sum"], 3)
+            _acc["tokens_sum"] += _ph["tokens_sum"]
+
     return {
         "by_case_type": {
             case_type: {
@@ -325,6 +346,25 @@ def aggregate(results: list[CaseResult]) -> dict[str, Any]:
                 "false_verified_count": len(false_verified),
                 "false_verified_cases": [r.case_id for r in false_verified],
             },
+        },
+        "step": {
+            "cases_with_steps": len(step_cases),
+            "cases_total": len(results),
+            "step_count": sum(len(r.steps) for r in step_cases),
+            "error_step_count": sum(
+                sum(1 for s in r.steps if s["status"] == "error") for r in step_cases),
+            "retry_step_count": sum(
+                sum(1 for s in r.steps if s.get("retry")) for r in step_cases),
+            "status_ok_rate": _true_rate(step_cases, "step_status_ok"),
+            "tool_argument_valid_rate": _true_rate(step_cases, "step_tool_argument_valid"),
+            "downgrade_correctness_rate": _true_rate(step_cases, "step_downgrade_correctness"),
+            "phase_coverage_mean": _round(
+                _mean(_metric_values(step_cases, "step_phase_coverage"))),
+            "retry_count_mean": _round(
+                _mean(_metric_values(step_cases, "step_retry_count"))),
+            "latency_ms_sum": round(sum(_metric_values(step_cases, "step_latency_ms")), 3),
+            "tokens_sum": int(sum(_metric_values(step_cases, "step_tokens"))),
+            "by_phase": step_phase_roll,
         },
     }
 
@@ -573,6 +613,33 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     lines.append(f"| 成本 | 超预算用例数 | {cost.get('budget_exceeded_count', 0)} |")
     lines.append("")
 
+    # 步骤级归因（白盒层，D4：仅供归因，不进 group_scores / total_score，不改通过判定）
+    st = agg.get("step") or {}
+    if st.get("cases_with_steps"):
+        lines.append("## 步骤级归因（白盒）")
+        lines.append("")
+        lines.append(f"- 携带步骤轨迹的用例：{st['cases_with_steps']}/{st['cases_total']}；"
+                     f"步骤总数 {st['step_count']}，其中失败 {st['error_step_count']}、"
+                     f"重试 {st['retry_step_count']}")
+        lines.append(f"- step_status_ok 通过率：{_fmt(st.get('status_ok_rate'))}；"
+                     f"参数合法通过率：{_fmt(st.get('tool_argument_valid_rate'))}；"
+                     f"降级正确性通过率：{_fmt(st.get('downgrade_correctness_rate'))}")
+        lines.append(f"- 阶段覆盖均值：{_fmt(st.get('phase_coverage_mean'))}；"
+                     f"重试次数均值：{_fmt(st.get('retry_count_mean'))}；"
+                     f"步骤延迟合计 {_fmt(st.get('latency_ms_sum'))} ms；"
+                     f"步骤 token 合计 {_fmt(st.get('tokens_sum'))}")
+        lines.append("")
+        lines.append("| 诊断阶段 | 用例数 | 步骤数 | 失败 | 重试 | 延迟合计(ms) | token 合计 |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- |")
+        for phase, row in (st.get("by_phase") or {}).items():
+            lines.append(f"| {phase} | {row['case_count']} | {row['step_count']} | "
+                         f"{row['error_count']} | {row['retry_count']} | "
+                         f"{_fmt(row['latency_ms_sum'])} | {row['tokens_sum']} |")
+        lines.append("")
+        lines.append("> 步骤级指标仅用于归因下钻，不进入 group_scores / total_score，"
+                     "也不改变任何通过判定（D4）。")
+        lines.append("")
+
     # 结构校验
     sv = report["schema_validation"]
     lines.append("## 结构校验")
@@ -670,6 +737,27 @@ def _sample_bundles() -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
     return bundles, cases
 
 
+def _report_like(results: list[CaseResult], agg: Mapping[str, Any]) -> dict[str, Any]:
+    """把逐用例结果 + 聚合块拼成 ``render_markdown`` 可渲染的最小报告（仅自检用）。"""
+    return {
+        "manifest": {"generated_at": "—", "evaluator_hash": "0" * 64},
+        "global": {
+            "cases_evaluated": len(results),
+            "cases_missing_bundle": [],
+            "cases_skipped_no_bundle": [],
+            "false_verified_count": agg.get("false_verified", {}).get("count", 0),
+            "false_verified_rate": 0.0,
+            "all_cases_passed": all(r.passed for r in results),
+            "gate_passed": True,
+            "overall_passed": all(r.passed for r in results),
+        },
+        "thresholds": {},
+        "schema_validation": {"total": 0, "failed": []},
+        "cases": [dict(r.to_dict(), baseline={"reproducible": True}) for r in results],
+        "aggregate": dict(agg),
+    }
+
+
 def _self_check() -> None:
     bundles, cases = _sample_bundles()
 
@@ -719,6 +807,42 @@ def _self_check() -> None:
     assert agg["cost"]["budget_exceeded_count"] == 0
     assert agg["cost"]["cost_score_mean"] == 1.0
 
+    # 步骤层（D3/D4）：内置样例运行包不含 steps → 步骤块为空但不报错、渲染不崩
+    assert agg["step"]["cases_with_steps"] == 0
+    assert agg["step"]["step_count"] == 0
+    assert agg["step"]["by_phase"] == {}
+    assert "步骤级归因" not in render_markdown(_report_like([results[0]], agg))
+
+    # 注入一条带 steps 的轨迹：步骤块应被填充，且不改通过判定/总分（D4）
+    step_traj = dict(bundles["case-01-slow-query-fullscan"]["trajectory"], steps=[
+        {"tool": "create_task", "status": "ok", "input": {"task_id": "t1"}},
+        {"tool": "prepare_environment", "status": "ok", "input": {"repository": "repo"}},
+        {"tool": "discover_scenarios", "status": "ok", "input": {"task": "t1"}},
+        {"tool": "propose_hypotheses", "status": "ok", "input": {"observations": ["o1"]}},
+        {"tool": "run_experiment", "status": "ok", "input": {"hypothesis": "h1"},
+         "latency_ms": 1200.0, "cost": {"tokens": 400}},
+        {"tool": "evaluate_evidence", "status": "ok", "input": {"hypothesis": "h1"},
+         "output": {"evidence_sufficient": True}},
+        {"tool": "reconcile_task", "status": "ok", "input": {"findings": ["f1"]}},
+        {"tool": "finish_task", "status": "ok", "input": {"report": "done"}},
+    ])
+    with_steps = evaluate_case(EvalInput.from_raw(
+        cases[0], bundles["case-01-slow-query-fullscan"]["report"], trajectory=step_traj,
+        retest=bundles["case-01-slow-query-fullscan"].get("retest"),
+        artifacts=bundles["case-01-slow-query-fullscan"].get("artifacts") or (),
+        restore=bundles["case-01-slow-query-fullscan"].get("restore"),
+        cost=bundles["case-01-slow-query-fullscan"].get("cost")))
+    assert with_steps.passed and len(with_steps.steps) == 8
+    agg_steps = aggregate([with_steps])
+    assert agg_steps["step"]["cases_with_steps"] == 1
+    assert agg_steps["step"]["step_count"] == 8
+    assert agg_steps["step"]["error_step_count"] == 0
+    assert agg_steps["step"]["by_phase"], "阶段上卷不应为空"
+    assert agg_steps["step"]["status_ok_rate"] == 1.0
+    # D4：步骤层不进分组总分，也不改变总分/通过结论
+    assert "step" not in with_steps.reward["group_scores"]
+    assert "步骤级归因" in render_markdown(_report_like([with_steps], agg_steps))
+
     # 全局门槛：注入一次误验证 → 整轮不通过
     bad_case = dict(cases[1])
     bad_case["expected"] = dict(bad_case["expected"], decision="lead")
@@ -730,7 +854,8 @@ def _self_check() -> None:
     assert bad.score_map()["false_verified"] is True
     assert aggregate([bad])["false_verified"]["count"] == 1
 
-    print("[ OK ] run_eval.py 自检通过：七步流程 + 三类用例聚合 + 全局误验证门槛均符合预期")
+    print("[ OK ] run_eval.py 自检通过：七步流程 + 三类用例聚合 + 全局误验证门槛 "
+          "+ 步骤级归因聚合（D4 不进总分）均符合预期")
 
 
 def main(argv: Iterable[str] | None = None) -> int:

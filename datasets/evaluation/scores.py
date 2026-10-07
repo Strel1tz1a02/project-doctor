@@ -10,8 +10,9 @@ Langfuse 的 score 由 ``name`` / ``value`` / ``data_type`` / ``source`` 描述�
 
 - 数据类型 ``DataType``：NUMERIC / BOOLEAN / CATEGORICAL / TEXT / CORRECTION；
 - 来源 ``ScoreSource``：ANNOTATION（人工标注）/ API / EVAL（代码评估器）；
-- 作用域 ``ScoreScope``：本项目用两级 —— DATASET_ITEM（数据集项级）/ RUN（运行级），
-  对应 Langfuse 中分数可挂载的粒度。
+- 作用域 ``ScoreScope``：本项目用三级 —— DATASET_ITEM（数据集项级）/ RUN（运行级）/
+  STEP（单步轨迹级，白盒层），对应 Langfuse 中分数可挂载的粒度
+  （STEP 对应 Langfuse 的 observation 级）。
 
 在此基础上额外引入 ``applies_to``（适用用例类型），用于表达《Agent 评估方法》中
 「边界/失败用例级」「失败用例级」的适用范围——它比单纯的作用域更精确：``scope`` 说明
@@ -53,6 +54,7 @@ __all__ = [
     "RewardProfile",
     "REWARD_PROFILES",
     "DEFAULT_REWARD_PROFILE",
+    "STEP_METRICS",
     "COST_METRICS",
     "COST_BUDGETS",
     "DEFAULT_COST_BUDGET",
@@ -89,6 +91,7 @@ class ScoreSource(str, Enum):
 class ScoreScope(str, Enum):
     """分数挂载粒度。"""
 
+    STEP = "STEP"                  # 单步轨迹级（白盒层，对应 Langfuse observation）
     DATASET_ITEM = "DATASET_ITEM"  # 数据集项级（逐用例）
     RUN = "RUN"                    # 运行级（整轮评估聚合）
 
@@ -148,6 +151,7 @@ class MetricDefinition:
         return case_type in self.applies_to
 
 
+_STEP = ScoreScope.STEP
 _ITEM = ScoreScope.DATASET_ITEM
 _RUN = ScoreScope.RUN
 _EVAL = ScoreSource.EVAL
@@ -205,8 +209,28 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
              description="Agent 的工具调用总次数"),
         _def("artifact_bytes", DataType.NUMERIC, _RUN, ALL_CASE_TYPES, "cost",
              description="产出制品的总字节数"),
+        # ---- 步骤层（白盒层，作用域 STEP；确定性规则，不进入硬闸门/总分，见 D3/D4）----
+        _def("step_status_ok", DataType.BOOLEAN, _STEP, ALL_CASE_TYPES, "step",
+             description="轨迹中不存在 status=error 的步骤"),
+        _def("step_tool_argument_valid", DataType.BOOLEAN, _STEP, ALL_CASE_TYPES, "step",
+             description="所有工具步骤的参数结构性合法（缺少必填字段/空参数即判非法）"),
+        _def("step_phase_coverage", DataType.NUMERIC, _STEP, ALL_CASE_TYPES, "step",
+             description="由步骤推断出的 5 个诊断阶段覆盖度"),
+        _def("step_retry_count", DataType.NUMERIC, _STEP, ALL_CASE_TYPES, "step",
+             description="相邻重复步骤（同工具同参数）形成的重试次数"),
+        _def("step_latency_ms", DataType.NUMERIC, _STEP, ALL_CASE_TYPES, "step",
+             description="步骤延迟（相对单步预算归一化，超预算按比例衰减）"),
+        _def("step_tokens", DataType.NUMERIC, _STEP, ALL_CASE_TYPES, "step",
+             description="步骤 token 消耗（相对单步预算归一化）"),
+        _def("step_downgrade_correctness", DataType.BOOLEAN, _STEP, ALL_CASE_TYPES, "step",
+             description="evaluate_evidence 阶段在证据不足时是否正确降级（不误验证，白盒核心）"),
     )
 }
+
+#: 步骤层指标名（group == "step"），供 steps.py/run_eval.py 过滤使用。
+STEP_METRICS: tuple[str, ...] = tuple(
+    d.name for d in METRIC_DEFINITIONS.values() if d.group == "step"
+)
 
 
 def get_definition(name: str) -> MetricDefinition:
@@ -222,7 +246,7 @@ def get_definition(name: str) -> MetricDefinition:
 
 def definitions_for(case_type: CaseType) -> list[MetricDefinition]:
     """返回对该用例类型适用的全部指标定义（按分组、名称排序）。"""
-    group_order = {"conclusion": 0, "evidence": 1, "process": 2, "cost": 3}
+    group_order = {"conclusion": 0, "evidence": 1, "process": 2, "cost": 3, "step": 4}
     result = [d for d in METRIC_DEFINITIONS.values() if d.applies(case_type)]
     return sorted(result, key=lambda d: (group_order.get(d.group, 99), d.name))
 
@@ -455,13 +479,14 @@ def resolve_profile(name: str | None) -> RewardProfile:
 
 
 def metric_score(name: str, value: Any) -> float | None:
-    """把单个指标取值归一化到 0–1；不参与逐指标归一化的项（成本项、未登记项）返回 ``None``。
+    """把单个指标取值归一化到 0–1；不参与逐指标归一化的项（成本项、步骤项、未登记项）返回 ``None``。
 
     成本项不走此函数（原始秒数/次数不可直接映射为 0–1），而由 ``cost_score()`` 相对预算
-    单独归一化。
+    单独归一化。步骤层（group == "step"）同样由 ``steps.py`` 用自己的单步预算单独归一化，
+    不混入用例级 ``group_scores``（D4：步骤分只作评分项/归因，不进入总分与硬闸门）。
     """
     definition = METRIC_DEFINITIONS.get(name)
-    if definition is None or definition.group == "cost":
+    if definition is None or definition.group in ("cost", "step"):
         return None
     if definition.data_type is DataType.BOOLEAN:
         good = not bool(value) if name in _NEGATIVE_METRICS else bool(value)
@@ -527,13 +552,14 @@ def total_score(
 # --------------------------------------------------------------------------- #
 
 def _self_check() -> None:
-    assert len(METRIC_DEFINITIONS) == 17, len(METRIC_DEFINITIONS)
+    assert len(METRIC_DEFINITIONS) == 24, len(METRIC_DEFINITIONS)
+    assert len(STEP_METRICS) == 7, STEP_METRICS
 
-    # 每类用例的适用指标数：
-    #   normal    = 15（除 honesty 外的项级指标）
-    #   boundary  = 15（含 limitation_declared，不含 honesty）
-    #   failure   = 6 （decision_match / false_verified / limitation_declared /
-    #                   trajectory_conformance / honesty / 成本 3 项 = 但项级为 5）
+    # 每类用例的适用指标数（含 7 项全类型适用的步骤层指标）：
+    #   normal    = 22（除 honesty / limitation_declared 外的项级指标 + 7 步骤项）
+    #   boundary  = 23（除 honesty 外的项级指标 + 7 步骤项）
+    #   failure   = 15（decision_match / false_verified / limitation_declared /
+    #                   trajectory_conformance / honesty / 成本 3 项 + 7 步骤项）
     def names(case_type: CaseType) -> set[str]:
         return {d.name for d in definitions_for(case_type)}
 
@@ -547,6 +573,15 @@ def _self_check() -> None:
     assert "limitation_declared" not in normal
     assert {"decision_match", "false_verified", "trajectory_conformance"} <= failure
     assert "root_cause_recall" in normal and "root_cause_recall" not in failure
+
+    # 步骤层指标：作用域为 STEP、全类型适用、且不参与用例级逐指标归一化
+    assert all(METRIC_DEFINITIONS[m].scope is ScoreScope.STEP for m in STEP_METRICS)
+    assert all(METRIC_DEFINITIONS[m].group == "step" for m in STEP_METRICS)
+    assert set(STEP_METRICS) <= normal and set(STEP_METRICS) <= failure
+    assert metric_score("step_status_ok", True) is None
+    assert metric_score("step_latency_ms", 120.0) is None
+    assert make_score("step_status_ok", True).scope is ScoreScope.STEP
+    assert make_score("step_phase_coverage", 0.8).scope is ScoreScope.STEP
 
     # 类型校验生效
     make_score("decision_match", "exact")
@@ -617,7 +652,8 @@ def _self_check() -> None:
     assert not result["hard_gate_passed"] and result["total"] == 0.0, result
     assert result["hard_gate_triggered_by"] == ["false_verified"]
 
-    print("[ OK ] scores.py 自检通过：17 项指标定义；"
+    print(f"[ OK ] scores.py 自检通过：{len(METRIC_DEFINITIONS)} 项指标定义"
+          f"（含步骤层 {len(STEP_METRICS)} 项）；"
           f"正常/边界/失败适用数 = {len(normal)}/{len(boundary)}/{len(failure)}；"
           f"奖励画像 = {len(REWARD_PROFILES)} 个；成本预算 = {len(COST_BUDGETS)} 组")
 

@@ -30,6 +30,8 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 
 白盒层把单个判定单元当作测试对象，回答「这一步对不对」——例如在证据不足时，`evaluate_evidence` 是否正确地把结论降级为 `lead` 而不是硬判 `verified`。
 
+三层的落地状态：黑盒层与玻璃盒层已实现；白盒层已由 `evaluation/steps.py` 落地为**步骤级评价**（详见后文「步骤层」一节与《步骤级评价与Langfuse接入方案》）。步骤层只做**确定性**判定（结构性 / 一致性 / 预算类规则），不依赖逐步骤标准答案，也不进入硬闸门与总分，只用于评分画像与失败归因。
+
 ## 数据集项映射
 
 一个数据单元映射为一个数据集项，字段对应关系如下：
@@ -88,6 +90,31 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 | `artifact_bytes` | NUMERIC | 产出制品的总字节数 |
 
 成本指标不设硬阈值，用于版本间比较与资源上限校验（对应 `Limits` / `Usage` 契约）。
+
+### 步骤层（白盒 / 归因，不进总分）
+
+步骤层把 Agent 的**每一步**（一次工具调用）当作可独立打分的对象，回答「这一步好不好、有没有推进、花了多少」。它以 **8 个 MCP 工具为准**（`create_task` / `prepare_environment` / `discover_scenarios` / `propose_hypotheses` / `run_experiment` / `evaluate_evidence` / `reconcile_task` / `finish_task`），再上卷到 5 个诊断阶段（`baseline` / `hypotheses` / `discriminating_experiment` / `localization` / `verification`）。
+
+判定只用**确定性规则**，不定义「某一步的标准答案」：检查状态、参数结构、阶段覆盖、重试、单步延迟 / token 预算，以及「证据不足时是否正确降级」。
+
+| 指标 | 类型 | 计算方式 | 作用域 |
+| --- | --- | --- | --- |
+| `step_status_ok` | BOOLEAN | 轨迹中不存在 `status = error` 的步骤 | STEP |
+| `step_tool_argument_valid` | BOOLEAN | 所有工具步骤的必填参数结构性合法（缺参 / 空参即非法） | STEP |
+| `step_phase_coverage` | NUMERIC 0–1 | 由步骤推断出的 5 个诊断阶段覆盖度 | STEP |
+| `step_retry_count` | NUMERIC | 相邻重复步骤（同工具、同参数）形成的重试次数 | STEP |
+| `step_latency_ms` | NUMERIC | 步骤延迟合计（相对单步预算归一化，超预算按比例衰减） | STEP |
+| `step_tokens` | NUMERIC | 步骤 token 合计（相对单步预算归一化） | STEP |
+| `step_downgrade_correctness` | BOOLEAN | `evaluate_evidence` 在证据不足时**没有**越级给出 `verified`（白盒核心，`false_verified` 的上游成因） | STEP |
+
+另有单步明细分 `step_score = 状态因子 × 参数合法性因子`（`ok` = 1、`skipped` = 0.5、`error` / 参数非法 = 0），逐步挂载，用于下钻定位。
+
+步骤层的两条重要约定：
+
+- **不进硬闸门、不进总分。** 步骤分不参与 `group_scores` / `total_score`，也不改变任何用例的通过判定；它只出现在报告的 `cases[].steps` / `cases[].scores` 中，作为**评分项与归因维度**。因此引入步骤层后，黑盒口径的 golden 总分与全局门槛保持不变。
+- **`step_downgrade_correctness` 与 `false_verified` 的关系。** 后者是全局零容忍硬闸门，前者把它**定位到具体步骤**：当出现误验证时，可下钻到 `evaluate_evidence` 那一步，判断「证据不足却仍给出 `verified`」发生在何处。该指标无法判定时（无 `evaluate_evidence` 步骤、未给出证据充分性信号等）不参与统计。
+
+阶段上卷把每步分按阶段聚合，产出「阶段 → 用例过程分 → 全局过程画像」的链路，用于回答「失败通常发生在哪一阶段」。实现在 `evaluation/steps.py`（确定性规则 + 上卷）与 `evaluation/trace_adapter.py`（三来源归一化）。
 
 ## 打分流程
 
@@ -192,7 +219,7 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 
 ## 分数数据模型
 
-为了让评估结果能直接落入 Langfuse 或同类系统，每个指标约定如下字段：
+为了让评估结果能直接落入 Langfuse 或同类系统，每个指标约定如下字段。作用域分三级：**数据集项级**（逐用例）、**运行级**（整轮聚合）、**步骤级**（单步轨迹，对应 Langfuse observation）：
 
 | 分数名 | 数据类型 | 来源 | 作用域 |
 | --- | --- | --- | --- |
@@ -209,8 +236,17 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 | `honesty` | CATEGORICAL | EVAL / ANNOTATION | 失败用例级 |
 | `wall_seconds` | NUMERIC | EVAL | 运行级 |
 | `tool_calls` | NUMERIC | EVAL | 运行级 |
+| `step_status_ok` | BOOLEAN | EVAL | 步骤级 |
+| `step_tool_argument_valid` | BOOLEAN | EVAL | 步骤级 |
+| `step_phase_coverage` | NUMERIC | EVAL | 步骤级 |
+| `step_retry_count` | NUMERIC | EVAL | 步骤级 |
+| `step_latency_ms` | NUMERIC | EVAL | 步骤级 |
+| `step_tokens` | NUMERIC | EVAL | 步骤级 |
+| `step_downgrade_correctness` | BOOLEAN | EVAL | 步骤级 |
 
 约定每个数据单元对应一个数据集项，一次完整评估对应一次实验运行，运行内部的评估器逐项产出上述分数。这样，不同模型、不同提示词、不同工具配置的表现可以在同一坐标系里横向比较，回归也可以按数据单元精确定位。
+
+步骤级分数在 Langfuse 中挂到 **observation**（而非 trace），具体映射与离线导出见 `evaluation/langfuse_export.py` 与《步骤级评价与Langfuse接入方案》。
 
 ## 防作弊与防泄漏
 

@@ -120,8 +120,10 @@ HONEST_REPORT = {
 # --------------------------------------------------------------------------- #
 
 class ScoresTest(unittest.TestCase):
-    def test_registry_has_17_metrics(self):
-        self.assertEqual(len(S.METRIC_DEFINITIONS), 17)
+    def test_registry_has_24_metrics(self):
+        # 17 项用例级指标 + 7 项步骤级指标（group="step"，D4 只作归因不进总分）。
+        self.assertEqual(len(S.METRIC_DEFINITIONS), 24)
+        self.assertEqual(len(S.STEP_METRICS), 7)
 
     def test_applicability_invariants(self):
         normal = {d.name for d in S.definitions_for(CaseType.NORMAL)}
@@ -131,12 +133,17 @@ class ScoresTest(unittest.TestCase):
         self.assertNotIn("honesty", normal)
         self.assertNotIn("honesty", boundary)
         self.assertIn("honesty", failure)
-        self.assertEqual(len(normal), 15)
-        self.assertEqual(len(boundary), 16)
-        self.assertEqual(len(failure), 8)
+        # 三类用例都追加了 7 项步骤级指标：15+7 / 16+7 / 8+7。
+        self.assertEqual(len(normal), 22)
+        self.assertEqual(len(boundary), 23)
+        self.assertEqual(len(failure), 15)
         self.assertIn("limitation_declared", boundary)
         self.assertNotIn("limitation_declared", normal)
         self.assertNotIn("root_cause_recall", failure)
+        # 步骤级指标对三类用例均适用（D3/D4）。
+        self.assertTrue(set(S.STEP_METRICS) <= normal)
+        self.assertTrue(set(S.STEP_METRICS) <= boundary)
+        self.assertTrue(set(S.STEP_METRICS) <= failure)
 
     def test_honesty_source_is_annotation(self):
         self.assertEqual(S.get_definition("honesty").source, S.ScoreSource.ANNOTATION)
