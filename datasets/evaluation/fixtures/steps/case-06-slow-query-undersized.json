@@ -1,0 +1,115 @@
+{
+  "case_id": "case-06-slow-query-undersized",
+  "run_id": "run-case-06-slow-query-undersized-0001",
+  "source": "run-bundle",
+  "steps": [
+    {
+      "index": 0,
+      "phase": "baseline",
+      "tool": "create_task",
+      "status": "ok",
+      "input": {
+        "task": "排查订单按用户查询缺索引但数据规模过小无法证实"
+      },
+      "latency_ms": 140.0,
+      "cost": {
+        "tokens": 300
+      }
+    },
+    {
+      "index": 1,
+      "phase": "baseline",
+      "tool": "prepare_environment",
+      "status": "ok",
+      "input": {
+        "repository": "case-06-slow-query-undersized"
+      },
+      "latency_ms": 900.0
+    },
+    {
+      "index": 2,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": {
+        "task": "排查订单按用户查询缺索引但数据规模过小无法证实"
+      },
+      "latency_ms": 1500.0
+    },
+    {
+      "index": 3,
+      "phase": "hypotheses",
+      "tool": "propose_hypotheses",
+      "status": "ok",
+      "input": {
+        "observations": [
+          {
+            "scan_type": "ALL",
+            "scan_rows": 1200,
+            "p99_ms": 45
+          }
+        ]
+      },
+      "latency_ms": 950.0,
+      "cost": {
+        "tokens": 1200
+      }
+    },
+    {
+      "index": 4,
+      "phase": "discriminating_experiment",
+      "tool": "run_experiment",
+      "status": "ok",
+      "input": {
+        "hypothesis": "missing_user_index"
+      },
+      "latency_ms": 2600.0,
+      "cost": {
+        "tokens": 1100
+      }
+    },
+    {
+      "index": 5,
+      "phase": "localization",
+      "tool": "evaluate_evidence",
+      "status": "ok",
+      "input": {
+        "hypothesis": "missing_user_index"
+      },
+      "latency_ms": 700.0,
+      "output": {
+        "insufficient_evidence": true,
+        "decision": "unclassified"
+      }
+    },
+    {
+      "index": 6,
+      "phase": "verification",
+      "tool": "reconcile_task",
+      "status": "skipped",
+      "input": {
+        "findings": [
+          {
+            "status": "unclassified"
+          }
+        ]
+      },
+      "latency_ms": 0.0
+    },
+    {
+      "index": 7,
+      "phase": "verification",
+      "tool": "finish_task",
+      "status": "ok",
+      "input": {
+        "report": {
+          "decision": "unclassified"
+        }
+      },
+      "latency_ms": 110.0,
+      "output": {
+        "decision": "unclassified"
+      }
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "baseline": {
+    "repeats_ms": [58.0, 61.5, 59.2],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "completed" },
+    "findings": [
+      {
+        "status": "lead",
+        "code_locations": [
+          {
+            "commit": "local",
+            "path": "src/main/java/com/example/slowquery/service/LegacyReportService.java",
+            "line": 19,
+            "symbol": "loadRecent",
+            "association_evidence_ids": ["ev-conn-1", "ev-exp-1"]
+          }
+        ],
+        "excluded_explanations": [
+          { "explanation": "missing_index", "evidence_ids": ["ev-obs-1"] },
+          { "explanation": "slow_query", "evidence_ids": ["ev-obs-2"] },
+          { "explanation": "connection_leak", "evidence_ids": ["ev-obs-3"] },
+          { "explanation": "jvm_gc_pause", "evidence_ids": ["ev-obs-4"] }
+        ],
+        "limitations": [
+          "必须声明本用例的耗时以『每次请求固定付出的 TCP 建连 + MySQL 握手/认证开销』为主，查询本身很快；该开销与数据规模、索引无关，不能靠执行计划或补索引实验体现",
+          "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，connection_setup 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+          "必须声明连接已在 try-with-resources 中正常关闭，应据此显式排除 connection_leak 假设，结论依据是『每请求新建连接』这一结构特征而非连接未归还"
+        ],
+        "evidence_flags": {}
+      }
+    ],
+    "reason": "主缺陷 d1（LegacyReportService.loadRecent 绕过连接池，每次请求用 DriverManager.getConnection 新建连接，付出固定建连握手开销）机制明确，但 SQL 走主键 LIMIT、执行计划无问题，无法由单变量索引实验证实；且当前 ProblemKind 仅支持 slow_query，故整体维持 lead"
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization",
+      "verification"
+    ],
+    "hypothesis_count": 3,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 25
+  },
+  "cost": { "wall_seconds": 80.0, "tool_calls": 25, "artifact_bytes": 4096 }
+}

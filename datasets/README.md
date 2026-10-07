@@ -32,8 +32,14 @@
 | `case-06-slow-query-undersized` | `failure` | `slow_query` | medium | `unclassified` | 已归档，校验通过 |
 | `case-07-n-plus-one-order-user` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-08-deep-pagination-large-offset` | `boundary` | `deep_pagination` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-09-connection-pool-leak` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-10-large-response-unbounded` | `boundary` | `large_response` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-11-connection-setup-per-request` | `boundary` | `connection_setup` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-12-excessive-logging-sync-debug` | `boundary` | `excessive_logging` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-13-thread-pool-no-verifiable-defect` | `failure` | `thread_pool` | medium | `unclassified` | 已归档，校验通过（等待 Agent 支持） |
+| `case-14-config-regression-pool-size` | `boundary` | `config_regression` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 
-> `problem_kind` 的取值域已在 `_schema/case.schema.json` 中预留为设计文档划定的 **9 类**性能问题；当前仅 `slow_query`（6 例）、`n_plus_one`（1 例）、`deep_pagination`（1 例）有对应用例，其余 6 类（`connection_pool` / `large_response` / `connection_setup` / `excessive_logging` / `thread_pool` / `config_regression`）为**待补**。详见《[数据集结构规范](docs/数据集结构规范.md)》「problem_kind 取值与覆盖现状」。
+> `problem_kind` 的取值域已在 `_schema/case.schema.json` 中预留为设计文档划定的 **9 类**性能问题；当前 **9 类均已落地对应用例**：`slow_query`（6 例，`case-01`–`case-06`）、`n_plus_one`（`case-07`）、`deep_pagination`（`case-08`）、`connection_pool`（`case-09`）、`large_response`（`case-10`）、`connection_setup`（`case-11`）、`excessive_logging`（`case-12`）、`thread_pool`（`case-13`）、`config_regression`（`case-14`）。详见《[数据集结构规范](docs/数据集结构规范.md)》「problem_kind 取值与覆盖现状」。
 
 全部用例共用同一套 Spring Boot + MyBatis + MySQL 技术栈，按「正常 / 边界 / 失败」三类各含 ≥2 个用例，构成一个完整的判定谱系：
 
@@ -44,10 +50,16 @@
   - `case-02` 在同一项目内叠加前导通配符、N+1、深分页等组合缺陷，主缺陷可证实、其余不可证实，用于验证 Agent「只给 lead 而不强行 verified」；
   - `case-05` 为「缺索引」的第二个变体，通过 `status` 分布倾斜使索引收益随取值波动、难以稳定证实，用于验证 Agent 在「缺陷真实但收益依赖数据分布」时不过度下结论；
   - `case-07` 为 `n_plus_one` 问题类型的**预置用例**：列表接口在 `for` 循环中逐条查询用户信息，形成 `1+size` 次数据库往返，开销随列表条数线性增长、单条 SQL 无计划问题，故不可能产出 `verified`，用于在问题类型扩展前检验 Agent「识别调用次数放大并如实声明限制」（等待 Agent 支持）；
-  - `case-08` 为 `deep_pagination` 问题类型的**预置用例**：分页接口使用大偏移 `LIMIT offset, size`，深页须扫描并丢弃近 20 万行，开销随翻页深度线性增长、且索引已存在无需补索引，故同样不可能产出 `verified`，用于检验 Agent 不把「有慢查询症状」误判为「缺索引」（等待 Agent 支持）。
+  - `case-08` 为 `deep_pagination` 问题类型的**预置用例**：分页接口使用大偏移 `LIMIT offset, size`，深页须扫描并丢弃近 20 万行，开销随翻页深度线性增长、且索引已存在无需补索引，故同样不可能产出 `verified`，用于检验 Agent 不把「有慢查询症状」误判为「缺索引」（等待 Agent 支持）；
+  - `case-09` 为 `connection_pool` 问题类型的**预置用例**：高并发导出接口持续占用连接、连接池被耗尽，表现为获取连接等待时间陡增，缺陷真实但收益随并发波动、难以稳定证实（等待 Agent 支持）；
+  - `case-10` 为 `large_response` 问题类型的**预置用例**：`GET /api/orders/all` 一次性返回全表、响应体无上限，序列化与网络开销随数据量放大，而单条 SQL 无计划问题（等待 Agent 支持）；
+  - `case-11` 为 `connection_setup` 问题类型的**预置用例**：每次请求都新建并关闭数据库连接，失去连接复用收益，开销随请求数线性增长（等待 Agent 支持）；
+  - `case-12` 为 `excessive_logging` 问题类型的**预置用例**：同步 `FileAppender` 以 debug 级别逐行打印大结果集，日志 I/O 阻塞业务线程，属同步日志放大（等待 Agent 支持）；
+  - `case-14` 为 `config_regression` 问题类型的**预置用例**：连接池最大连接数被配置回归调小，并发下形成排队等待，缺陷落在配置而非代码（等待 Agent 支持）。
 - **失败（`unclassified`）**：
   - `case-03` 的数据规模与接口与 `case-01` 一致，但 `orders` 已具备复合索引且无真实缺陷，用于验证 Agent「在证据不足时拒绝下结论、不编造根因」；
-  - `case-06` 保留与 `case-04` 相同的真实缺陷（缺索引），但数据规模仅 300 条、缺陷「真实但不可证实」，用于验证 Agent 不对不可证实的缺陷强行下结论。
+  - `case-06` 保留与 `case-04` 相同的真实缺陷（缺索引），但数据规模仅 300 条、缺陷「真实但不可证实」，用于验证 Agent 不对不可证实的缺陷强行下结论；
+  - `case-13` 为 `thread_pool` 问题类型的**预置用例**：线程池队列在压力下排队，但环境波动使该现象不可稳定复现，且项目内另有一个 `select_star` 诱饵缺陷，用于验证 Agent 在「诱饵干扰 + 现象不可稳定复现」时拒绝编造根因（等待 Agent 支持）。
 
 三类期望结论分别为 `verified` / `lead` / `unclassified`，与《Agent 评估方法》中正常、边界、失败三类样例一一对应。新增数据单元请遵循 `case-<两位序号>-<问题类型>-<变体>` 命名，从 `_template/` 复制样板起手，按其中自检清单确认后在本表中登记。
 

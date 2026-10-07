@@ -1,0 +1,55 @@
+{
+  "baseline": {
+    "repeats_ms": [12.0, 12.8, 11.9],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "completed" },
+    "findings": [
+      {
+        "status": "lead",
+        "code_locations": [
+          {
+            "commit": "local",
+            "path": "src/main/java/com/example/slowquery/service/ReportService.java",
+            "line": 21,
+            "symbol": "exportRecentOrders",
+            "association_evidence_ids": ["ev-conn-1", "ev-exp-1"]
+          }
+        ],
+        "excluded_explanations": [
+          { "explanation": "missing_index", "evidence_ids": ["ev-obs-1"] },
+          { "explanation": "slow_query", "evidence_ids": ["ev-obs-2"] },
+          { "explanation": "n_plus_one", "evidence_ids": ["ev-obs-3"] },
+          { "explanation": "jvm_gc_pause", "evidence_ids": ["ev-obs-4"] }
+        ],
+        "limitations": [
+          "连接池耗尽属渐进式资源泄漏，需在持续并发下多轮观测才显现，单次冷调用不可见，结论依赖足够长的压测窗口。",
+          "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+          "连接泄漏的量化需结合连接池活跃连接数随时间增长或获取连接超时计数等指标，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
+        ],
+        "evidence_flags": {}
+      }
+    ],
+    "reason": "主缺陷 d1（ReportService.exportRecentOrders 在正常路径下从不归还连接，池上限 10 被逐步耗尽）机制明确且可定位，但其可观测性依赖持续并发窗口、单指标 duration_ms 无法定量证实；且当前 ProblemKind 仅支持 slow_query，故整体维持 lead"
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization",
+      "verification"
+    ],
+    "hypothesis_count": 3,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 26
+  },
+  "cost": { "wall_seconds": 90.0, "tool_calls": 26, "artifact_bytes": 4096 }
+}

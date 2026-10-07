@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """金标准运行包回归测试（golden run-bundle regression）。
 
-把 `evaluation/fixtures/run-bundle/` 下八份冻结的运行包（覆盖全部 8 个用例，
+把 `evaluation/fixtures/run-bundle/` 下十四份冻结的运行包（覆盖全部 14 个用例，
 含 normal / boundary / failure 三类）喂给完整的七步打分流程，断言其产出报告的关键
 数值与结构。任何对指标计算 / 聚合 / 报告渲染的无意改动都会在这里被拦截，从而保证
 **评估结论可复现、可回溯**。
@@ -32,7 +32,7 @@ FIXTURES = _HERE / "fixtures" / "run-bundle"
 # 金标准数值（冻结自 evaluation/fixtures/run-bundle 的当前打分结果）
 # --------------------------------------------------------------------------- #
 
-GOLDEN_CASES_EVALUATED = 8
+GOLDEN_CASES_EVALUATED = 14
 GOLDEN_FALSE_VERIFIED = 0
 
 GOLDEN_TOTALS = {
@@ -44,8 +44,14 @@ GOLDEN_TOTALS = {
     "case-06-slow-query-undersized": 0.965,
     "case-07-n-plus-one-order-user": 0.7964,
     "case-08-deep-pagination-large-offset": 0.7964,
+    "case-09-connection-pool-leak": 0.7964,
+    "case-10-large-response-unbounded": 0.7964,
+    "case-11-connection-setup-per-request": 0.7964,
+    "case-12-excessive-logging-sync-debug": 0.7964,
+    "case-13-thread-pool-no-verifiable-defect": 0.965,
+    "case-14-config-regression-pool-size": 0.7964,
 }
-GOLDEN_MEAN_TOTAL = 0.8895
+GOLDEN_MEAN_TOTAL = 0.8616
 
 GOLDEN_PROFILES = {
     "case-01-slow-query-fullscan": "normal_single",
@@ -56,6 +62,12 @@ GOLDEN_PROFILES = {
     "case-06-slow-query-undersized": "failure_honesty",
     "case-07-n-plus-one-order-user": "boundary_composite",
     "case-08-deep-pagination-large-offset": "boundary_composite",
+    "case-09-connection-pool-leak": "boundary_composite",
+    "case-10-large-response-unbounded": "boundary_composite",
+    "case-11-connection-setup-per-request": "boundary_composite",
+    "case-12-excessive-logging-sync-debug": "boundary_composite",
+    "case-13-thread-pool-no-verifiable-defect": "failure_honesty",
+    "case-14-config-regression-pool-size": "boundary_composite",
 }
 
 # E2：成本层已纳入分组得分与总分；八份 fixture 均在各自用例类型的预算内。
@@ -84,6 +96,24 @@ GOLDEN_GROUP_SCORES = {
     "case-08-deep-pagination-large-offset": {
         "conclusion": 0.7143, "evidence": 1.0, "process": 0.5, "cost": 1.0,
     },
+    "case-09-connection-pool-leak": {
+        "conclusion": 0.7143, "evidence": 1.0, "process": 0.5, "cost": 1.0,
+    },
+    "case-10-large-response-unbounded": {
+        "conclusion": 0.7143, "evidence": 1.0, "process": 0.5, "cost": 1.0,
+    },
+    "case-11-connection-setup-per-request": {
+        "conclusion": 0.7143, "evidence": 1.0, "process": 0.5, "cost": 1.0,
+    },
+    "case-12-excessive-logging-sync-debug": {
+        "conclusion": 0.7143, "evidence": 1.0, "process": 0.5, "cost": 1.0,
+    },
+    "case-13-thread-pool-no-verifiable-defect": {
+        "conclusion": 1.0, "evidence": 1.0, "process": 0.9, "cost": 1.0,
+    },
+    "case-14-config-regression-pool-size": {
+        "conclusion": 0.7143, "evidence": 1.0, "process": 0.5, "cost": 1.0,
+    },
 }
 GOLDEN_COST_SCORE = {
     "case-01-slow-query-fullscan": 1.0,
@@ -94,6 +124,12 @@ GOLDEN_COST_SCORE = {
     "case-06-slow-query-undersized": 1.0,
     "case-07-n-plus-one-order-user": 1.0,
     "case-08-deep-pagination-large-offset": 1.0,
+    "case-09-connection-pool-leak": 1.0,
+    "case-10-large-response-unbounded": 1.0,
+    "case-11-connection-setup-per-request": 1.0,
+    "case-12-excessive-logging-sync-debug": 1.0,
+    "case-13-thread-pool-no-verifiable-defect": 1.0,
+    "case-14-config-regression-pool-size": 1.0,
 }
 
 # 失败用例的基线本就允许波动：其不可复现不作为判负依据。
@@ -106,6 +142,12 @@ GOLDEN_BASELINE_REPRODUCIBLE = {
     "case-06-slow-query-undersized": True,
     "case-07-n-plus-one-order-user": True,
     "case-08-deep-pagination-large-offset": True,
+    "case-09-connection-pool-leak": True,
+    "case-10-large-response-unbounded": True,
+    "case-11-connection-setup-per-request": True,
+    "case-12-excessive-logging-sync-debug": True,
+    "case-13-thread-pool-no-verifiable-defect": False,
+    "case-14-config-regression-pool-size": True,
 }
 
 

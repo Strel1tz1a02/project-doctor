@@ -1,0 +1,93 @@
+{
+  "case_id": "case-12-excessive-logging-sync-debug",
+  "schema_version": "0.1",
+  "title": "请求热路径逐行同步打印 DEBUG 日志，日志写盘拖慢接口",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "excessive_logging",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/by-user 在 size=500 时 P95 显著升高，耗时与返回行数近似线性正相关，日志量巨大、磁盘写 IO 高；把日志级别调到 info 或多刷几次后现象缓解。",
+    "endpoint": "GET /api/orders/by-user?userId=123&size=500",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/by-user?userId=123&size=500 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，orders=200000，order.user_id 均匀分布于 1..50000；orders 具备 idx_orders_user_created(user_id, created_at)，by-user 查询走索引）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "synchronous_verbose_logging",
+      "mechanism": "请求热路径中逐行打印 DEBUG 日志，appender 同步刷盘（immediateFlush=true），单请求产生数百条同步写，耗时随返回行数线性增长；SQL 本身走 idx_orders_user_created、无缺索引",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/OrderService.java",
+          "line": 29,
+          "symbol": "recentByUser"
+        }
+      ],
+      "expected_fix": "移除热路径逐行日志 / 提高日志级别 / 改异步 appender",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/OrderService.java",
+        "line": 29,
+        "symbol": "recentByUser"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "connection_pool"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明 excessive_logging 的判定依据是『热路径逐行同步日志写盘、耗时随返回行数线性增长』，而非任何单条 SQL 的执行计划问题（orders 已具备 idx_orders_user_created，查询本身走索引、很快）",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，excessive_logging 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明结论依赖请求参数 size：逐行日志的开销在 size 较小时可忽略，本用例以 size=500 触发"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "边界用例（问题类型 excessive_logging，等待 Agent 支持）。设计意图：检验 Agent 能否识别『代码结构导致的日志 IOC/写盘放大』——primary d1 在 recentByUser 的 for 循环内对每条订单打印 DEBUG 日志，配合 logback-spring.xml 的同步 FileAppender（immediateFlush=true），单请求产生数百条同步写，耗时随返回行数线性增长；schema.sql 已为 orders 增加 idx_orders_user_created(user_id, created_at)，by-user 查询本身走索引很快，唯一瓶颈只剩日志。可证实性判定：可尝试『降级日志级别/改异步 appender 后 QPS 提升』以佐证，但当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：因 schema 已补索引，missing_index / slow_query 假设被排除；无 N+1、无连接池相关代码。待支持标注：等待 Agent 支持 excessive_logging 问题类型。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-07",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

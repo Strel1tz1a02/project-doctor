@@ -1,0 +1,55 @@
+{
+  "baseline": {
+    "repeats_ms": [118.0, 122.5, 120.3],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "completed" },
+    "findings": [
+      {
+        "status": "lead",
+        "code_locations": [
+          {
+            "commit": "local",
+            "path": "src/main/resources/application.yml",
+            "line": 11,
+            "symbol": "spring.datasource.hikari.maximum-pool-size",
+            "association_evidence_ids": ["ev-cfg-1", "ev-exp-1"]
+          }
+        ],
+        "excluded_explanations": [
+          { "explanation": "missing_index", "evidence_ids": ["ev-obs-1"] },
+          { "explanation": "slow_query", "evidence_ids": ["ev-obs-2"] },
+          { "explanation": "n_plus_one", "evidence_ids": ["ev-obs-3"] },
+          { "explanation": "jvm_gc_pause", "evidence_ids": ["ev-obs-4"] }
+        ],
+        "limitations": [
+          "必须声明本用例的耗时来自配置层（数据源连接池上限被回退为极小值），而非任何单条 SQL 的执行计划：/api/orders/by-user 查询已有 idx_orders_user_created 可用、计划正常。",
+          "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，config_regression 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+          "必须声明本用例结论依赖并发度：低并发下小连接池不产生排队、症状不可观测，且『回退』只能通过与配置基线对照来判定，本用例以 concurrency=8 触发。"
+        ],
+        "evidence_flags": {}
+      }
+    ],
+    "reason": "主缺陷 d1（数据源连接池 maximum-pool-size 被回退为 2，并发下请求排队导致 P99 阶跃式升高）机制明确，但查询本身走 idx_orders_user_created、执行计划正常，无法用单变量索引实验证实；且当前 ProblemKind 仅支持 slow_query，故整体维持 lead"
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization",
+      "verification"
+    ],
+    "hypothesis_count": 3,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 28
+  },
+  "cost": { "wall_seconds": 86.0, "tool_calls": 28, "artifact_bytes": 4096 }
+}

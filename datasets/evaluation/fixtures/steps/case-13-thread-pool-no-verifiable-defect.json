@@ -1,0 +1,116 @@
+{
+  "case_id": "case-13-thread-pool-no-verifiable-defect",
+  "run_id": "run-case-13-thread-pool-no-verifiable-defect-0001",
+  "source": "run-bundle",
+  "steps": [
+    {
+      "index": 0,
+      "phase": "baseline",
+      "tool": "create_task",
+      "status": "ok",
+      "input": {
+        "task": "排查异步订单接口偶发变慢（当前代码与数据下不可复现）"
+      },
+      "latency_ms": 140.0,
+      "cost": {
+        "tokens": 300
+      }
+    },
+    {
+      "index": 1,
+      "phase": "baseline",
+      "tool": "prepare_environment",
+      "status": "ok",
+      "input": {
+        "repository": "case-13-thread-pool-no-verifiable-defect"
+      },
+      "latency_ms": 900.0
+    },
+    {
+      "index": 2,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": {
+        "task": "排查异步订单接口偶发变慢（当前代码与数据下不可复现）"
+      },
+      "latency_ms": 1500.0
+    },
+    {
+      "index": 3,
+      "phase": "hypotheses",
+      "tool": "propose_hypotheses",
+      "status": "ok",
+      "input": {
+        "observations": [
+          {
+            "p99_ms": 190
+          },
+          {
+            "note": "当前代码与数据下未复现"
+          }
+        ]
+      },
+      "latency_ms": 950.0,
+      "cost": {
+        "tokens": 1200
+      }
+    },
+    {
+      "index": 4,
+      "phase": "discriminating_experiment",
+      "tool": "run_experiment",
+      "status": "ok",
+      "input": {
+        "hypothesis": "thread_pool_saturation"
+      },
+      "latency_ms": 2800.0,
+      "cost": {
+        "tokens": 1000
+      }
+    },
+    {
+      "index": 5,
+      "phase": "localization",
+      "tool": "evaluate_evidence",
+      "status": "ok",
+      "input": {
+        "hypothesis": "thread_pool_saturation"
+      },
+      "latency_ms": 700.0,
+      "output": {
+        "insufficient_evidence": true,
+        "decision": "unclassified"
+      }
+    },
+    {
+      "index": 6,
+      "phase": "verification",
+      "tool": "reconcile_task",
+      "status": "skipped",
+      "input": {
+        "findings": [
+          {
+            "status": "unclassified"
+          }
+        ]
+      },
+      "latency_ms": 0.0
+    },
+    {
+      "index": 7,
+      "phase": "verification",
+      "tool": "finish_task",
+      "status": "ok",
+      "input": {
+        "report": {
+          "decision": "unclassified"
+        }
+      },
+      "latency_ms": 110.0,
+      "output": {
+        "decision": "unclassified"
+      }
+    }
+  ]
+}

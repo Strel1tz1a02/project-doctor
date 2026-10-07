@@ -142,7 +142,7 @@ python tools/test_isolation_guard.py -v
 **`golden-regression`** —— 金标准运行包回归（独立信号）：
 
 9. `evaluation/run_eval.py --runs evaluation/fixtures/run-bundle --out evaluation/out`
-   —— 用 `fixtures/` 里冻结的八份运行包（覆盖全部 8 个用例）跑完整七步流程；退出码 `0` 表示整轮结论通过。
+   —— 用 `fixtures/` 里冻结的十四份运行包（覆盖全部 14 个用例）跑完整七步流程；退出码 `0` 表示整轮结论通过。
    数值与结构断言（每例总分、双口径阈值、误验证为 0、失败用例基线允许波动等）
    由 `evaluation/test_golden_bundle.py` 承载——任何对指标 / 聚合 / 报告渲染的
    无意改动都会在此暴露，保证**评估结论可复现、可回溯**。

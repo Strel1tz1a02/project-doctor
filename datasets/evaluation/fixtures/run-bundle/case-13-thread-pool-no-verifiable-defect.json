@@ -1,0 +1,41 @@
+{
+  "baseline": {
+    "repeats_ms": [9.1, 15.4, 8.7],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "blocked" },
+    "findings": [
+      {
+        "status": "unclassified",
+        "code_locations": [],
+        "limitations": [
+          "必须声明工单所述 GET /api/orders/async-recent 偶发慢（P95 超 800ms）在当前代码与数据集下无法复现，基线稳定在个位数毫秒",
+          "必须声明各候选变量实验（含调整线程池参数、放大并发、补索引等）均无显著改善（耗时差 < minimum_delta_ms 或相对波动超阈值），无法证实任何根因",
+          "必须声明 orders 已具备 idx_orders_user_created 复合索引，'缺（复合）索引' 假设被证伪"
+        ],
+        "evidence_flags": {}
+      }
+    ],
+    "insufficient_evidence": true,
+    "reason": "按标准负载重复测量，基线相对离散度超阈值且各候选变量实验（调整线程池参数、放大并发、补索引）均无显著改善，无法区分根因，故不作任何 verified 结论；d1 线程池排队嫌疑为 secondary、d2 SELECT * 属代码异味 decoy，均不可证实"
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization"
+    ],
+    "hypothesis_count": 1,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 11
+  },
+  "cost": { "wall_seconds": 33.0, "tool_calls": 11, "artifact_bytes": 512 }
+}

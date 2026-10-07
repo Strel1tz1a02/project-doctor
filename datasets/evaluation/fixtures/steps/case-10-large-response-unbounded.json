@@ -1,0 +1,114 @@
+{
+  "case_id": "case-10-large-response-unbounded",
+  "run_id": "run-case-10-large-response-unbounded-0001",
+  "source": "run-bundle",
+  "steps": [
+    {
+      "index": 0,
+      "phase": "baseline",
+      "tool": "create_task",
+      "status": "ok",
+      "input": {
+        "task": "排查列表接口一次性返回全表完整实体导致响应体过大"
+      },
+      "latency_ms": 140.0,
+      "cost": {
+        "tokens": 300
+      }
+    },
+    {
+      "index": 1,
+      "phase": "baseline",
+      "tool": "prepare_environment",
+      "status": "ok",
+      "input": {
+        "repository": "case-10-large-response-unbounded"
+      },
+      "latency_ms": 900.0
+    },
+    {
+      "index": 2,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": {
+        "task": "排查列表接口一次性返回全表完整实体导致响应体过大"
+      },
+      "latency_ms": 1500.0
+    },
+    {
+      "index": 3,
+      "phase": "hypotheses",
+      "tool": "propose_hypotheses",
+      "status": "ok",
+      "input": {
+        "observations": [
+          {
+            "response_bytes": 31457280,
+            "p99_ms": 1200
+          }
+        ]
+      },
+      "latency_ms": 950.0,
+      "cost": {
+        "tokens": 1200
+      }
+    },
+    {
+      "index": 4,
+      "phase": "discriminating_experiment",
+      "tool": "run_experiment",
+      "status": "ok",
+      "input": {
+        "hypothesis": "unbounded_response_payload"
+      },
+      "latency_ms": 7500.0,
+      "cost": {
+        "tokens": 2500
+      }
+    },
+    {
+      "index": 5,
+      "phase": "localization",
+      "tool": "evaluate_evidence",
+      "status": "ok",
+      "input": {
+        "hypothesis": "unbounded_response_payload"
+      },
+      "latency_ms": 700.0,
+      "output": {
+        "insufficient_evidence": true,
+        "decision": "lead"
+      }
+    },
+    {
+      "index": 6,
+      "phase": "verification",
+      "tool": "reconcile_task",
+      "status": "ok",
+      "input": {
+        "findings": [
+          {
+            "status": "lead"
+          }
+        ]
+      },
+      "latency_ms": 400.0
+    },
+    {
+      "index": 7,
+      "phase": "verification",
+      "tool": "finish_task",
+      "status": "ok",
+      "input": {
+        "report": {
+          "decision": "lead"
+        }
+      },
+      "latency_ms": 110.0,
+      "output": {
+        "decision": "lead"
+      }
+    }
+  ]
+}

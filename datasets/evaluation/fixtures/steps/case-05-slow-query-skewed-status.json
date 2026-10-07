@@ -1,0 +1,127 @@
+{
+  "case_id": "case-05-slow-query-skewed-status",
+  "run_id": "run-case-05-slow-query-skewed-status-0001",
+  "source": "run-bundle",
+  "steps": [
+    {
+      "index": 0,
+      "phase": "baseline",
+      "tool": "create_task",
+      "status": "ok",
+      "input": {
+        "task": "排查订单状态过滤查询慢（状态分布倾斜）"
+      },
+      "latency_ms": 140.0,
+      "cost": {
+        "tokens": 300
+      }
+    },
+    {
+      "index": 1,
+      "phase": "baseline",
+      "tool": "prepare_environment",
+      "status": "ok",
+      "input": {
+        "repository": "case-05-slow-query-skewed-status"
+      },
+      "latency_ms": 900.0
+    },
+    {
+      "index": 2,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": {
+        "task": "排查订单状态过滤查询慢（状态分布倾斜）"
+      },
+      "latency_ms": 1500.0
+    },
+    {
+      "index": 3,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": {
+        "task": "排查订单状态过滤查询慢（状态分布倾斜）"
+      },
+      "latency_ms": 1500.0
+    },
+    {
+      "index": 4,
+      "phase": "hypotheses",
+      "tool": "propose_hypotheses",
+      "status": "ok",
+      "input": {
+        "observations": [
+          {
+            "status_skew": true,
+            "p99_ms": 760
+          },
+          {
+            "note": "收益随状态分布波动"
+          }
+        ]
+      },
+      "latency_ms": 950.0,
+      "cost": {
+        "tokens": 1200
+      }
+    },
+    {
+      "index": 5,
+      "phase": "discriminating_experiment",
+      "tool": "run_experiment",
+      "status": "ok",
+      "input": {
+        "hypothesis": "missing_status_index"
+      },
+      "latency_ms": 7000.0,
+      "cost": {
+        "tokens": 2400
+      }
+    },
+    {
+      "index": 6,
+      "phase": "localization",
+      "tool": "evaluate_evidence",
+      "status": "ok",
+      "input": {
+        "hypothesis": "missing_status_index"
+      },
+      "latency_ms": 700.0,
+      "output": {
+        "insufficient_evidence": true,
+        "decision": "lead"
+      }
+    },
+    {
+      "index": 7,
+      "phase": "verification",
+      "tool": "reconcile_task",
+      "status": "ok",
+      "input": {
+        "findings": [
+          {
+            "status": "lead"
+          }
+        ]
+      },
+      "latency_ms": 400.0
+    },
+    {
+      "index": 8,
+      "phase": "verification",
+      "tool": "finish_task",
+      "status": "ok",
+      "input": {
+        "report": {
+          "decision": "lead"
+        }
+      },
+      "latency_ms": 110.0,
+      "output": {
+        "decision": "lead"
+      }
+    }
+  ]
+}

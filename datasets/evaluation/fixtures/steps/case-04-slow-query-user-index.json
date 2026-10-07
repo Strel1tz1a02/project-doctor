@@ -1,0 +1,115 @@
+{
+  "case_id": "case-04-slow-query-user-index",
+  "run_id": "run-case-04-slow-query-user-index-0001",
+  "source": "run-bundle",
+  "steps": [
+    {
+      "index": 0,
+      "phase": "baseline",
+      "tool": "create_task",
+      "status": "ok",
+      "input": {
+        "task": "排查按用户查询订单慢（疑似缺失 (user_id, created_at) 索引）"
+      },
+      "latency_ms": 140.0,
+      "cost": {
+        "tokens": 300
+      }
+    },
+    {
+      "index": 1,
+      "phase": "baseline",
+      "tool": "prepare_environment",
+      "status": "ok",
+      "input": {
+        "repository": "case-04-slow-query-user-index"
+      },
+      "latency_ms": 900.0
+    },
+    {
+      "index": 2,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": {
+        "task": "排查按用户查询订单慢（疑似缺失 (user_id, created_at) 索引）"
+      },
+      "latency_ms": 1500.0
+    },
+    {
+      "index": 3,
+      "phase": "hypotheses",
+      "tool": "propose_hypotheses",
+      "status": "ok",
+      "input": {
+        "observations": [
+          {
+            "scan_type": "ALL",
+            "scan_rows": 470000,
+            "p99_ms": 810
+          }
+        ]
+      },
+      "latency_ms": 950.0,
+      "cost": {
+        "tokens": 1200
+      }
+    },
+    {
+      "index": 4,
+      "phase": "discriminating_experiment",
+      "tool": "run_experiment",
+      "status": "ok",
+      "input": {
+        "hypothesis": "missing_user_index"
+      },
+      "latency_ms": 5200.0,
+      "cost": {
+        "tokens": 2100
+      }
+    },
+    {
+      "index": 5,
+      "phase": "localization",
+      "tool": "evaluate_evidence",
+      "status": "ok",
+      "input": {
+        "hypothesis": "missing_user_index"
+      },
+      "latency_ms": 700.0,
+      "output": {
+        "insufficient_evidence": false,
+        "decision": "verified"
+      }
+    },
+    {
+      "index": 6,
+      "phase": "verification",
+      "tool": "reconcile_task",
+      "status": "ok",
+      "input": {
+        "findings": [
+          {
+            "status": "verified"
+          }
+        ]
+      },
+      "latency_ms": 400.0
+    },
+    {
+      "index": 7,
+      "phase": "verification",
+      "tool": "finish_task",
+      "status": "ok",
+      "input": {
+        "report": {
+          "decision": "verified"
+        }
+      },
+      "latency_ms": 110.0,
+      "output": {
+        "decision": "verified"
+      }
+    }
+  ]
+}

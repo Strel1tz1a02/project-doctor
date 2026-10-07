@@ -20,7 +20,7 @@
 | D2 | 谁负责埋点 / 产出 trace？ | **执行侧产出记录，我方只消费 + 打分** | `trace_adapter.py`（FromRunBundle / FromInterface / FromLangfuse） |
 | D3 | 是否新增 `expected_steps`（步骤级金标准）？ | **先不加**；步骤分用**确定性规则**，不依赖逐步骤正解 | `steps.py` 的 `STEP_RULES`（7 条结构/一致性/预算规则） |
 | D4 | 步骤分是否进硬闸门？ | **不进**；只作评分项 / 归因维度 | `scores.metric_score` 对 `group == "step"` 返回 `None`；`aggregate`/`render_markdown` 单列 |
-| D5 | Langfuse 部署与凭证归属？ | **我方完成部署**（用户由原「队长指定 project」改为我方负责） | `langfuse_export.py` 默认离线产出摄入 JSON；部署为后续动作 |
+| D5 | Langfuse 部署与凭证归属？ | **我方完成部署**（用户由原「队长指定 project」改为我方负责） | `langfuse_export.py` 产出摄入 JSON；`langfuse_deploy.py` 产出**有序部署请求计划 + 回放脚本**（追加轮次，见 §9/§11） |
 | D6 | 步骤口径以 8 工具还是 5 诊断步为准？ | **以 8 工具为准**，上卷到 5 诊断阶段 | `steps.TOOL_PHASE` / `contract.DIAGNOSTIC_PHASES` |
 | D7 | 数据量 / 裁剪策略？ | 步骤 `input`/`output` 允许摘要化，制品只存引用 | `StepTrace` 只承载可观测字段，不内联大对象 |
 
@@ -42,6 +42,19 @@
 | `evaluation/test_steps.py` | 步骤层单测（43 项，覆盖上述三模块 + 契约 + 边界） |
 | `evaluation/fixtures/steps/case-01-slow-query-fullscan.json` | 步骤轨迹样例：8 步全绿的「干净」轨迹 |
 | `evaluation/fixtures/steps/case-02-slow-query-composite.json` | 步骤轨迹样例：含重试 / 跳过 / 超预算 / 证据不足降级的「复合」轨迹 |
+
+### 追加轮次新增文件（P4.x，详见 §11）
+
+| 文件 | 说明 |
+| --- | --- |
+| `evaluation/step_fixtures.py` | **步骤 fixture 装载 / 富化**：`merge_bundle` 把步骤轨迹注入运行包副本；`enrich_report` 在报告副本上补 `steps`/`phases`/`step_summary`，**不改 `passed`（D4 安全）** |
+| `evaluation/interface_source.py` | **阶段三 · 在线只读接口**：生成只读请求计划（仅 `GET`/`HEAD` + `/api/read/` 前缀），越界方法/端点直接拒绝；本地导出归一化 → `StepTrace` fixture |
+| `evaluation/langfuse_deploy.py` | **D5 部署就绪包**：报告 + 用例 → 有序部署请求计划（`dataset → ingestion → dataset-item → dataset-run-item`）+ 离线 dry-run / 回放脚本 |
+| `evaluation/model_judge.py` | **阶段四 · 主观步骤模型评分脚手架**：离线构建 LLM-as-judge 评审请求体（维度 × 命中步骤）+ 响应解析 + `STEP` 分数映射 |
+| `evaluation/test_followups.py` | 追加轮次回归测试（18 项）：扩容 / 步骤 fixture / 只读接口 / D5 部署 / 模型评审 / 冻结清单 |
+| `evaluation/fixtures/steps/case-03…case-14-*.json` | 为 case-03~case-14 补齐步骤轨迹 fixture（12 个），使 **14 个用例全部进入步骤级评测** |
+| `evaluation/fixtures/run-bundle/case-09…case-14-*.json` | 为 6 个新用例补齐金标准运行包 |
+| `docs/步骤级评价与Langfuse接入-D5部署说明.md` | **D5 部署说明**：离线有序请求计划 + dry-run / 回放脚本用法（仅需环境变量，零 SUT 调用） |
 
 ### 修改文件
 
@@ -289,12 +302,17 @@ python evaluation/trace_adapter.py       # 轨迹适配器自检
 python evaluation/metrics.py             # 指标自检（含步骤层归因）
 python evaluation/run_eval.py            # 编排/报告自检（含步骤级归因聚合）
 python evaluation/langfuse_export.py     # Langfuse 导出自检
+python evaluation/langfuse_deploy.py     # D5 部署计划自检（端点白名单 / 金标准不泄漏）
+python evaluation/step_fixtures.py       # 步骤 fixture 装载/富化自检
+python evaluation/interface_source.py    # 阶段三 只读接口计划自检
+python evaluation/model_judge.py         # 阶段四 评审请求计划自检
 
 python -m unittest discover -s evaluation -p "test_*.py" -v
 ```
 
-本轮验证结果：**全部自检 OK；单测 114 项全通过**（`test_steps` 43 + `test_metrics` 45 + `test_golden_bundle` 16 +
-`test_run_eval` 10）。其中 `test_golden_bundle` 证明**引入步骤层后 golden 总分与全局门槛未变**。
+本轮验证结果：**全部自检 OK；单测 132 项全通过**（`test_steps` 43 + `test_metrics` 45 + `test_golden_bundle` 16 +
+`test_run_eval` 10 + `test_followups` 18）。其中 `test_golden_bundle` 证明**引入步骤层后 golden 总分与全局门槛未变**；
+`test_followups` 覆盖用例扩容（8→14）与追加模块的回归。
 
 > 环境提示：仓库默认 `python` 为 3.10.x；本层纯标准库实现，无第三方依赖（`pytest` 未安装，用 `unittest` 即可）。
 
@@ -308,16 +326,24 @@ python -m unittest discover -s evaluation -p "test_*.py" -v
 evaluation/contract.py
 evaluation/scores.py
 evaluation/metrics.py
-evaluation/steps.py            # 新增
-evaluation/trace_adapter.py    # 新增
-evaluation/langfuse_export.py  # 新增
+evaluation/steps.py                # 首轮新增
+evaluation/trace_adapter.py        # 首轮新增
+evaluation/langfuse_export.py      # 首轮新增
+evaluation/langfuse_deploy.py      # 追加轮次新增
+evaluation/step_fixtures.py        # 追加轮次新增
+evaluation/interface_source.py     # 追加轮次新增
+evaluation/model_judge.py          # 追加轮次新增
 evaluation/run_eval.py
 evaluation/test_metrics.py
-evaluation/test_steps.py       # 新增
+evaluation/test_steps.py           # 首轮新增
 evaluation/test_run_eval.py
 evaluation/test_golden_bundle.py
+evaluation/test_followups.py       # 追加轮次新增
 tools/validate_cases.py
+_schema/case.schema.json
 ```
+
+共 **18 项**（首轮 13 项 + 追加轮次 5 项）。
 
 改动 FROZEN 文件会**改变评测器哈希**，属预期；须在**一轮评估开始前统一冻结**。本轮未改动 golden 期望值
 （因为步骤层不进总分），故 golden 保持稳定。
@@ -326,11 +352,14 @@ tools/validate_cases.py
 
 ## 9. 未完成 / 后续工作
 
-- **D5 部署**：Langfuse 实例部署与建 Dataset（8 用例）+ Dataset Run，使 UI 可见/可过滤——**我方负责**，尚未执行；
-  `langfuse_export.py` 已备好摄入 JSON，待凭证/实例就绪即可回写。
-- **阶段三 · 在线只读接口**：与执行侧约定只读导出接口（任务包 / AGH 执行记录 / Trace API），
-  `FromInterface` / `FromLangfuse` 适配器已就位，待接口形态确认后对接。
-- **阶段四 · 主观步骤模型评分**：对「假设质量 / 报告可读性」等主观步骤，接 Langfuse LLM-as-judge。
+- **D5 部署（就绪，待凭证执行）**：`langfuse_deploy.py` 已能离线产出**有序部署请求计划**
+  （`dataset → ingestion → dataset-item → dataset-run-item`，含端点白名单与金标准不泄漏守卫），并生成 `replay.ps1` / `replay.sh`；
+  `langfuse_export.py` 备好摄入 JSON。**建 Dataset（14 用例）+ Dataset Run** 只需配好环境变量
+  （`LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`）后执行回放脚本，详见《步骤级评价与Langfuse接入-D5部署说明.md》。
+- **阶段三 · 在线只读接口（就绪）**：`interface_source.py` 已能生成只读请求计划（仅 `GET`/`HEAD` + `/api/read/` 前缀），
+  越界方法/端点直接拒绝，并支持本地导出归一化为 `StepTrace` fixture；待执行侧确认接口形态后即可对接。
+- **阶段四 · 主观步骤模型评分（脚手架就绪）**：`model_judge.py` 已能离线构建 LLM-as-judge 评审请求体
+  （维度 × 命中步骤）、解析响应并映射为 `STEP` 分数；接入真实评审模型仅需填 endpoint / key。
 - 上述均**不影响**当前黑盒 golden 与判定口径。
 
 ---
@@ -338,8 +367,66 @@ tools/validate_cases.py
 ## 10. 交接要点（速览）
 
 1. **边界不变**：我们只判卷，不调用执行；步骤数据只读。
-2. **加了三样东西**：步骤契约（`contract`）、步骤评估器（`steps.py`）、轨迹适配器（`trace_adapter.py`）+ Langfuse 导出（`langfuse_export.py`）。
-3. **步骤分不改判定**：`metric_score(group="step") → None`；golden 总分与全局门槛不动。
-4. **白盒核心**：`step_downgrade_correctness` 把 `false_verified` 定位到 `evaluate_evidence` 那一步。
-5. **验收命令**：`python -m unittest discover -s evaluation -p "test_*.py"`（应 114 项通过）。
-6. **待办**：D5 部署、阶段三在线接口、阶段四模型评分。
+2. **首轮加了三样东西**：步骤契约（`contract`）、步骤评估器（`steps.py`）、轨迹适配器（`trace_adapter.py`）+ Langfuse 导出（`langfuse_export.py`）。
+3. **追加轮次又加了五样**：步骤 fixture 富化（`step_fixtures.py`）、只读接口取数（`interface_source.py`）、D5 部署计划（`langfuse_deploy.py`）、阶段四模型评审（`model_judge.py`）、回归测试（`test_followups.py`）；并将用例从 8 扩到 **14**。
+4. **步骤分不改判定**：`metric_score(group="step") → None`；golden 总分与全局门槛不动。
+5. **白盒核心**：`step_downgrade_correctness` 把 `false_verified` 定位到 `evaluate_evidence` 那一步。
+6. **验收命令**：`python -m unittest discover -s evaluation -p "test_*.py"`（应 132 项通过）。
+7. **待办**：D5 部署回放（待凭证）、阶段三在线接口对接（待接口形态）、阶段四接入真实评审模型（待 endpoint/key）。
+
+---
+
+## 11. 追加轮次（数据集扩容 8→14 + 阶段三/四 + D5 部署就绪）
+
+在首轮基础上继续推进，本轮交付物与验收如下（工作根目录 `project-doctor/datasets/`）：
+
+### 11.1 数据集扩容（8 → 14 用例）
+
+新增 6 个用例，补齐此前缺失的 `problem_kind`（slug 以 `case.json` 为准）：
+
+| 用例目录 | `problem_kind` | `case_type` | 要点 |
+| --- | --- | --- | --- |
+| `case-09-connection-pool-leak` | `connection_pool` | boundary | 连接池泄漏 |
+| `case-10-large-response-unbounded` | `large_response` | boundary | 大响应体无界 |
+| `case-11-connection-setup-per-request` | `connection_setup` | boundary | 每请求重复建连 |
+| `case-12-excessive-logging-sync-debug` | `excessive_logging` | boundary | 同步 debug 日志过量 |
+| `case-13-thread-pool-no-verifiable-defect` | `thread_pool` | failure | 无「可验证缺陷」的对照用例 |
+| `case-14-config-regression-pool-size` | `config_regression` | boundary | 配置回归（池大小） |
+
+每个用例均含 `case.json` + `README.md` + `project/`，全部通过 `tools/validate_cases.py` 的 schema 校验与隔离守卫。
+
+### 11.2 步骤级 fixture 全覆盖（14/14）
+
+- `evaluation/fixtures/steps/case-03…case-14-*.json`：补齐 12 个步骤轨迹 fixture。
+- `evaluation/fixtures/run-bundle/case-09…case-14-*.json`：补齐 6 个金标准运行包。
+- `evaluation/step_fixtures.py` 的 `merge_bundle` / `enrich_report` 只操作**深拷贝**，不会落笔到只读 fixture；富化后 `passed` 与 golden 总分不变（D4 安全）。
+
+### 11.3 阶段三 · 在线只读接口（`interface_source.py`）
+
+- `build_plan(...)` 生成任务包 / 执行记录 / Trace 三类**只读**取数请求（`GET`/`HEAD`，端点须落在 `/api/read/` 前缀）。
+- `assert_read_only(...)` 对任何非只读方法或越界端点抛 `ValueError`，保证「只取数、不调用诊断工具」。
+- `normalize_export(...)` / `to_fixture(...)` 把执行侧本地导出归一化为 `StepTrace` fixture，走离线打分闭环。
+
+### 11.4 D5 · 部署就绪包（`langfuse_deploy.py`）
+
+- 输入报告 + 用例 → 输出**有序**部署请求计划，`kinds_in_order = dataset → ingestion → dataset_item → dataset_run_item`。
+- 端点白名单 `ENDPOINTS`（`/api/public/ingestion` 等）；`FORBIDDEN_GOLDEN_KEYS` 守卫拒绝任何携带金标准的请求体。
+- 生成 `plan.json` + `requests/NN-<kind>.json` + `replay.ps1` / `replay.sh`；dry-run 只打印不发送。
+- 执行细节见《步骤级评价与Langfuse接入-D5部署说明.md》。
+
+### 11.5 阶段四 · 主观步骤模型评分脚手架（`model_judge.py`）
+
+- 对主观维度（假设质量 / 证据支撑 / 报告可读性）按「维度 × 命中步骤」构建 LLM-as-judge 评审请求体；提示词**不含金标准**。
+- 评审请求体文案全在 `messages[].content` 字符串里，故金标准守卫升级为**整词扫描字符串值**（同时覆盖键名），并避免误伤 `expected_latency_ms` 这类可观测字段。
+- `parse_judge_response(...)` 做类型 / 范围校验；`judge_scores(...)` 映射为 `ScoreSource.EVAL` + `ScoreScope.STEP` 分数（仍 `group="step"`，D4 安全）。
+- 主观维度 `SUBJECTIVE_CRITERIA` = `hypothesis_quality`（假设质量） / `evidence_grounding`（证据支撑） / `report_readability`（报告可读性）；请求体为 OpenAI 兼容 `chat/completions` + JSON Schema `response_format`。
+- CLI（**离线产出**，零网络）：`python evaluation/model_judge.py --report evaluation/out/report.json --out evaluation/out/model_judge`；无参数时执行自检。
+- 接入真实评审模型：设 `JUDGE_BASE_URL` / `JUDGE_API_KEY` 后运行生成的 `replay.ps1` / `replay.sh`；缺省模型 `DEFAULT_JUDGE_MODEL="gpt-4o-mini"`、端点 `DEFAULT_JUDGE_ENDPOINT="/v1/chat/completions"`。评审模型网关**独立于 SUT**，仍满足「零 SUT 调用」。
+
+### 11.6 回归与冻结
+
+- 新增 `evaluation/test_followups.py`（18 项）覆盖上述全部内容。
+- `FROZEN_RELATIVE` 扩充至 **18 项**（新增 `langfuse_deploy.py` / `step_fixtures.py` / `interface_source.py` / `model_judge.py` / `test_followups.py`）。
+- 全量单测 **132 项全通过**（详见 §7）。
+
+> 边界重申：以上模块全部**零网络、零 SUT 调用**；回放脚本仅在**配好凭证后**由人手动执行，属「我方部署」动作，不是评测运行时行为。

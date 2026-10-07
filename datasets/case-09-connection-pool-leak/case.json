@@ -1,0 +1,93 @@
+{
+  "case_id": "case-09-connection-pool-leak",
+  "schema_version": "0.1",
+  "title": "订单导出接口在正常路径下从不归还数据库连接，连接池被逐步耗尽",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "connection_pool",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/export 在持续并发调用下 P95 逐步升高；连接池被耗尽后后续请求在获取连接处阻塞并出现获取连接超时；冷启动单次调用很快，随累计调用次数逐步恶化。",
+    "endpoint": "GET /api/orders/export?size=1000",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/export?size=1000 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，orders=200000）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "connection_leak",
+      "mechanism": "导出接口每次调用从连接池取一条连接，但正常路径下从不归还（无 try-with-resources、无 finally、不调用 close）；池上限 10 被逐步耗尽，后续请求在获取连接处阻塞直至 connection-timeout。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/ReportService.java",
+          "line": 21,
+          "symbol": "exportRecentOrders"
+        }
+      ],
+      "expected_fix": "用 try-with-resources 或在 finally 中归还连接（关闭 ResultSet/PreparedStatement/Connection）",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/ReportService.java",
+        "line": 21,
+        "symbol": "exportRecentOrders"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "连接池耗尽属渐进式资源泄漏，需在持续并发下多轮观测才显现，单次冷调用不可见，结论依赖足够长的压测窗口。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "连接泄漏的量化需结合连接池活跃连接数随时间增长或获取连接超时计数等指标，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "单 primary 缺陷 boundary 用例：连接泄漏型 connection_pool。缺陷机制明确且可定位，但其可观测性依赖持续并发窗口，且当前 Agent 的问题类型仅支持 slow_query，无法产出 verified，故期望 decision=lead 并显式声明限制。用于检验 Agent 是否能识别『冷启动正常、随调用累积恶化』的泄漏特征并如实声明证据边界。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-07",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

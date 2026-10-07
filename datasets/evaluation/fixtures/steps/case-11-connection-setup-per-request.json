@@ -1,0 +1,124 @@
+{
+  "case_id": "case-11-connection-setup-per-request",
+  "run_id": "run-case-11-connection-setup-per-request-0001",
+  "source": "run-bundle",
+  "steps": [
+    {
+      "index": 0,
+      "phase": "baseline",
+      "tool": "create_task",
+      "status": "ok",
+      "input": {
+        "task": "排查遗留报表接口绕过连接池、每次请求新建数据库连接"
+      },
+      "latency_ms": 140.0,
+      "cost": {
+        "tokens": 300
+      }
+    },
+    {
+      "index": 1,
+      "phase": "baseline",
+      "tool": "prepare_environment",
+      "status": "ok",
+      "input": {
+        "repository": "case-11-connection-setup-per-request"
+      },
+      "latency_ms": 900.0
+    },
+    {
+      "index": 2,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": {
+        "task": "排查遗留报表接口绕过连接池、每次请求新建数据库连接"
+      },
+      "latency_ms": 1500.0
+    },
+    {
+      "index": 3,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": {
+        "task": "排查遗留报表接口绕过连接池、每次请求新建数据库连接"
+      },
+      "latency_ms": 1500.0
+    },
+    {
+      "index": 4,
+      "phase": "hypotheses",
+      "tool": "propose_hypotheses",
+      "status": "ok",
+      "input": {
+        "observations": [
+          {
+            "connections_opened": 1200,
+            "p99_ms": 950
+          }
+        ]
+      },
+      "latency_ms": 950.0,
+      "cost": {
+        "tokens": 1200
+      }
+    },
+    {
+      "index": 5,
+      "phase": "discriminating_experiment",
+      "tool": "run_experiment",
+      "status": "ok",
+      "input": {
+        "hypothesis": "per_request_connection_setup"
+      },
+      "latency_ms": 8200.0,
+      "cost": {
+        "tokens": 2300
+      }
+    },
+    {
+      "index": 6,
+      "phase": "localization",
+      "tool": "evaluate_evidence",
+      "status": "ok",
+      "input": {
+        "hypothesis": "per_request_connection_setup"
+      },
+      "latency_ms": 700.0,
+      "output": {
+        "insufficient_evidence": true,
+        "decision": "lead"
+      }
+    },
+    {
+      "index": 7,
+      "phase": "verification",
+      "tool": "reconcile_task",
+      "status": "ok",
+      "input": {
+        "findings": [
+          {
+            "status": "lead"
+          }
+        ]
+      },
+      "latency_ms": 400.0
+    },
+    {
+      "index": 8,
+      "phase": "verification",
+      "tool": "finish_task",
+      "status": "ok",
+      "input": {
+        "report": {
+          "decision": "lead"
+        }
+      },
+      "latency_ms": 110.0,
+      "output": {
+        "decision": "lead"
+      }
+    }
+  ]
+}

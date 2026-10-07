@@ -1,0 +1,127 @@
+{
+  "case_id": "case-08-deep-pagination-large-offset",
+  "run_id": "run-case-08-deep-pagination-large-offset-0001",
+  "source": "run-bundle",
+  "steps": [
+    {
+      "index": 0,
+      "phase": "baseline",
+      "tool": "create_task",
+      "status": "ok",
+      "input": {
+        "task": "排查订单分页接口大偏移 LIMIT/OFFSET 越翻越慢"
+      },
+      "latency_ms": 140.0,
+      "cost": {
+        "tokens": 300
+      }
+    },
+    {
+      "index": 1,
+      "phase": "baseline",
+      "tool": "prepare_environment",
+      "status": "ok",
+      "input": {
+        "repository": "case-08-deep-pagination-large-offset"
+      },
+      "latency_ms": 900.0
+    },
+    {
+      "index": 2,
+      "phase": "hypotheses",
+      "tool": "discover_scenarios",
+      "status": "ok",
+      "input": {
+        "task": "排查订单分页接口大偏移 LIMIT/OFFSET 越翻越慢"
+      },
+      "latency_ms": 1500.0
+    },
+    {
+      "index": 3,
+      "phase": "hypotheses",
+      "tool": "propose_hypotheses",
+      "status": "ok",
+      "input": {
+        "observations": [
+          {
+            "offset": 900000,
+            "p99_ms": 1400
+          }
+        ]
+      },
+      "latency_ms": 950.0,
+      "cost": {
+        "tokens": 1200
+      }
+    },
+    {
+      "index": 4,
+      "phase": "discriminating_experiment",
+      "tool": "run_experiment",
+      "status": "ok",
+      "input": {
+        "hypothesis": "deep_pagination_large_offset"
+      },
+      "latency_ms": 9000.0,
+      "cost": {
+        "tokens": 2600
+      }
+    },
+    {
+      "index": 5,
+      "phase": "discriminating_experiment",
+      "tool": "run_experiment",
+      "status": "ok",
+      "input": {
+        "hypothesis": "missing_order_index"
+      },
+      "latency_ms": 1500.0,
+      "cost": {
+        "tokens": 900
+      }
+    },
+    {
+      "index": 6,
+      "phase": "localization",
+      "tool": "evaluate_evidence",
+      "status": "ok",
+      "input": {
+        "hypothesis": "deep_pagination_large_offset"
+      },
+      "latency_ms": 700.0,
+      "output": {
+        "insufficient_evidence": true,
+        "decision": "lead"
+      }
+    },
+    {
+      "index": 7,
+      "phase": "verification",
+      "tool": "reconcile_task",
+      "status": "ok",
+      "input": {
+        "findings": [
+          {
+            "status": "lead"
+          }
+        ]
+      },
+      "latency_ms": 400.0
+    },
+    {
+      "index": 8,
+      "phase": "verification",
+      "tool": "finish_task",
+      "status": "ok",
+      "input": {
+        "report": {
+          "decision": "lead"
+        }
+      },
+      "latency_ms": 110.0,
+      "output": {
+        "decision": "lead"
+      }
+    }
+  ]
+}

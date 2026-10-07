@@ -1,0 +1,93 @@
+{
+  "case_id": "case-10-large-response-unbounded",
+  "schema_version": "0.1",
+  "title": "列表接口一次性返回全表完整实体，响应体达数十 MB",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "large_response",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/all 把 20 万条订单一次性返回，响应体约数十 MB，序列化与网络传输耗时占绝大部分；P95 很高且随数据量增长。",
+    "endpoint": "GET /api/orders/all",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/all == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，orders=200000，remark 约 200 字符）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "unbounded_response",
+      "mechanism": "列表接口无分页地 SELECT * 返回全表约 20 万行，并逐行序列化含 remark 大字段的完整实体，单次响应体达数十 MB，瓶颈在结果序列化与网络传输（而非 SQL 计划本身）。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+          "line": 24,
+          "symbol": "findAllOrders"
+        }
+      ],
+      "expected_fix": "分页返回并精简返回字段（瘦 DTO，去掉 remark 等大字段），避免一次性返回全表",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+        "line": 24,
+        "symbol": "findAllOrders"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "connection_pool"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "大响应体瓶颈在序列化与网络传输，用 duration_ms 只能间接体现，需结合响应字节数/返回行数等指标才能定量归因。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query，large_response 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "该现象随数据量增长而放大，在小数据集上不可观测，结论依赖当前 20 万行规模。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "单 primary 缺陷 boundary 用例：无界响应体型 large_response。全表 SELECT * 且逐行序列化大字段，耗时来自序列化/传输而非缺索引；无法用单变量索引实验证实，且当前 Agent 问题类型仅支持 slow_query，期望 lead 并声明限制。用于检验 Agent 是否能把『响应体过大』从 SQL 计划层区分出来。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-07",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

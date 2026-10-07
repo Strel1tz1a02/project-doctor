@@ -1,0 +1,93 @@
+{
+  "case_id": "case-14-config-regression-pool-size",
+  "schema_version": "0.1",
+  "title": "数据源连接池被回退为极小值，并发下 P99 阶跃式升高（代码未改动）",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "config_regression",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/by-user 在并发下 P99 由约 120ms 阶跃升高到约 800ms；SQL 计划正常、无缺索引，代码近期未改动、疑似配置被回退。",
+    "endpoint": "GET /api/orders/by-user?userId=123&size=20",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/by-user?userId=123&size=20 == 200",
+    "load_profile": {
+      "concurrency": 8,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，orders=200000，user_id 均匀分布于 1..50000）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "misconfigured_datasource_pool_size",
+      "mechanism": "数据源连接池被回退为极小值（maximum-pool-size=2），并发请求需排队等待可用连接，时延随并发阶跃式上升；order.by-user 查询本身走 idx_orders_user_created、SQL 计划正常、无缺索引。",
+      "code_locations": [
+        {
+          "path": "src/main/resources/application.yml",
+          "line": 11,
+          "symbol": "spring.datasource.hikari.maximum-pool-size"
+        }
+      ],
+      "expected_fix": "将 maximum-pool-size 恢复为正常值（如 50）",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/resources/application.yml",
+        "line": 11,
+        "symbol": "spring.datasource.hikari.maximum-pool-size"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 60,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明本用例的耗时来自配置层（数据源连接池上限被回退为极小值），而非任何单条 SQL 的执行计划：/api/orders/by-user 查询已有 idx_orders_user_created 可用、计划正常。",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，config_regression 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明本用例结论依赖并发度：低并发下小连接池不产生排队、症状不可观测，且『回退』只能通过与配置基线对照来判定，本用例以 concurrency=8 触发。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "边界用例（问题类型 config_regression，当前无对应用例，等待 Agent 支持）。设计意图：检验 Agent 能否把『随并发阶跃式升高、而单条 SQL 并不慢、代码未改动』的现象归因到配置层回归——primary d1 是数据源连接池上限被回退为 2，属真实且机制明确的配置缺陷，理想情况下可由『对照配置基线 + 放开连接池后重测』证实。可证实性判定：当前 Agent 的 ProblemKind 仅支持 slow_query，且 Finding 的 verified 判定要求结构性证据对应 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：/api/orders/by-user 已走 idx_orders_user_created、执行计划正常，missing_index 与 slow_query 假设均被证伪，不应被判为根因；n_plus_one、jvm_gc_pause 亦无证据。待支持标注：等待 Agent 支持 config_regression 问题类型。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-07",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

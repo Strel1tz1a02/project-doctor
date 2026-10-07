@@ -1,0 +1,55 @@
+{
+  "baseline": {
+    "repeats_ms": [410.0, 425.0, 418.0],
+    "environment_fingerprint": {
+      "os": "windows-latest",
+      "python": "3.10.11",
+      "jdk": "17",
+      "mysql": "8.0"
+    }
+  },
+  "report": {
+    "task": { "status": "completed" },
+    "findings": [
+      {
+        "status": "lead",
+        "code_locations": [
+          {
+            "commit": "local",
+            "path": "src/main/java/com/example/slowquery/service/OrderService.java",
+            "line": 29,
+            "symbol": "recentByUser",
+            "association_evidence_ids": ["ev-log-1", "ev-exp-1"]
+          }
+        ],
+        "excluded_explanations": [
+          { "explanation": "missing_index", "evidence_ids": ["ev-obs-1"] },
+          { "explanation": "slow_query", "evidence_ids": ["ev-obs-2"] },
+          { "explanation": "n_plus_one", "evidence_ids": ["ev-obs-3"] },
+          { "explanation": "connection_pool", "evidence_ids": ["ev-obs-4"] }
+        ],
+        "limitations": [
+          "必须声明 excessive_logging 的判定依据是『热路径逐行同步日志写盘、耗时随返回行数线性增长』，而非任何单条 SQL 的执行计划问题（orders 已具备 idx_orders_user_created，查询本身走索引、很快）",
+          "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，excessive_logging 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+          "必须声明结论依赖请求参数 size：逐行日志的开销在 size 较小时可忽略，本用例以 size=500 触发"
+        ],
+        "evidence_flags": {}
+      }
+    ],
+    "reason": "主缺陷 d1（OrderService.recentByUser 在 for 循环内对每条订单同步打印 DEBUG 日志，配合同步 FileAppender 造成写盘放大）机制明确，但 orders 已具备 idx_orders_user_created、SQL 计划无问题，无法用单变量索引实验证实；且当前 ProblemKind 仅支持 slow_query，故整体维持 lead"
+  },
+  "trajectory": {
+    "required_steps_done": [
+      "baseline",
+      "hypotheses",
+      "discriminating_experiment",
+      "localization",
+      "verification"
+    ],
+    "hypothesis_count": 3,
+    "experiments_single_variable": true,
+    "records_retained": true,
+    "tool_calls": 26
+  },
+  "cost": { "wall_seconds": 82.0, "tool_calls": 26, "artifact_bytes": 4096 }
+}

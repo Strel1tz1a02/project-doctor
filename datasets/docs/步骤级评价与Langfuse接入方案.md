@@ -1,9 +1,10 @@
 # 步骤级评价与 Langfuse 接入方案（评审稿）
 
-> 状态：**阶段一、阶段二（离线部分）已落地**。本文保留为设计稿；D1–D7 已确认并按建议执行，
+> 状态：**阶段一、二、三、四（脚手架）均已落地**。本文保留为设计稿；D1–D7 已确认并按建议执行，
 > 其中 **D5 经用户调整为我方负责部署**。逐文件的改动明细、验证方式与交接要点见
-> **《步骤级评价与Langfuse接入-交接说明.md》**。阶段三（在线只读接口）与阶段四（主观步骤模型评分）
-> 为后续工作，尚未开始。
+> **《步骤级评价与Langfuse接入-交接说明.md》**（含追加轮次 §11）。数据集已扩充至 **14 个用例**；
+> 阶段三 `interface_source.py`、阶段四 `model_judge.py`、D5 部署包 `langfuse_deploy.py` 均已就绪，
+> 待凭证 / 接口形态确认后执行真实对接。全量单测 **132 项通过**。
 > 目标读者：队长 / 组员 / 执行侧（A、B 线）。
 
 ---
@@ -32,9 +33,16 @@
 | 数据集结构规范 | `docs/数据集结构规范.md` | 目录契约、边界保证 |
 | 契约视图 | `evaluation/contract.py` | 运行包字段的规范化视图 |
 | 指标计算 | `evaluation/metrics.py` | 结论 / 证据 / 过程 / 成本四层 |
-| 分数模型 | `evaluation/scores.py` | 17 个指标定义、3 组 reward profile、成本预算 |
+| 分数模型 | `evaluation/scores.py` | 24 个指标定义（17 黑盒 + 7 步骤）、3 组 reward profile、成本预算 |
 | 编排与报告 | `evaluation/run_eval.py` | 装载 / 汇总 / 渲染 |
-| 金标准运行包 | `evaluation/fixtures/run-bundle/` | 8 个用例，golden 回归 |
+| 金标准运行包 | `evaluation/fixtures/run-bundle/` | 14 个用例，golden 回归 |
+| 步骤评估器 | `evaluation/steps.py` | 白盒层确定性步骤评估（7 项指标 + 5 阶段上卷） |
+| 轨迹适配器 | `evaluation/trace_adapter.py` | 三来源归一化为 `StepTrace`（零网络） |
+| Langfuse 导出 | `evaluation/langfuse_export.py` | 报告 / 运行包 → Ingestion 事件批次（离线） |
+| 步骤 fixture 富化 | `evaluation/step_fixtures.py` | 运行包副本注入步骤轨迹、报告副本补步骤归因 |
+| 只读接口取数 | `evaluation/interface_source.py` | 只读取数计划 + 本地导出归一化（阶段三） |
+| D5 部署计划 | `evaluation/langfuse_deploy.py` | 有序部署请求计划 + 回放脚本（D5） |
+| 阶段四模型评审 | `evaluation/model_judge.py` | 离线构建 LLM-as-judge 请求体 + 分数映射 |
 | 采集模块 | `evaluation/collect_run_bundle.py` | 输入原始/修改代码，可插拔后端，**不调用 SUT** |
 | 隔离守卫 | `tools/isolation_guard.py`、`tools/guard_sut_separation.py` | 防泄漏 / 防 SUT 反向引用金标准 |
 
@@ -287,15 +295,18 @@ verification           ← evaluate_evidence / finish_task (retest, restore)
 
 **阶段二 · Langfuse 离线回写**
 5. `langfuse_export.py`：把用例分（trace 级）+ 步骤分（observation 级）产出为 Langfuse 摄入 JSON；
-   可选：用 Langfuse Python SDK 写入（需 project/keys）。
-6. 建 Dataset（8 用例）与 Dataset Run，验证在 Langfuse UI 可见、可过滤。
+   可选：用 Langfuse Python SDK 写入（需 project/keys）。✅ 已落地（离线产出）
+6. 建 Dataset（**14** 用例）与 Dataset Run，验证在 Langfuse UI 可见、可过滤。
+   ✅ 已就绪：`langfuse_deploy.py` 离线产出有序部署请求计划（`dataset → ingestion → dataset-item → dataset-run-item`）+ `replay.ps1`/`replay.sh`，配好凭证即可执行（D5）。
 
 **阶段三 · 在线只读接口（"调用对方函数接口"）**
 7. 与执行侧约定只读导出接口（任务包 / AGH 执行记录 / Trace API）。
 8. `FromLangfuse` / `FromInterface` 适配器接入，实现在线取回→打分闭环。
+   ✅ 已就绪：`interface_source.py` 生成只读取数计划（仅 `GET`/`HEAD` + `/api/read/` 前缀），支持本地导出归一化为 `StepTrace` fixture。
 
 **阶段四 · 主观步骤的模型评分**
 9. 对"假设质量 / 报告可读性"等主观步骤，接 Langfuse LLM-as-judge（`ScoreSource.EVAL` 或新 `LLM`）。
+   ✅ 脚手架就绪：`model_judge.py` 离线构建评审请求体（维度 × 命中步骤）+ 响应解析 + `STEP` 分数映射。
 
 ---
 
@@ -307,7 +318,7 @@ verification           ← evaluate_evidence / finish_task (retest, restore)
 | D2 | 谁负责埋点 / 产出 trace？ | **执行侧**产出记录或写 Langfuse；**我方只消费 + 打分** |
 | D3 | `case.json` 是否新增 `expected_steps`（步骤级金标准）？ | 先**不**加；步骤分用确定性规则，不依赖逐步骤正解。后续按需 |
 | D4 | 步骤分是否进硬闸门？ | **不进**。只作评分项/归因维度 |
-| D5 | Langfuse 部署与凭证归属？ | 需队长指定 project（自建 / 云）；我方只读 + 回写 score |
+| D5 | Langfuse 部署与凭证归属？ | **我方完成部署**（用户已确认）；`langfuse_deploy.py` 已备好有序部署计划 + 回放脚本 |
 | D6 | 步骤口径以 8 工具还是 5 诊断步为准？ | **以 8 工具为准**，上卷到 5 诊断步 |
 | D7 | 数据量/裁剪策略？ | 步骤 input/output 允许摘要化，制品只存引用 |
 
