@@ -82,6 +82,41 @@ def test_collector_failure_is_unknown_and_evidenced() -> None:
     asyncio.run(exercise())
 
 
+def test_covered_no_wait_declares_residual_in_milliseconds() -> None:
+    async def exercise():
+        async def query(context, sql):
+            if "JSON_ARRAYAGG" in sql:
+                return '{"version":"8.4"}'
+            return ""  # no lock events observed across the window
+
+        async def publish(path, raw, media, version):
+            return EvidenceRef(
+                artifact_id=path,
+                relative_path=path,
+                media_type=media,
+                format_version=version,
+                sha256="a" * 64,
+                size_bytes=len(raw),
+            )
+
+        probe = LockProbe(query=query, publish=publish, interval=0.05)
+        capture = await probe.begin(
+            CallContext(
+                task_id="t",
+                operation_id="o",
+                missing_correlation=["agh_session_id", "tool_call_id"],
+            ),
+            "a" * 32,
+        )
+        await capture.finish()
+        result = capture.evidence_for("SELECT 1", 3, 4, 0.0)
+        assert result.status == "covered_no_wait"
+        assert result.coverage == "complete"
+        assert result.residual_ms == 50.0  # 0.05 s poll gap × 1000, not 0.05 ms
+
+    asyncio.run(exercise())
+
+
 def test_request_id_cannot_inject_lock_query() -> None:
     import pytest
 

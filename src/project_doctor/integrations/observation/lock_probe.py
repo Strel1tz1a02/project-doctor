@@ -93,7 +93,7 @@ class LockCapture:
                     "poll_interval_seconds": self.probe.interval,
                     "coverage": "complete-with-residual",
                     "zero_wait_supported": True,
-                    "residual_ms": self.probe.interval,
+                    "residual_ms": self.probe.residual_ms,
                     "reason": (
                         "表/元数据锁由语句 LOCK_TIME 逐语句实际测量；InnoDB 行锁经全窗口"
                         "轮询，未观测到的等待以轮询间隔为界（有界残差），不以空快照冒充零等待。"
@@ -168,7 +168,7 @@ class LockCapture:
             coverage="complete",
             covered_kinds=["table", "metadata"],
             missing_kinds=[],
-            residual_ms=self.probe.interval,
+            residual_ms=self.probe.residual_ms,
             reasons=[
                 "表/元数据锁由语句 LOCK_TIME=0 证明；InnoDB 行锁经全窗口轮询未观测到，"
                 "未观测等待以轮询间隔为界（有界残差），不以空快照冒充零等待。"
@@ -189,6 +189,15 @@ class LockProbe:
         self.query = query
         self.publish = publish
         self.interval = interval
+
+    @property
+    def residual_ms(self) -> float:
+        """Honest bound on unobserved InnoDB row-lock waits, in milliseconds.
+
+        ``interval`` is a poll gap in seconds (``asyncio.wait_for``), so the
+        longest wait an empty poll can hide is ``interval * 1000`` ms.
+        """
+        return self.interval * 1000
 
     async def begin(self, context: CallContext, request_id: str) -> LockCapture:
         current_locks_sql(request_id)
