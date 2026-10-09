@@ -133,6 +133,11 @@ class DockerEnvironmentGateway:
         initdb_dir.mkdir(parents=True, exist_ok=True)
         (initdb_dir / "grant-perf-schema.sql").write_text(
             f"GRANT SELECT ON performance_schema.* TO '{self._db_user}'@'%';\n"
+            "UPDATE performance_schema.setup_instruments SET ENABLED='YES',TIMED='YES' "
+            "WHERE NAME='wait/lock/metadata/sql/mdl';\n"
+            "UPDATE performance_schema.setup_consumers SET ENABLED='YES' "
+            "WHERE NAME IN ('global_instrumentation','thread_instrumentation',"
+            "'events_statements_current','events_statements_history_long');\n"
             f"GRANT PROCESS ON *.* TO '{self._db_user}'@'%';\n"
             "FLUSH PRIVILEGES;\n",
             encoding="utf-8",

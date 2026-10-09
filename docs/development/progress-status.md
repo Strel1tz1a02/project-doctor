@@ -1,7 +1,20 @@
 # Project Doctor 开发进度与任务规划
 
-> 截至 2026-10-05。本文按比赛要求整理「已做了什么 → 怎么实现 → 后续任务」，
+> 主体截至 2026-10-05；2026-10-09 增量结果见 [锁证据与终态修复](acceptance/2026-10-09-lock-finish-evaluation-repair.md) 和 [COUNT 反例与边界修复](acceptance/2026-10-09-count-boundary-repair.md)。本文按比赛要求整理「已做了什么 → 怎么实现 → 后续任务」，
 > 作为团队内部进度总览与参赛材料的基础。详细证据见文末「关联文档」。
+
+2026-10-10 按用户要求，诊断源码已恢复到六例串行评估版本 `agh-suite-20261009-round2`，
+78 个源文件 SHA-256 全部匹配。保留锁证据、终态报告、COUNT 反例与边界修复。
+后加的源码绑定、AGH 启动器和持续 HTTP 负载代码已归档，不作为当前功能。
+恢复范围和验证见 [串行版本恢复](acceptance/2026-10-10-serial-version-restoration.md)。
+
+此前 [源码与会话修复](acceptance/2026-10-09-source-session-load-repair.md)、
+[持续负载实现](acceptance/2026-10-09-timed-load.md) 与 [持续负载评估](acceptance/2026-10-09-live-timed-evaluation.md)
+保留为历史记录。最新一轮六例诊断 1/6 不作为恢复后版本的新成绩；用户限定只评诊断、不评修正。
+
+恢复后 [六例串行诊断复跑](acceptance/2026-10-10-serial-diagnosis-rerun.md) 已完成：
+六例均完成实验，业务工具错误 0；诊断评分 3/6，误验证 1，整轮未通过。
+case-04 成功 verified；case-05 错误升级 verified；case-03 虽通过但输出 lead 高于预期，属于评估门槛缺口。
 
 ## 1. 项目与比赛要求
 
@@ -49,7 +62,7 @@ models         统一数据合同、引用与错误类型（不依赖其他层�
 | --- | --- | --- |
 | A（运行时/基础设施） | A0 目标接入、A1 持久化、A2 隔离环境、A3 慢查询测量、A4 中断核对 | `integrations/`、`runtime_factory.py`、`workflows/execute_experiment.py`、`reconcile.py` |
 | B（合同/诊断/报告） | 数据模型、场景 manifest、诊断门槛、报告、MCP 工具 | `models/`、`features/diagnosis/`、`features/reports/`、`workflows/tools.py` |
-| 第三人 | 正式评估数据集 | `evaluation/data/`（尚未创建） |
+| 第三人 | 正式评估数据集 | `datasets/`（已上传，开发修复不修改案例或评分器） |
 
 **三个公共协议**（B 定义、A 实现）：
 
@@ -72,7 +85,7 @@ models         统一数据合同、引用与错误类型（不依赖其他层�
 - **显式场景 manifest**（`features/scenarios/discover.py`）：从 manifest 读取场景，
   不做任意仓库的自动路由/OpenAPI 解析；`uncovered_paths` 显式记录未覆盖路径（N+1、深分页等）。
 - **慢查询判据**（`features/diagnosis/gates.py` + `compare.py`）：保守门槛，证据不足只输出 lead。
-- **MeasurementPolicy**：重复 ≥3、组内相对极差 ≤0.25、耗时中位差 > max(1ms, 两组极差之和)。
+- **MeasurementPolicy**：重复 ≥3；组内 IQR ≤ max(0.25×中位数, 0.5ms)；耗时中位差 > max(1ms, 两组 IQR 之和)。1ms 是差异门槛，不是业务 SLA。
 - **报告**（`features/reports/`）：影响排序 + 诊断卡 + JSON + HTML 渲染。
 
 ### 3.3 运行时与基础设施（A，A0–A4）

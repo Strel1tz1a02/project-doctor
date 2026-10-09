@@ -41,6 +41,8 @@ class ToolWorkflows:
 
     async def discover_scenarios(self, context: CallContext) -> list[Scenario]:
         task = await self.store.get(context.task_id)
+        if task.status in {"completed", "partial"}:
+            raise ValueError("terminal task cannot change scenarios")
         scenarios = discover(task.project, self.repository_manifest)
         for scenario in scenarios:
             await self.store.save_scenario(task.id, scenario)
@@ -49,7 +51,9 @@ class ToolWorkflows:
     async def propose_hypotheses(
         self, context: CallContext, items: list[Hypothesis]
     ) -> list[Hypothesis]:
-        await self.store.get(context.task_id)
+        task = await self.store.get(context.task_id)
+        if task.status in {"completed", "partial"}:
+            raise ValueError("terminal task cannot change hypotheses")
         batch = HypothesisBatch.model_validate({"items": [item.model_dump() for item in items]})
         proposed = [
             item.model_copy(update={"status": "proposed", "evidence_ids": []})
@@ -102,6 +106,8 @@ class ToolWorkflows:
         experiment_ids: list[str],
     ) -> list[Finding]:
         bundle = await self.store.load_bundle(context.task_id)
+        if bundle.task.status in {"completed", "partial"}:
+            raise ValueError("terminal task cannot change findings")
         if not experiment_ids or not hypothesis_ids:
             raise ValueError("explicit persisted experiment and hypothesis IDs are required")
         if not set(experiment_ids).issubset({item.experiment_id for item in bundle.experiments}):
@@ -169,7 +175,22 @@ class ToolWorkflows:
         from project_doctor.features.environments.prepare import compose_project_name
 
         bundle = await self.store.load_bundle(context.task_id)
-        close_context = context.model_copy(update={"operation_id": context.operation_id + ":close"})
+        if bundle.task.status in {"completed", "partial"}:
+            published = await self.store.load_report(context.task_id)
+            if published is not None:
+                check = await self.reader.verify([published.json_ref, published.html_ref])
+                if not check.valid:
+                    raise ValueError(
+                        "published report unavailable; terminal task will not be reopened"
+                    )
+                return published
+            # A crash between the state transition and publishing is resumable,
+            # but must never restore an environment already closed.
+            return await self.runtime.publish_report(
+                build_report(bundle),
+                context.model_copy(update={"operation_id": "finish:report"}),
+            )
+        close_context = context.model_copy(update={"operation_id": "finish:close"})
         result = await self.runtime.close(
             bundle.task.environment_id or compose_project_name(context.task_id), close_context
         )
@@ -226,7 +247,5 @@ class ToolWorkflows:
             payload["limitations"] = report.limitations
             report.json_content = json.dumps(payload, ensure_ascii=False, indent=2)
             report.html_content = render_html(report.json_content)
-        publish_context = context.model_copy(
-            update={"operation_id": context.operation_id + ":report"}
-        )
+        publish_context = context.model_copy(update={"operation_id": "finish:report"})
         return await self.runtime.publish_report(report, publish_context)

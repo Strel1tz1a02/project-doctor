@@ -25,6 +25,7 @@ from typing import Any
 from project_doctor.integrations.http.requests import HttpResponse
 from project_doctor.integrations.observation.plans import PlanEstimate, attach_plan, parse_plan
 from project_doctor.models.common import CodeLocation, EvidenceRef, safe_relative_path
+from project_doctor.models.lock import LockEvidence
 from project_doctor.models.observation import ExperimentLevel, MetricName, MetricSource, SqlCall
 from project_doctor.models.scenario import RequestStep
 from project_doctor.models.task import CallContext
@@ -204,6 +205,23 @@ def perf_schema_row_to_sql_call(
         metric_sources=metric_sources,
         code_location=code_location,
     )
+
+
+def attach_lock_evidence(call: SqlCall, evidence: LockEvidence) -> SqlCall:
+    """Validate metric, source and coverage together, without partial assignments."""
+    payload = call.model_dump(mode="json")
+    payload["lock_evidence"] = evidence.model_dump(mode="json")
+    exact = evidence.status == "covered_no_wait" and evidence.residual_ms is None
+    payload["lock_wait_ms"] = 0.0 if exact else None
+    if exact:
+        payload["metric_sources"]["lock_wait_ms"] = {
+            "source": "performance_schema.statement_and_global_lock_counters",
+            "measurement": "actual",
+            "evidence_ids": [ref.artifact_id for ref in evidence.evidence_refs],
+        }
+    else:
+        payload["metric_sources"].pop("lock_wait_ms", None)
+    return SqlCall.model_validate(payload)
 
 
 def parse_mysql_batch(output: str, columns: Sequence[str]) -> list[dict[str, Any]]:

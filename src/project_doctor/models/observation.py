@@ -59,8 +59,11 @@ class SqlCall(Contract):
                 raise ValueError(f"{name} source cannot stand in for a missing value")
         if self.lock_evidence is not None:
             status = self.lock_evidence.status
-            if status == "covered_no_wait" and self.lock_wait_ms != 0:
+            bounded = self.lock_evidence.residual_ms is not None
+            if status == "covered_no_wait" and not bounded and self.lock_wait_ms != 0:
                 raise ValueError("covered_no_wait requires an actual zero lock metric")
+            if status == "covered_no_wait" and bounded and self.lock_wait_ms == 0:
+                raise ValueError("bounded lock evidence cannot assert exact zero wait")
             if status != "covered_no_wait" and self.lock_wait_ms == 0:
                 raise ValueError("incomplete or observed lock evidence cannot assert zero wait")
         return self

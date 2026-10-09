@@ -24,11 +24,13 @@ def reserve_operation(
     conn.execute(select(tasks.c.id).where(tasks.c.id == task_id).with_for_update()).one()
     if exclusive_preparation:
         pending = conn.execute(
-            select(operations.c.operation_id).where(
+            select(operations.c.operation_id)
+            .where(
                 operations.c.task_id == task_id,
                 operations.c.operation_id != operation_id,
                 operations.c.state.in_(("reserved", "running", "needs_reconcile")),
             )
+            .with_for_update()
         ).first()
         if pending:
             return Reservation(
@@ -46,9 +48,9 @@ def reserve_operation(
         )
     except IntegrityError:
         row = conn.execute(
-            select(operations.c.input_digest, operations.c.state, operations.c.result_json).where(
-                operations.c.task_id == task_id, operations.c.operation_id == operation_id
-            )
+            select(operations.c.input_digest, operations.c.state, operations.c.result_json)
+            .where(operations.c.task_id == task_id, operations.c.operation_id == operation_id)
+            .with_for_update()
         ).one()
         if row.input_digest != input_digest:
             return Reservation(

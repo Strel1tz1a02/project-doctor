@@ -16,16 +16,27 @@
 
 ## 锁证据
 
-正式请求开始前记录 MySQL 版本、consumer/instrument 状态和 history 容量，并开始采集当前行锁与元数据锁等待。
+正式请求开始前记录 MySQL 版本、consumer/instrument 状态和 history 容量、全局行锁计数及元数据锁计时汇总，并开始采集当前行锁与元数据锁等待。
 采样通过请求标记、THREAD_ID 与语句 EVENT_ID 关联；完成后发布能力、原始事件和覆盖说明三份制品。
 语句历史中的非零 LOCK_TIME 也可证明观测到部分锁等待。
 
-当前实现只能返回 `observed` 或 `unknown`，覆盖为 `partial`，实际总锁等待时长为 null。
-请求后空的 data_lock_waits 快照、采样间没有事件、非零值舍入均不能证明零等待。
-完整零等待合同保留给能够证明全过程覆盖的采集器；本采集器不生成 `covered_no_wait`。
+截至 2026-10-09，证据分三种情况：
+
+- 关联到真实等待事件：`observed/partial`，保留原始阻塞证据，不能排除锁因素。
+- 采集失败、计时未启用、计数回退或关联缺失：`unknown/partial`，不能声明零等待。
+- 表锁 `LOCK_TIME`、全局行锁计数和启用计时的元数据锁汇总均完整：可以提供完整覆盖或保守的累计耗时上界。行锁计数前后无增长且两端无活跃等待时排除行锁；元数据锁汇总差值约束该语句的元数据锁耗时；表锁时间采用语句实际值。
+
+只有全部锁证据支持精确零值时，才同时输出 `covered_no_wait`、`residual_ms=null`、实际 `lock_wait_ms=0`。
+存在非零表锁耗时，使用 `observed/complete` 并保留累计上界；只有元数据锁上界或行锁采样上界时也保留 `residual_ms`，实际总 `lock_wait_ms=null`。
+完整覆盖表示全部锁类别均已测量或约束，不表示全部耗时为零。缺少行锁精确计数保证时，累计未观测等待以上下文整个采集窗口为界；50ms 轮询间隔不是累计等待上界。
+
+诊断比较“锁累计上界”和“SQL 收益”：上界足以解释收益时保持 `lead`；上界明显小于收益且其余实验门槛满足时，可验证索引访问代价。
+微秒级非零 `LOCK_TIME` 不舍入成零，也不直接解释数十毫秒收益。采样空结果本身永远不能证明零等待。
+
+单位：Performance Schema 的计时字段由皮秒换算为毫秒（除以 `1e9`）；`Innodb_row_lock_time` 本身为毫秒。官方定义见 [语句事件表](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-events-statements-current-table.html) 与 [服务器状态变量](https://dev.mysql.com/doc/refman/8.4/en/server-status-variables.html)。
 
 旧记录仍可读取，但缺实际准备记录或完整锁覆盖时只能作为 lead。
-正式结论仍需满足重复至少 3 次、相对极差不超过 0.25、耗时中位差严格超过 1ms 和两组极差之和等原有门槛。
+正式结论需重复至少 3 次；两组 IQR 各不超过 `max(中位数×0.25, 0.5ms)`；耗时中位差严格超过 `max(1ms, 两组 IQR 之和)`。该策略已由此前更新改为 IQR，本次没有放宽数值门槛。
 
 ## 环境与验证
 

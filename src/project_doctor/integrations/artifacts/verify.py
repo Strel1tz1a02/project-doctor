@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
+from typing import Any
 
 from project_doctor.models.common import EvidenceCheck, EvidenceRef
 
@@ -27,6 +29,15 @@ class FileEvidenceReader:
 
     def __init__(self, artifact_root: Path) -> None:
         self._root = artifact_root.resolve()
+
+    async def read_verified_json(self, ref: EvidenceRef) -> dict[str, Any]:
+        data = resolve_contained(self._root, ref.relative_path).read_bytes()
+        if len(data) != ref.size_bytes or hashlib.sha256(data).hexdigest() != ref.sha256:
+            raise ValueError("JSON artifact checksum or size mismatch")
+        value = json.loads(data)
+        if not isinstance(value, dict):
+            raise ValueError("JSON artifact is not an object")
+        return value
 
     async def verify(self, refs: list[EvidenceRef]) -> EvidenceCheck:
         missing: list[str] = []

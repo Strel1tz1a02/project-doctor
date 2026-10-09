@@ -11,9 +11,28 @@ import pytest
 from project_doctor.entrypoints.settings import Settings
 from project_doctor.integrations.artifacts.factory import build_evidence_reader
 from project_doctor.integrations.artifacts.publish import publish_artifact
+from project_doctor.integrations.artifacts.verify import FileEvidenceReader
 from project_doctor.models.common import EvidenceRef
 
 CONTENT = b'{"plan": "baseline"}'
+
+
+@pytest.mark.parametrize("replacement", [None, b'{"plan": "tampered"}', b"[]", b"not-json"])
+def test_json_reader_validates_the_bytes_it_decodes(
+    tmp_path: Path, replacement: bytes | None
+) -> None:
+    data = replacement if replacement in (b"[]", b"not-json") else CONTENT
+    ref = asyncio.run(
+        publish_artifact(tmp_path, "plan.json", data, "application/json", "explain.v1")
+    )
+    if replacement == b'{"plan": "tampered"}':
+        (tmp_path / "plan.json").write_bytes(replacement)
+    reader = FileEvidenceReader(tmp_path)
+    if replacement is None:
+        assert asyncio.run(reader.read_verified_json(ref)) == {"plan": "baseline"}
+    else:
+        with pytest.raises(ValueError):
+            asyncio.run(reader.read_verified_json(ref))
 
 
 def make_settings(tmp_path: Path) -> Settings:

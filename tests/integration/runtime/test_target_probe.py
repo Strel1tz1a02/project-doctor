@@ -56,7 +56,7 @@ def load_manifest() -> dict[str, object]:
 
 def make_project() -> ProjectInput:
     return ProjectInput(
-        repo_path="local:slow-query-demo",
+        repo_path=os.environ.get(TARGET_REPO_ENV, str(ROOT / "demo/reference/target")),
         commit=COMMIT,
         supplied_url="http://127.0.0.1:18080",
         recipe_ref=RECIPE_REF,

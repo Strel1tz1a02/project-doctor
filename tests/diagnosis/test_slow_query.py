@@ -133,9 +133,84 @@ def test_slow_query_hypothesis_unclassified_when_not_reproduced(bundle: TaskBund
     assert findings[0].recommendation is None
 
 
+def test_lock_residual_larger_than_effect_prevents_verified(bundle: TaskBundle) -> None:
+    add_spec(bundle)
+    for item in bundle.experiments[0].observations:
+        call = item.sql_calls[0]
+        payload = call.model_dump(mode="json")
+        payload["lock_wait_ms"] = None
+        payload["metric_sources"].pop("lock_wait_ms", None)
+        payload["lock_evidence"]["residual_ms"] = 10000
+        item.sql_calls[0] = type(call).model_validate(payload)
+    result = asyncio.run(evaluate(bundle, Reader()))
+    assert result[0].status == "lead"
+    assert any("残差上界" in reason for reason in result[0].limitations)
+
+
+@pytest.mark.parametrize("bound,expected", [(0.003, "verified"), (10000, "lead")])
+def test_measured_table_wait_is_compared_with_gain_not_rounded_to_zero(
+    bundle: TaskBundle, bound: float, expected: str
+) -> None:
+    add_spec(bundle)
+    for item in bundle.experiments[0].observations:
+        call = item.sql_calls[0]
+        payload = call.model_dump(mode="json")
+        payload["lock_wait_ms"] = None
+        payload["metric_sources"].pop("lock_wait_ms", None)
+        payload["lock_evidence"]["status"] = "observed"
+        payload["lock_evidence"]["residual_ms"] = bound
+        item.sql_calls[0] = type(call).model_validate(payload)
+    result = asyncio.run(evaluate(bundle, Reader()))
+    assert result[0].status == expected
+    assert all(
+        c.lock_wait_ms is None for o in bundle.experiments[0].observations for c in o.sql_calls
+    )
+
+
 def test_repeated_request_id_is_not_independent_measurement(bundle: TaskBundle) -> None:
     add_spec(bundle)
     bundle.experiments[0].observations[1].request_id = (
         bundle.experiments[0].observations[0].request_id
     )
     assert asyncio.run(evaluate(bundle, Reader()))[0].status == "lead"
+
+
+@pytest.mark.parametrize(
+    "condition", ["covered", "missing", "not_covering", "subquery", "unstable"]
+)
+def test_count_negative_requires_covering_plan_and_unchanged_actual_work(
+    bundle: TaskBundle, condition: str
+) -> None:
+    add_spec(bundle)
+    plans = {}
+    for index, item in enumerate(bundle.experiments[0].observations):
+        call = item.sql_calls[0]
+        call.normalized_sql = "SELECT COUNT(*) FROM orders WHERE status = 'PAID'"
+        if condition == "subquery":
+            call.normalized_sql += " AND user_id IN (SELECT id FROM users)"
+        call.rows_examined = 40000
+        call.rows_returned = 1
+        call.duration_ms = 4 if condition != "unstable" or index != 0 else 100
+        for key in call.plan_evidence_ids:
+            plans[key] = {
+                "query_block": {
+                    "table": {
+                        "table_name": "orders",
+                        "access_type": "ref",
+                        "key": "existing",
+                        "used_key_parts": ["status"],
+                        "used_columns": ["status"],
+                        "using_index": condition != "not_covering",
+                        "rows_examined_per_scan": 1,
+                    }
+                }
+            }
+    findings = check_slow_query(
+        bundle.experiments[0],
+        bundle.scenarios[0],
+        bundle.task.id,
+        bundle.task.project.commit,
+        verified_plans={} if condition == "missing" else plans,
+    )
+    assert findings[0].status == ("unclassified" if condition == "covered" else "lead")
+    assert any("COUNT" in note for note in findings[0].limitations)

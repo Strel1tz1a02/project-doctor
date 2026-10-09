@@ -79,6 +79,7 @@ def build_report(bundle: TaskBundle) -> ReportData:
                     "sql_call_id": call.id,
                     "status": call.lock_evidence.status if call.lock_evidence else "unknown",
                     "coverage": call.lock_evidence.coverage if call.lock_evidence else "unknown",
+                    "residual_ms": call.lock_evidence.residual_ms if call.lock_evidence else None,
                     "missing_kinds": cast(JsonValue, call.lock_evidence.missing_kinds)
                     if call.lock_evidence
                     else ["table", "metadata", "innodb_data"],

@@ -1,7 +1,7 @@
 from typing import Protocol
 
 from project_doctor.models.common import TaskStatus, Usage
-from project_doctor.models.finding import Finding
+from project_doctor.models.finding import Finding, ReportResult
 from project_doctor.models.hypothesis import Hypothesis
 from project_doctor.models.scenario import Scenario
 from project_doctor.models.task import OperationResult, Reservation, TaskBundle, TaskRecord
@@ -34,3 +34,4 @@ class TaskStore(Protocol):
 
     async def load_operation(self, task_id: str, operation_id: str) -> OperationResult | None: ...
     async def load_bundle(self, task_id: str) -> TaskBundle: ...
+    async def load_report(self, task_id: str) -> ReportResult | None: ...

@@ -42,6 +42,7 @@ from project_doctor.integrations.observation.sql_probe import (
     PERF_SCHEMA_COLUMNS,
     PerfSchemaSqlProbe,
     SqlCollection,
+    attach_lock_evidence,
     lock_wait_to_ms,
     parse_mysql_batch,
 )
@@ -768,7 +769,7 @@ class RuntimeService:
         )
         if capture:
             collection.evidence_refs.extend(capture.refs)
-            for call in collection.calls:
+            for index, call in enumerate(collection.calls):
                 row = collection.statement_rows.get(call.id, {})
 
                 def identifier(name: str, row: dict[str, Any] = row) -> int | None:
@@ -777,7 +778,7 @@ class RuntimeService:
                     except (KeyError, ValueError, TypeError):
                         return None
 
-                call.lock_evidence = capture.evidence_for(
+                lock_evidence = capture.evidence_for(
                     str(row.get("SQL_TEXT", "")),
                     identifier("THREAD_ID"),
                     identifier("EVENT_ID"),
@@ -788,9 +789,10 @@ class RuntimeService:
                     for source in call.metric_sources.values()
                     for evidence_id in source.evidence_ids
                 }
-                call.lock_evidence.evidence_refs.extend(
+                lock_evidence.evidence_refs.extend(
                     ref for ref in collection.evidence_refs if ref.artifact_id in statement_sources
                 )
+                collection.calls[index] = attach_lock_evidence(call, lock_evidence)
         return Observation(
             id=f"{spec.id}-{level}-{repetition}",
             experiment_id=spec.id,

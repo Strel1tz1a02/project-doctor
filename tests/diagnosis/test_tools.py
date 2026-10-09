@@ -81,3 +81,63 @@ def test_arbitrary_model_explanation_does_not_become_supported(bundle: TaskBundl
     )
     assert result[0].status == "verified"
     assert store.bundle.hypotheses[0].status == "unresolved"
+
+
+@pytest.mark.parametrize("restore_ok", [True, False])
+def test_finish_with_new_id_replays_report_without_restoring_again(
+    bundle: TaskBundle, restore_ok: bool
+) -> None:
+    workflows, runtime, store = setup(bundle, restore_ok=restore_ok)
+
+    async def run():
+        first = await workflows.finish_task(bundle.task.correlation)
+        runtime.restore_ok = False
+        second = await workflows.finish_task(
+            bundle.task.correlation.model_copy(update={"operation_id": "another-finish"})
+        )
+        assert second == first
+        assert store.bundle.task.status == first.task_status
+
+    asyncio.run(run())
+    assert runtime.close_calls == 1
+
+
+def test_resume_report_publication_after_terminal_transition(bundle: TaskBundle) -> None:
+    workflows, runtime, _ = setup(bundle)
+    workflows.store.bundle.task.status = "completed"
+    result = asyncio.run(workflows.finish_task(bundle.task.correlation))
+    assert result.task_status == "completed"
+    assert runtime.close_calls == 0
+
+
+def test_corrupt_terminal_report_does_not_reopen_task(bundle: TaskBundle) -> None:
+    workflows, runtime, store = setup(bundle)
+    asyncio.run(workflows.finish_task(bundle.task.correlation))
+    workflows.reader = ScriptedReader(valid=False)
+    with pytest.raises(ValueError):
+        asyncio.run(
+            workflows.finish_task(
+                bundle.task.correlation.model_copy(update={"operation_id": "retry-corrupt"})
+            )
+        )
+    assert store.bundle.task.status == "completed"
+    assert runtime.close_calls == 1
+
+
+@pytest.mark.parametrize("restore_ok", [True, False])
+@pytest.mark.parametrize("tool", ["discover_scenarios", "propose_hypotheses", "evaluate_evidence"])
+def test_terminal_task_cannot_mutate_published_report_inputs(
+    bundle: TaskBundle, restore_ok: bool, tool: str
+) -> None:
+    workflows, runtime, store = setup(bundle, restore_ok=restore_ok)
+    asyncio.run(workflows.finish_task(bundle.task.correlation))
+    before = store.bundle.model_copy(deep=True)
+    args = {
+        "discover_scenarios": (),
+        "propose_hypotheses": (bundle.hypotheses,),
+        "evaluate_evidence": (["hypothesis-1"], ["experiment-1"]),
+    }
+    with pytest.raises(ValueError, match="terminal task"):
+        asyncio.run(getattr(workflows, tool)(bundle.task.correlation, *args[tool]))
+    assert store.bundle == before
+    assert runtime.close_calls == 1

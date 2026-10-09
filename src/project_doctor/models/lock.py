@@ -22,9 +22,9 @@ class LockEvidence(Contract):
     coverage: Literal["complete", "partial", "unknown"]
     covered_kinds: list[LockKind] = Field(default_factory=list)
     missing_kinds: list[LockKind] = Field(default_factory=list)
-    # Upper bound on lock-wait kinds only observable by sampling (InnoDB row locks
-    # have no persistent performance_schema history). None means every covered kind
-    # is proven exactly zero; a value declares "zero within this many milliseconds".
+    # Conservative upper bound on unassigned cumulative lock delay. This can
+    # include global metadata acquisition time or a full sampling window. None
+    # requires exact zero evidence; a value never means an actual zero metric.
     residual_ms: NonNegativeFloat | None = None
     thread_id: NonNegativeInt | None = None
     statement_event_id: NonNegativeInt | None = None
@@ -41,7 +41,11 @@ class LockEvidence(Contract):
             raise ValueError("lock window ends before it starts")
         if set(self.covered_kinds) & set(self.missing_kinds):
             raise ValueError("lock category cannot be both covered and missing")
-        if self.status == "covered_no_wait":
+        if self.status == "covered_no_wait" or (
+            self.status == "observed" and self.coverage == "complete"
+        ):
+            if self.status == "observed" and self.residual_ms is None:
+                raise ValueError("complete observed waits require a cumulative delay bound")
             if self.coverage != "complete":
                 raise ValueError("zero wait requires complete associated coverage evidence")
             if "table" not in self.covered_kinds or "metadata" not in self.covered_kinds:

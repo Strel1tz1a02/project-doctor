@@ -16,6 +16,10 @@ import pytest
 
 from project_doctor.integrations.artifacts.publish import publish_artifact
 from project_doctor.integrations.observation.lock_probe import LockProbe
+from project_doctor.integrations.observation.sql_probe import (
+    attach_lock_evidence,
+    perf_schema_row_to_sql_call,
+)
 from project_doctor.models.task import CallContext
 
 
@@ -181,3 +185,50 @@ def test_real_wait_is_associated_to_request(mysql_control, tmp_path: Path, kind:
         blocker.wait(timeout=10)
         if target:
             target.wait(timeout=10)
+
+
+def test_real_completed_statement_has_valid_lock_metric_or_bound(mysql_control, tmp_path):
+    query, _ = mysql_control
+
+    async def run():
+        request_id = uuid.uuid4().hex
+        sql = f"/* pd:control.py:1 request={request_id} */ SELECT * FROM app.control"
+
+        async def fetch(context, statement):
+            return await asyncio.to_thread(query, statement)
+
+        async def publish(path, raw, media, version):
+            return await publish_artifact(tmp_path, path, raw, media, version)
+
+        capture = await LockProbe(query=fetch, publish=publish).begin(
+            CallContext(
+                task_id="zero-control",
+                operation_id="read",
+                missing_correlation=["agh_session_id", "tool_call_id"],
+            ),
+            request_id,
+        )
+        await asyncio.to_thread(query, sql)
+        await capture.finish()
+        raw = query(
+            "SELECT JSON_OBJECT('SQL_TEXT',SQL_TEXT,'TIMER_WAIT',TIMER_WAIT,"
+            "'LOCK_TIME',LOCK_TIME,'ROWS_EXAMINED',ROWS_EXAMINED,'ROWS_SENT',ROWS_SENT,"
+            "'THREAD_ID',THREAD_ID,'EVENT_ID',EVENT_ID) "
+            "FROM performance_schema.events_statements_history_long "
+            f"WHERE SQL_TEXT LIKE '/* pd:% request={request_id} */%' LIMIT 1;"
+        )
+        row = json.loads(raw)
+        call = perf_schema_row_to_sql_call(
+            row, commit="a" * 40, evidence_id="statement", call_id="s"
+        )
+        table_ms = float(row["LOCK_TIME"]) / 1_000_000_000
+        evidence = capture.evidence_for(sql, row["THREAD_ID"], row["EVENT_ID"], table_ms)
+        assert evidence.status == ("observed" if table_ms else "covered_no_wait"), evidence.reasons
+        assert evidence.coverage == "complete"
+        assert capture.exact_row_zero()
+        assert evidence.residual_ms is None or evidence.residual_ms < 1
+        associated = attach_lock_evidence(call, evidence)
+        assert associated.lock_wait_ms == (0 if evidence.residual_ms is None else None)
+        type(associated).model_validate(associated.model_dump())
+
+    asyncio.run(run())

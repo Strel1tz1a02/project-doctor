@@ -1,6 +1,6 @@
 from project_doctor.features.diagnosis.compare import MeasurementPolicy
 from project_doctor.features.diagnosis.gates import evidence_refs
-from project_doctor.features.diagnosis.ports import EvidenceReader
+from project_doctor.features.diagnosis.ports import EvidenceReader, VerifiedJsonReader
 from project_doctor.features.diagnosis.slow_query import check_slow_query
 from project_doctor.models.finding import Finding
 from project_doctor.models.task import TaskBundle
@@ -32,8 +32,28 @@ async def evaluate(
             scenario = bundle.scenarios[0]
         if scenario is None:
             raise ValueError("experiment has no unambiguous persisted scenario")
+        plans = {}
+        if isinstance(reader, VerifiedJsonReader):
+            plan_ids = {
+                key
+                for observation in experiment.observations
+                for call in observation.sql_calls
+                for key in call.plan_evidence_ids
+            }
+            for ref in evidence_refs(experiment):
+                if ref.artifact_id in plan_ids and ref.format_version == "explain.v1":
+                    try:
+                        plans[ref.artifact_id] = await reader.read_verified_json(ref)
+                    except (OSError, ValueError):
+                        # Missing/invalid plans cannot support a negative diagnosis.
+                        pass
         findings = check_slow_query(
-            experiment, scenario, bundle.task.id, bundle.task.project.commit, policy
+            experiment,
+            scenario,
+            bundle.task.id,
+            bundle.task.project.commit,
+            policy,
+            verified_plans=plans,
         )
         try:
             check = await reader.verify(evidence_refs(experiment))

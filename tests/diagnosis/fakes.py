@@ -19,6 +19,7 @@ class MemoryStore:
     def __init__(self, bundle: TaskBundle) -> None:
         self.bundle = bundle.model_copy(deep=True)
         self.reservation_calls = 0
+        self.published_report: ReportResult | None = None
 
     async def create(self, task: TaskRecord) -> None:
         if self.bundle.task.id != task.id:
@@ -77,6 +78,10 @@ class MemoryStore:
         await self.get(task_id)
         return self.bundle.model_copy(deep=True)
 
+    async def load_report(self, task_id: str) -> ReportResult | None:
+        await self.get(task_id)
+        return self.published_report
+
 
 class ScriptedRuntime:
     def __init__(self, store: MemoryStore, restore_ok: bool = True) -> None:
@@ -85,6 +90,7 @@ class ScriptedRuntime:
         self.run_calls = 0
         self.replayed: dict[str, ExperimentResult] = {}
         self.report: ReportData | None = None
+        self.close_calls = 0
 
     async def prepare(self, project: ProjectInput, context: CallContext) -> EnvironmentHandle:
         self.store.bundle.task.environment_id = "environment-1"
@@ -111,6 +117,7 @@ class ScriptedRuntime:
         return ReconcileResult(task_id=task_id, environment_health="available")
 
     async def close(self, environment_id: str, context: CallContext) -> RestoreResult:
+        self.close_calls += 1
         if not self.restore_ok:
             return RestoreResult(verified=False, reason="scripted restoration failure")
         result = self.store.bundle.experiments[0].restore_result
@@ -120,9 +127,11 @@ class ScriptedRuntime:
     async def publish_report(self, data: ReportData, context: CallContext) -> ReportResult:
         self.report = data
         ref = self.store.bundle.evidence_refs[0]
-        return ReportResult(
+        result = ReportResult(
             task_id=context.task_id, task_status=data.task.status, json_ref=ref, html_ref=ref
         )
+        self.store.published_report = result
+        return result
 
 
 class ScriptedReader:

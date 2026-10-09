@@ -12,11 +12,11 @@ import pytest
 
 from project_doctor.entrypoints.settings import Settings
 from project_doctor.integrations.mysql.factory import build_store, resolve_secret_ref
-from project_doctor.models.common import Limits, Usage
+from project_doctor.models.common import EvidenceRef, Limits, Usage
 from project_doctor.models.dataset import DatasetProfile
 from project_doctor.models.environment import EnvironmentHandle, ProjectInput
 from project_doctor.models.experiment import ExperimentSpec
-from project_doctor.models.finding import Finding, Impact
+from project_doctor.models.finding import Finding, Impact, ReportResult
 from project_doctor.models.hypothesis import Hypothesis
 from project_doctor.models.scenario import (
     Assertions,
@@ -216,6 +216,12 @@ def test_store_round_trip(store) -> None:
     assert record.usage.wall_seconds == 5.0
     assert record.usage.requests == 3
 
+    bundle = asyncio.run(store.load_bundle(task.id))
+    assert [item.id for item in bundle.scenarios] == ["scenario-1"]
+    assert [item.id for item in bundle.hypotheses] == ["hypothesis-1"]
+    assert [item.id for item in bundle.findings] == ["finding-1"]
+    assert bundle.task.environment_id == "environment-1"
+
 
 def test_experiment_lock_windows_round_trip_through_mysql_json(store) -> None:
     fixture = Path(__file__).resolve().parents[2] / "contracts/fixtures/verified_slow_query.json"
@@ -240,18 +246,68 @@ def test_experiment_lock_windows_round_trip_through_mysql_json(store) -> None:
     assert persisted == result
     assert persisted.observations[0].sql_calls[0].lock_evidence.window_start.tzinfo is not None
 
-    bundle = asyncio.run(store.load_bundle("task-1"))
-    assert [item.id for item in bundle.scenarios] == ["scenario-1"]
-    assert [item.id for item in bundle.hypotheses] == ["hypothesis-1"]
-    assert [item.id for item in bundle.findings] == ["finding-1"]
-    assert bundle.task.environment_id == "environment-1"
+
+def test_terminal_report_can_be_loaded_with_another_operation_id(store) -> None:
+    task = make_task("report-replay-" + uuid.uuid4().hex)
+    ref = EvidenceRef(
+        artifact_id="report-json-" + task.id,
+        relative_path=f"tasks/{task.id}/report.json",
+        media_type="application/json",
+        format_version="report.v1",
+        sha256="a" * 64,
+        size_bytes=1,
+    )
+    report = ReportResult(
+        task_id=task.id,
+        task_status="completed",
+        json_ref=ref,
+        html_ref=ref.model_copy(
+            update={
+                "artifact_id": "report-html-" + task.id,
+                "relative_path": f"tasks/{task.id}/report.html",
+                "media_type": "text/html",
+            }
+        ),
+    )
+    asyncio.run(store.create(task))
+    assert asyncio.run(store.load_report(task.id)) is None
+    assert asyncio.run(store.reserve(task.id, "finish:report", "c" * 64, 0)).accepted
+    asyncio.run(
+        store.finish_operation(
+            task.id,
+            "finish:report",
+            OperationResult(
+                operation_id="finish:report",
+                state="completed",
+                input_digest="c" * 64,
+                payload=report,
+            ),
+            Usage(),
+        )
+    )
+    # A report for another state is not replayed until the terminal transition.
+    assert asyncio.run(store.load_report(task.id)) is None
+    assert asyncio.run(store.transition(task.id, "created", "completed"))
+    assert asyncio.run(store.load_report(task.id)) == report
 
 
-def test_parallel_preparations_with_different_ids_are_serialized(store) -> None:
+def test_parallel_preparations_with_different_ids_are_serialized(store, monkeypatch) -> None:
     import hashlib
+    import threading
 
     task = make_task("prepare-race-" + uuid.uuid4().hex)
     digest = hashlib.sha256(task.project.model_dump_json().encode("utf-8")).hexdigest()
+    barrier = threading.Barrier(2)
+    original_load = store._load_task
+
+    def read_before_lock(conn, task_id):
+        record = original_load(conn, task_id)
+        # Both REPEATABLE READ snapshots exist before either task lock is taken.
+        # The pending operation lookup must be a current read after serialization.
+        barrier.wait(timeout=10)
+        return record
+
+    monkeypatch.setattr(store, "_load_task", read_before_lock)
 
     async def run():
         await store.create(task)
@@ -261,5 +317,30 @@ def test_parallel_preparations_with_different_ids_are_serialized(store) -> None:
         )
         assert sum(result.accepted for result in results) == 1
         assert any("unresolved" in (result.reason or "") for result in results)
+
+    asyncio.run(run())
+
+
+def test_parallel_finishers_settle_an_operation_only_once(store) -> None:
+    task = make_task("settle-race-" + uuid.uuid4().hex)
+    operation_id = "finish:close"
+    from project_doctor.models.environment import RestoreResult
+
+    operation = OperationResult(
+        operation_id=operation_id,
+        state="completed",
+        input_digest="d" * 64,
+        payload=RestoreResult(verified=False, reason="settlement concurrency control"),
+    )
+
+    async def run():
+        await store.create(task)
+        assert (await store.reserve(task.id, operation_id, "d" * 64, 1)).accepted
+        await asyncio.gather(
+            store.finish_operation(task.id, operation_id, operation, Usage(requests=1)),
+            store.finish_operation(task.id, operation_id, operation, Usage(requests=1)),
+        )
+        assert (await store.get(task.id)).usage.requests == 1
+        assert await store.load_operation(task.id, operation_id) == operation
 
     asyncio.run(run())

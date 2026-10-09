@@ -44,7 +44,12 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.13"
 strict = true
-files = ["src/project_doctor", "scripts/export_contracts.py"]
+files = [
+    "src/project_doctor",
+    "scripts/export_contracts.py",
+    "scripts/export_evaluation_run.py",
+    "scripts/run_independent_retest.py",
+]
 plugins = ["pydantic.mypy"]
 
 [tool.pydantic-mypy]

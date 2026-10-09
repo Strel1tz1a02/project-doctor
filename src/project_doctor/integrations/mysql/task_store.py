@@ -78,6 +78,25 @@ class MySQLTaskStore:
     async def load_bundle(self, task_id: str) -> TaskBundle:
         return await asyncio.to_thread(self._load_bundle_sync, task_id)
 
+    async def load_report(self, task_id: str) -> ReportResult | None:
+        return await asyncio.to_thread(self._load_report_sync, task_id)
+
+    def _load_report_sync(self, task_id: str) -> ReportResult | None:
+        with self._engine.connect() as conn:
+            task = self._load_task(conn, task_id)
+            rows: Any = conn.execute(
+                select(operations.c.result_json).where(
+                    operations.c.task_id == task_id,
+                    operations.c.state == "completed",
+                    operations.c.result_json.is_not(None),
+                )
+            ).scalars()
+            for row in rows:
+                payload = OperationResult.model_validate(row).payload
+                if isinstance(payload, ReportResult) and payload.task_status == task.status:
+                    return payload
+        return None
+
     # -- sync implementations -----------------------------------------------
 
     def _create_sync(self, task: TaskRecord) -> None:
@@ -172,10 +191,13 @@ class MySQLTaskStore:
         self, task_id: str, operation_id: str, result: OperationResult, consumed: Usage
     ) -> None:
         with self._engine.begin() as conn:
+            # Match reservation lock order, and serialize settlement across IDs.
+            # Otherwise concurrent finishers can both read reserved and bill twice.
+            conn.execute(select(tasks.c.id).where(tasks.c.id == task_id).with_for_update()).one()
             state: str = conn.execute(
-                select(operations.c.state).where(
-                    operations.c.task_id == task_id, operations.c.operation_id == operation_id
-                )
+                select(operations.c.state)
+                .where(operations.c.task_id == task_id, operations.c.operation_id == operation_id)
+                .with_for_update()
             ).scalar_one()
             if state in ("completed", "failed", "needs_reconcile"):
                 return
