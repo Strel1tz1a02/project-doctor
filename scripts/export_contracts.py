@@ -17,6 +17,7 @@ MODULES = (
     "finding",
     "hypothesis",
     "lock",
+    "n_plus_one",
     "observation",
     "scenario",
     "task",

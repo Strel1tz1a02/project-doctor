@@ -228,7 +228,7 @@ def test_real_completed_statement_has_valid_lock_metric_or_bound(mysql_control, 
         assert capture.exact_row_zero()
         assert evidence.residual_ms is None or evidence.residual_ms < 1
         associated = attach_lock_evidence(call, evidence)
-        assert associated.lock_wait_ms == (0 if evidence.residual_ms is None else None)
+        assert associated.lock_wait_ms == table_ms
         type(associated).model_validate(associated.model_dump())
 
     asyncio.run(run())

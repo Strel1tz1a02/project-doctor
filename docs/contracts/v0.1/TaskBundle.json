@@ -31,6 +31,70 @@
       "title": "Assertions",
       "type": "object"
     },
+    "BatchQuerySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "const": "n_plus_one",
+          "default": "n_plus_one",
+          "title": "Kind",
+          "type": "string"
+        },
+        "strategy": {
+          "enum": [
+            "batch_in",
+            "joinedload",
+            "selectinload"
+          ],
+          "title": "Strategy",
+          "type": "string"
+        },
+        "child_template": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Child Template",
+          "type": "string"
+        },
+        "key_column": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Key Column",
+          "type": "string"
+        },
+        "child_code_location": {
+          "$ref": "#/$defs/CodeLocation"
+        },
+        "observed_child_count": {
+          "minimum": 0,
+          "title": "Observed Child Count",
+          "type": "integer"
+        },
+        "parent_sql_call_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Parent Sql Call Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "strategy",
+        "child_template",
+        "key_column",
+        "child_code_location",
+        "observed_child_count"
+      ],
+      "title": "BatchQuerySpec",
+      "type": "object"
+    },
     "BusinessAssertion": {
       "additionalProperties": false,
       "properties": {
@@ -561,7 +625,10 @@
           "type": "array"
         },
         "variable": {
-          "const": "index",
+          "enum": [
+            "index",
+            "query_shape"
+          ],
           "title": "Variable",
           "type": "string"
         },
@@ -574,7 +641,10 @@
               "type": "string"
             },
             {
-              "const": "candidate_index",
+              "enum": [
+                "candidate_index",
+                "candidate_batch"
+              ],
               "type": "string"
             }
           ],
@@ -720,6 +790,7 @@
         "kind": {
           "enum": [
             "slow_query",
+            "n_plus_one",
             "unclassified"
           ],
           "title": "Kind",
@@ -794,6 +865,17 @@
           ],
           "default": null
         },
+        "fix_spec": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BatchQuerySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "limitations": {
           "items": {
             "type": "string"
@@ -831,6 +913,7 @@
         "kind": {
           "enum": [
             "slow_query",
+            "n_plus_one",
             "unclassified"
           ],
           "title": "Kind",
@@ -1241,7 +1324,8 @@
         "level": {
           "enum": [
             "baseline",
-            "candidate_index"
+            "candidate_index",
+            "candidate_batch"
           ],
           "title": "Level",
           "type": "string"
@@ -1412,7 +1496,8 @@
         "level": {
           "enum": [
             "baseline",
-            "candidate_index"
+            "candidate_index",
+            "candidate_batch"
           ],
           "title": "Level",
           "type": "string"
@@ -1845,6 +1930,27 @@
           "title": "Normalized Sql",
           "type": "string"
         },
+        "template_sql": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Template Sql"
+        },
+        "literal_parameters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Literal Parameters",
+          "type": "array"
+        },
         "duration_ms": {
           "anyOf": [
             {
@@ -2128,7 +2234,8 @@
         "level": {
           "enum": [
             "baseline",
-            "candidate_index"
+            "candidate_index",
+            "candidate_batch"
           ],
           "title": "Level",
           "type": "string"

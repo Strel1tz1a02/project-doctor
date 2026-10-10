@@ -113,14 +113,9 @@ def evidence_flags(bundle: TaskBundle, finding: Finding) -> dict[str, bool]:
             c.lock_evidence
             and c.lock_evidence.status != "unknown"
             and c.lock_evidence.coverage == "complete"
-            and (
-                (c.lock_evidence.residual_ms is None and c.lock_wait_ms == 0)
-                or (
-                    c.lock_evidence.residual_ms is not None
-                    and c.lock_wait_ms is None
-                    and c.lock_evidence.residual_ms + policy.minimum_delta_ms < delta
-                )
-            )
+            and c.lock_wait_ms is not None
+            and c.lock_wait_ms + (c.lock_evidence.residual_ms or 0.0) + policy.minimum_delta_ms
+            < delta
             for c in calls
         )
         checks.append(
@@ -294,8 +289,8 @@ def export_run(home: Path, case_id: str) -> dict[str, Any]:
             "policy": MeasurementPolicy().__dict__,
             "evidence_flag_semantics": {
                 "no_lock_wait": (
-                    "complete lock coverage; measured/cumulative bound cannot explain SQL gain, "
-                    "not a claim of exact zero"
+                    "complete lock coverage; measured table+row lock wait and MDL bound cannot "
+                    "explain SQL gain, not a claim of exact zero"
                 ),
             },
         },

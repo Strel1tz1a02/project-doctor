@@ -322,6 +322,27 @@
       "title": "Normalized Sql",
       "type": "string"
     },
+    "template_sql": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Template Sql"
+    },
+    "literal_parameters": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Literal Parameters",
+      "type": "array"
+    },
     "duration_ms": {
       "anyOf": [
         {

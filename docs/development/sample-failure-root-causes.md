@@ -45,22 +45,22 @@ if locks is None or locks.status != "covered_no_wait" or locks.coverage != "comp
 **根因**：
 
 - `covered_no_wait` 要求 `covered_kinds` 覆盖 `table` / `metadata` / `innodb_data` **三类**；
-- 但 `LOCK_TIME` 只能证明表/元数据锁；
-- `data_lock_waits` 只显示**当前** InnoDB 行锁等待——等待被授予后即从表里消失，**无持久历史**。
+- 早期实现误以为 `LOCK_TIME` 只覆盖表/元数据锁，把权威指标 `LOCK_TIME` 丢弃、改用脆弱的
+  `data_lock_waits` 当前快照（等待授予后即消失、无持久历史）与全局 `Innodb_row_lock_*` 计数器零证明；
+- 任何无关线程的一次行锁都使零证明失败，回退到「整个采集窗口」残差，在诊断里几乎必然
+  「足以解释耗时差异」→ 正例被误判 `lead`（条件不足）。
 
-因此「InnoDB 行锁零等待」在 performance_schema 里**物理上无法证明**。原 `lock_probe` 只能
-输出 `observed` / `unknown`、覆盖 `partial`，从不输出 `covered_no_wait` / `complete`，真实锁
-证据永远卡在 `partial`，正例永远过不了上面两行门槛。
+**修复（最终口径，对齐 Percona / PMM / pt-query-digest 主流做法）**：直接读 `events_statements_*`
+的 `LOCK_TIME` 作为逐语句权威锁等待指标。
 
-**修复**：重定锁排除语义（不新增工具，增强现有采集）。
+- 表锁 + InnoDB 行锁：由语句 `LOCK_TIME` **逐语句实测**证明（MySQL 8.0.28+ 含 InnoDB 行锁，不含 MDL）；
+- 元数据锁（MDL）：`LOCK_TIME` 唯一未测项，用全局 `wait/lock/metadata/sql/mdl` 汇总差值约束（`residual_ms`）；
+- 版本 < 8.0.28 时 `LOCK_TIME` 不含行锁，才回退全局行锁计数零证明，否则拒绝零证明。
 
-- 表/元数据锁：由语句 `LOCK_TIME==0` **逐语句实测**证明；
-- InnoDB 行锁：由 `lock_probe` **全窗口轮询未观测到 + 有界残差 `residual_ms`** 证明「锁不是本次
-  延迟主因」，不再要求「精确零等待」。
-
-落点：[lock.py](../../src/project_doctor/models/lock.py)（新增 `residual_ms` 字段、重定义
+落点：[lock.py](../../src/project_doctor/models/lock.py)（`residual_ms` 收窄为 MDL 上界、重定义
 `covered_no_wait` 校验器）、[lock_probe.py](../../src/project_doctor/integrations/observation/lock_probe.py)
-（`evidence_for` 三路分类 + `coverage.json` 记录残差与理由）。
+（`evidence_for` 三路分类 + `coverage.json` 记录版本守卫与 MDL 上界）、
+[sql_probe.py](../../src/project_doctor/integrations/observation/sql_probe.py)（`lock_wait_ms = LOCK_TIME`）。
 
 ---
 

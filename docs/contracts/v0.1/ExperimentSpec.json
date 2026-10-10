@@ -120,7 +120,10 @@
       "type": "array"
     },
     "variable": {
-      "const": "index",
+      "enum": [
+        "index",
+        "query_shape"
+      ],
       "title": "Variable",
       "type": "string"
     },
@@ -133,7 +136,10 @@
           "type": "string"
         },
         {
-          "const": "candidate_index",
+          "enum": [
+            "candidate_index",
+            "candidate_batch"
+          ],
           "type": "string"
         }
       ],

@@ -168,11 +168,12 @@ def test_perf_schema_row_to_sql_call_builds_actual_sources() -> None:
     assert call.duration_ms == 412.0
     assert call.rows_examined == 200000
     assert call.rows_returned == 20
-    assert call.lock_wait_ms is None
+    assert call.lock_wait_ms == 0.0
     assert set(call.metric_sources) == {
         "duration_ms",
         "rows_examined",
         "rows_returned",
+        "lock_wait_ms",
     }
     assert all(
         source.source == "performance_schema"
@@ -184,7 +185,7 @@ def test_perf_schema_row_to_sql_call_builds_actual_sources() -> None:
     assert call.code_location.line == 14
 
 
-def test_perf_schema_row_to_sql_call_reports_lock_wait_only_when_covered() -> None:
+def test_perf_schema_row_to_sql_call_uses_lock_time_as_actual() -> None:
     row = {
         "SQL_TEXT": "/* pd:src/main/OrderMapper.java:14 */ SELECT o.* FROM orders o",
         "TIMER_WAIT": "412000000000",
@@ -192,25 +193,24 @@ def test_perf_schema_row_to_sql_call_reports_lock_wait_only_when_covered() -> No
         "ROWS_SENT": "20",
         "LOCK_TIME": "0",
     }
-    # Without row-lock coverage the total lock wait is unknown, so it must stay None
-    # rather than fabricate a zero from an incomplete LOCK_TIME measurement.
-    uncovered = perf_schema_row_to_sql_call(
-        row, commit=COMMIT, evidence_id=EVIDENCE_ID, call_id="sql-op-1-3"
-    )
-    assert uncovered.lock_wait_ms is None
-    assert "lock_wait_ms" not in uncovered.metric_sources
-
-    # A legacy flag and a post-request snapshot cannot prove interval coverage.
-    covered = perf_schema_row_to_sql_call(
+    # LOCK_TIME (table + InnoDB row locks) is the authoritative measurement; the
+    # legacy lock flags never gate it.
+    call = perf_schema_row_to_sql_call(
         row,
         commit=COMMIT,
         evidence_id=EVIDENCE_ID,
         call_id="sql-op-1-3",
-        lock_wait_complete=True,
-        lock_wait_evidence_id="row-lock-evidence",
+        lock_wait_complete=False,
+        lock_wait_evidence_id=None,
     )
-    assert covered.lock_wait_ms is None
-    assert "lock_wait_ms" not in covered.metric_sources
+    assert call.lock_wait_ms == 0.0
+    assert call.metric_sources["lock_wait_ms"].measurement == "actual"
+
+    row["LOCK_TIME"] = "5000000000"  # 5 ms stays a nonzero actual wait
+    waited = perf_schema_row_to_sql_call(
+        row, commit=COMMIT, evidence_id=EVIDENCE_ID, call_id="sql-op-1-4"
+    )
+    assert waited.lock_wait_ms == 5.0
 
 
 def test_perf_schema_row_to_sql_call_omits_missing_metrics() -> None:
@@ -390,7 +390,7 @@ def test_perf_schema_probe_degrades_when_explain_is_not_json() -> None:
     assert len(collection.evidence_refs) == 1  # raw only, no plan
 
 
-def test_post_request_empty_snapshot_does_not_prove_zero_wait() -> None:
+def test_lock_time_is_authoritative_not_post_request_snapshot() -> None:
     async def fake_fetcher(context: CallContext, sql: str) -> list[dict[str, Any]]:
         return [_GOOD_ROW]
 
@@ -418,13 +418,13 @@ def test_post_request_empty_snapshot_does_not_prove_zero_wait() -> None:
         )
     )  # type: ignore[arg-type]
     call = collection.calls[0]
-    assert call.lock_wait_ms is None
-    assert "lock_wait_ms" not in call.metric_sources
-    # The snapshot remains raw context, not an actual total-wait measurement.
+    assert call.lock_wait_ms == 0.0  # LOCK_TIME is the actual measurement
+    assert call.metric_sources["lock_wait_ms"].measurement == "actual"
+    # The post-request data_lock_waits snapshot remains raw context, not a measurement.
     assert any("row-lock-waits" in ref.relative_path for ref in refs)
 
 
-def test_perf_schema_probe_downgrades_lock_wait_when_row_locks_observed() -> None:
+def test_perf_schema_probe_keeps_lock_time_when_snapshot_shows_waits() -> None:
     async def fake_fetcher(context: CallContext, sql: str) -> list[dict[str, Any]]:
         return [_GOOD_ROW]
 
@@ -450,5 +450,5 @@ def test_perf_schema_probe_downgrades_lock_wait_when_row_locks_observed() -> Non
             "baseline",
         )
     )  # type: ignore[arg-type]
-    assert collection.calls[0].lock_wait_ms is None
-    assert "lock_wait_ms" not in collection.calls[0].metric_sources
+    assert collection.calls[0].lock_wait_ms == 0.0  # LOCK_TIME stays authoritative
+    assert collection.calls[0].metric_sources["lock_wait_ms"].measurement == "actual"

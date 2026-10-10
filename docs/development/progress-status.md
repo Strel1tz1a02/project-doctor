@@ -109,7 +109,7 @@ models         统一数据合同、引用与错误类型（不依赖其他层�
 - **锁证据**（`integrations/observation/lock_probe.py` + `models/lock.py`）：请求期间采样
   `data_lock_waits`（InnoDB 行锁）与 `metadata_locks`（元数据锁），按 request_id / THREAD_ID / EVENT_ID 关联，
   产出 `LockEvidence`（status `observed`/`covered_no_wait`/`unknown`，coverage `complete`/`partial`/`unknown`）。
-  **空快照绝不等于零等待**，完整零等待需要全区间覆盖证据。
+  **零等待来自 `LOCK_TIME` 实测（表锁 + InnoDB 行锁），MDL 用全局汇总差值约束；空快照绝不等于零等待。**
 - **预热流程**（`features/experiments/preparation.py`）：每组「恢复基线 → 应用索引 → 记录准备指纹 →
   N 次预热 → 正式测量」，预热与正式请求分开记录、都计预算。
 
@@ -133,9 +133,9 @@ models         统一数据合同、引用与错误类型（不依赖其他层�
 1. **证据 ID = 内容寻址**：制品 sha256 即 evidence id，路径为 `stem-{digest}.json`；同一内容跨路径不会产生冲突元数据。
 2. **SQL → 请求 → 代码行关联**：应用侧注入 `pd` 标记（含请求 ID 与行号），采集端 `_CODE_MARKER` 正则解析，
    `code_location.commit` 严格等于 `ProjectInput.commit`（B gate 硬性要求）。
-3. **诚实的锁覆盖**：`LOCK_TIME` 只覆盖表/元数据锁，不含 InnoDB 行锁；因此不在 `SqlCall.lock_wait_ms` 里
-   用一次事后快照伪造零等待，而是由独立 `lock_probe` 以「采样窗口 + 能力/事件/覆盖三份制品」记录
-   `observed`/`unknown`，未覆盖即保持 null，让诊断按门槛降级为线索。
+3. **诚实的锁覆盖**：`LOCK_TIME` 是逐语句权威锁等待指标（MySQL 8.0.28+ 含表锁与 InnoDB 行锁，不含 MDL），
+   直接写入 `SqlCall.lock_wait_ms`；MDL 是唯一未测项，由独立 `lock_probe` 用全局汇总差值约束，落在
+   `residual_ms`，未覆盖或版本 < 8.0.28 无法证明行锁时保持保守，让诊断按门槛降级为线索。
 4. **波动门槛**：`stable()` 用 `(max-min)/median <= 0.25`（含边界）；`distinguishable()` 要求
    中位差严格超过 `max(1ms, 两组噪声)`；与评估双阈值（验收 0.25、复测 0.10）对齐。
 5. **隔离与恢复**：compose 项目名隔离、指纹绑定提交+快照、恢复后验证 mysqldump 摘要一致且临时索引已移除，

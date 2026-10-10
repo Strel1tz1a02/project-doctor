@@ -15,7 +15,7 @@ from project_doctor.models.common import (
 )
 from project_doctor.models.environment import RestoreResult
 from project_doctor.models.errors import Failure
-from project_doctor.models.observation import Observation
+from project_doctor.models.observation import CandidateLevel, ExperimentLevel, Observation
 
 ExperimentPhase = Literal["prepared", "running", "restoring", "finished", "needs_reconcile"]
 
@@ -29,7 +29,7 @@ class WarmupSpec(Contract):
 
 
 class PreparationResult(Contract):
-    level: Literal["baseline", "candidate_index"]
+    level: ExperimentLevel
     protocol_id: Identifier
     snapshot_id: Identifier
     observation_config_id: Identifier
@@ -41,7 +41,7 @@ class PreparationResult(Contract):
 
 
 class WarmupResult(Contract):
-    level: Literal["baseline", "candidate_index"]
+    level: ExperimentLevel
     ordinal: PositiveInt
     request_id: Identifier
     business_valid: bool
@@ -56,8 +56,8 @@ class ExperimentSpec(Contract):
     scenario_id: Identifier
     scenario_version: PositiveInt
     hypothesis_ids: Annotated[list[Identifier], Field(min_length=1, max_length=3)]
-    variable: Literal["index"]
-    levels: tuple[Literal["baseline"], Literal["candidate_index"]]
+    variable: Literal["index", "query_shape"]
+    levels: tuple[Literal["baseline"], CandidateLevel]
     intervention_recipe_ref: Identifier
     repetitions: Annotated[int, Field(ge=3, strict=True)]
     limits: Limits
@@ -65,6 +65,15 @@ class ExperimentSpec(Contract):
     snapshot_id: Identifier
     observation_config_id: Identifier
     warmup: WarmupSpec | None = None
+
+    @model_validator(mode="after")
+    def variable_matches_candidate_level(self) -> ExperimentSpec:
+        expected: CandidateLevel = (
+            "candidate_index" if self.variable == "index" else "candidate_batch"
+        )
+        if self.levels[1] != expected:
+            raise ValueError("experiment variable must match its candidate level")
+        return self
 
 
 class ExperimentResult(Contract):

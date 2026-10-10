@@ -11,6 +11,7 @@ from project_doctor.models.common import CodeLocation, EvidenceRef, Limits
 from project_doctor.models.experiment import ExperimentSpec, ReconcileResult
 from project_doctor.models.finding import Finding, Recommendation
 from project_doctor.models.hypothesis import HypothesisBatch
+from project_doctor.models.n_plus_one import BatchQuerySpec
 from project_doctor.models.observation import SqlCall
 from project_doctor.models.scenario import RequestStep
 from project_doctor.models.task import CallContext, OperationResult, TaskBundle
@@ -110,6 +111,62 @@ def test_only_index_experiments_with_repetitions_supported() -> None:
         data[field] = value
         with pytest.raises(ValidationError):
             ExperimentSpec.model_validate(data)
+
+
+def test_query_shape_experiment_uses_candidate_batch_level() -> None:
+    data = copy.deepcopy(load_case()["spec"])
+    data["variable"] = "query_shape"
+    data["levels"] = ["baseline", "candidate_batch"]
+    spec = ExperimentSpec.model_validate(data)
+    assert spec.variable == "query_shape"
+    assert spec.levels == ("baseline", "candidate_batch")
+    invalid = copy.deepcopy(data)
+    invalid["levels"] = ["baseline", "candidate_index"]
+    with pytest.raises(ValidationError, match="variable"):
+        ExperimentSpec.model_validate(invalid)
+
+
+def test_batch_query_spec_is_strict_and_enumerated() -> None:
+    location = load_case()["bundle"]["findings"][0]["code_locations"][0]
+    spec = BatchQuerySpec(
+        strategy="batch_in",
+        child_template="SELECT * FROM users WHERE id = ?",
+        key_column="id",
+        child_code_location=CodeLocation.model_validate(location),
+        observed_child_count=20,
+        parent_sql_call_ids=["sql-parent"],
+    )
+    assert spec.kind == "n_plus_one"
+    for field, value in (("strategy", "merge"), ("extra_field", True)):
+        invalid = spec.model_dump()
+        invalid[field] = value
+        with pytest.raises(ValidationError):
+            BatchQuerySpec.model_validate(invalid)
+
+
+def test_n_plus_one_fix_spec_must_match_kind_and_mechanism() -> None:
+    data = load_case()["bundle"]["findings"][0]
+    location = data["code_locations"][0]
+    spec = BatchQuerySpec(
+        strategy="batch_in",
+        child_template="SELECT * FROM users WHERE id = ?",
+        key_column="id",
+        child_code_location=CodeLocation.model_validate(location),
+        observed_child_count=20,
+    )
+    with pytest.raises(ValidationError, match="kind"):
+        Finding.model_validate({**data, "fix_spec": spec.model_dump()})
+    n_plus_one = {
+        **data,
+        "kind": "n_plus_one",
+        "recommendation": {**data["recommendation"], "mechanism": "batch_in"},
+        "fix_spec": spec.model_dump(),
+    }
+    Finding.model_validate(n_plus_one)
+    with pytest.raises(ValidationError, match="mechanism"):
+        Finding.model_validate(
+            {**n_plus_one, "recommendation": {**data["recommendation"], "mechanism": "joinedload"}}
+        )
 
 
 def test_hypothesis_batch_at_most_three() -> None:

@@ -141,7 +141,10 @@
           "type": "array"
         },
         "variable": {
-          "const": "index",
+          "enum": [
+            "index",
+            "query_shape"
+          ],
           "title": "Variable",
           "type": "string"
         },
@@ -154,7 +157,10 @@
               "type": "string"
             },
             {
-              "const": "candidate_index",
+              "enum": [
+                "candidate_index",
+                "candidate_batch"
+              ],
               "type": "string"
             }
           ],
@@ -511,7 +517,8 @@
         "level": {
           "enum": [
             "baseline",
-            "candidate_index"
+            "candidate_index",
+            "candidate_batch"
           ],
           "title": "Level",
           "type": "string"
@@ -648,7 +655,8 @@
         "level": {
           "enum": [
             "baseline",
-            "candidate_index"
+            "candidate_index",
+            "candidate_batch"
           ],
           "title": "Level",
           "type": "string"
@@ -814,6 +822,27 @@
           "title": "Normalized Sql",
           "type": "string"
         },
+        "template_sql": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Template Sql"
+        },
+        "literal_parameters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Literal Parameters",
+          "type": "array"
+        },
         "duration_ms": {
           "anyOf": [
             {
@@ -953,7 +982,8 @@
         "level": {
           "enum": [
             "baseline",
-            "candidate_index"
+            "candidate_index",
+            "candidate_batch"
           ],
           "title": "Level",
           "type": "string"

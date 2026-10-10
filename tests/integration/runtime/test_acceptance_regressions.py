@@ -124,8 +124,8 @@ def test_probe_excludes_old_and_unrelated_requests(
     result = asyncio.run(probe(None, response, context, "c", "baseline"))
     assert len(result.calls) == 1
     assert len(explained) == expected_plans
-    assert result.calls[0].lock_wait_ms is None
-    assert "lock_wait_ms" not in result.calls[0].metric_sources
+    assert result.calls[0].lock_wait_ms == 0.0
+    assert result.calls[0].metric_sources["lock_wait_ms"].measurement == "actual"
     assert result.calls[0].code_location is not None
 
 

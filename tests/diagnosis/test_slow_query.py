@@ -138,8 +138,6 @@ def test_lock_residual_larger_than_effect_prevents_verified(bundle: TaskBundle) 
     for item in bundle.experiments[0].observations:
         call = item.sql_calls[0]
         payload = call.model_dump(mode="json")
-        payload["lock_wait_ms"] = None
-        payload["metric_sources"].pop("lock_wait_ms", None)
         payload["lock_evidence"]["residual_ms"] = 10000
         item.sql_calls[0] = type(call).model_validate(payload)
     result = asyncio.run(evaluate(bundle, Reader()))
@@ -147,24 +145,19 @@ def test_lock_residual_larger_than_effect_prevents_verified(bundle: TaskBundle) 
     assert any("残差上界" in reason for reason in result[0].limitations)
 
 
-@pytest.mark.parametrize("bound,expected", [(0.003, "verified"), (10000, "lead")])
+@pytest.mark.parametrize("wait,expected", [(0.003, "verified"), (10000, "lead")])
 def test_measured_table_wait_is_compared_with_gain_not_rounded_to_zero(
-    bundle: TaskBundle, bound: float, expected: str
+    bundle: TaskBundle, wait: float, expected: str
 ) -> None:
     add_spec(bundle)
     for item in bundle.experiments[0].observations:
         call = item.sql_calls[0]
         payload = call.model_dump(mode="json")
-        payload["lock_wait_ms"] = None
-        payload["metric_sources"].pop("lock_wait_ms", None)
+        payload["lock_wait_ms"] = wait
         payload["lock_evidence"]["status"] = "observed"
-        payload["lock_evidence"]["residual_ms"] = bound
         item.sql_calls[0] = type(call).model_validate(payload)
     result = asyncio.run(evaluate(bundle, Reader()))
     assert result[0].status == expected
-    assert all(
-        c.lock_wait_ms is None for o in bundle.experiments[0].observations for c in o.sql_calls
-    )
 
 
 def test_repeated_request_id_is_not_independent_measurement(bundle: TaskBundle) -> None:

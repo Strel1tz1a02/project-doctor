@@ -118,7 +118,8 @@
     "level": {
       "enum": [
         "baseline",
-        "candidate_index"
+        "candidate_index",
+        "candidate_batch"
       ],
       "title": "Level",
       "type": "string"

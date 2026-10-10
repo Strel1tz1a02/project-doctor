@@ -85,9 +85,12 @@ def test_reference_dockerfile_targets_service_port_and_db_env() -> None:
     assert "DB_PORT" in dockerfile
 
 
-def test_manifest_discovers_one_valid_scenario() -> None:
+def test_manifest_discovers_slow_query_and_n_plus_one_scenarios() -> None:
     scenarios = discover(make_project(), load_manifest())
-    assert [scenario.id for scenario in scenarios] == ["slow-query-orders-search"]
+    assert [scenario.id for scenario in scenarios] == [
+        "slow-query-orders-search",
+        "n-plus-one-orders-search",
+    ]
     scenario = scenarios[0]
     # Round-trips the strict contract (extra=forbid, validate_assignment).
     Scenario.model_validate(scenario.model_dump())
@@ -99,11 +102,12 @@ def test_manifest_discovers_one_valid_scenario() -> None:
     assert scenario.cache.preparation_recipe_ref
 
 
-def test_manifest_flags_deferred_concerns_as_uncovered_paths() -> None:
-    scenario = discover(make_project(), load_manifest())[0]
-    assert any("N+1" in path for path in scenario.uncovered_paths)
-    assert any("deep-pagination" in path for path in scenario.uncovered_paths)
-    assert any("leading-wildcard" in path for path in scenario.uncovered_paths)
+def test_manifest_flags_remaining_concerns_as_uncovered_paths() -> None:
+    scenarios = discover(make_project(), load_manifest())
+    uncovered = {path for scenario in scenarios for path in scenario.uncovered_paths}
+    assert not any("N+1" in path for path in uncovered)
+    assert any("deep-pagination" in path for path in uncovered)
+    assert any("leading-wildcard" in path for path in uncovered)
 
 
 def test_project_input_commits_to_the_fixed_target_commit() -> None:

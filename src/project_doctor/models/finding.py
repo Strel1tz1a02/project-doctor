@@ -15,6 +15,7 @@ from project_doctor.models.common import (
     ProblemKind,
     TaskStatus,
 )
+from project_doctor.models.n_plus_one import BatchQuerySpec
 
 
 class Impact(Contract):
@@ -65,12 +66,13 @@ class Finding(Contract):
     excluded_explanations: list[ExcludedExplanation] = Field(default_factory=list)
     impact: Impact
     recommendation: Recommendation | None = None
+    fix_spec: BatchQuerySpec | None = None
     limitations: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def verified_requires_structural_evidence(self) -> Finding:
         if self.status == "verified" and (
-            self.kind != "slow_query"
+            self.kind not in {"slow_query", "n_plus_one"}
             or not self.experiment_ids
             or not self.sql_call_ids
             or not self.code_locations
@@ -79,6 +81,19 @@ class Finding(Contract):
             or self.recommendation is None
         ):
             raise ValueError("verified finding lacks required structural evidence")
+        return self
+
+    @model_validator(mode="after")
+    def fix_spec_matches_kind_and_mechanism(self) -> Finding:
+        if self.fix_spec is None:
+            return self
+        if self.kind != self.fix_spec.kind:
+            raise ValueError("fix_spec kind must match the finding kind")
+        if (
+            self.recommendation is not None
+            and self.recommendation.mechanism != self.fix_spec.strategy
+        ):
+            raise ValueError("n_plus_one recommendation mechanism must match fix_spec strategy")
         return self
 
 

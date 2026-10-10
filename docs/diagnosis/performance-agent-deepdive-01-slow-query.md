@@ -61,12 +61,12 @@
 
 | 判据 | 采集来源 | 判定阈值 |
 |---|---|---|
-| 锁等待排除 | 语句 `LOCK_TIME`（表/元数据锁，逐语句实测）+ `lock_probe` 全窗口轮询（InnoDB 行锁） | `lock_wait_ms == 0` 且覆盖 `table`/`metadata` 两类；行锁以轮询间隔为「有界残差」（`residual_ms`）而非精确零 |
+| 锁等待排除 | 语句 `LOCK_TIME`（逐语句实测表锁 + InnoDB 行锁，8.0.28+）+ MDL 全局汇总差值 | `lock_wait_ms == 0` 且 MDL 上界（`residual_ms`）不足以解释收益；< 8.0.28 时须行锁计数无增长 |
 | 耗时可区分 | 同一 SQL 在基线 / 候选索引两组的重复样本 | 两组各自稳定（重复 ≥3，离散度用 IQR，容差 ≤ max(25%×中位数, 0.5ms 绝对地板)）且中位数差 > max(1ms, 两侧 IQR 之和) |
 | 扫描工作量下降 | `Rows_examined`（performance_schema 实测） | 候选组中位数 < 基线组中位数 |
 | 反例信号（分级） | 上述扫描量与耗时 | 扫描量未降且基线中位耗时 < 最小可区分差异 → `unclassified`（已有索引 / 数据过小，未复现） |
 
-> 锁等待的“零等待证明”语义：`LOCK_TIME` 只覆盖表/元数据锁，**不覆盖 InnoDB 行锁**；行锁等待在 `data_lock_waits` 中只留当前快照、无持久历史。因此行锁只能以「全窗口轮询未观测到 + 有界残差」证明“锁不是本次延迟主因”，不能冒充精确零等待。
+> 锁等待的“零等待证明”语义：`LOCK_TIME` 是逐语句权威指标，MySQL 8.0.28+ 含表锁与 InnoDB 行锁、不含 MDL。因此 `LOCK_TIME=0` 即实测表/行锁零等待；MDL 是唯一未测项，用全局 `wait/lock/metadata/sql/mdl` 汇总差值约束（`residual_ms`），不能冒充精确零等待。
 
 > PostgreSQL 对应：`pg_stat_statements`（`mean_exec_time`/`rows`/`calls`）、`pg_stat_user_tables` 的 `seq_scan`/`idx_scan`、`log_min_duration_statement` + `auto_explain`。
 
@@ -81,7 +81,7 @@
         ↓
 ④ 核对访问路径：对 SQL 跑 EXPLAIN，结合实际执行统计看是否扫描大量行
         ↓
-⑤ 排除锁等待：语句 LOCK_TIME 证明表/元数据锁为零 + 全窗口轮询 InnoDB 行锁（有界残差）
+⑤ 排除锁等待：语句 LOCK_TIME 实测表/行锁为零（8.0.28+）+ MDL 全局汇总差值约束
         ↓
 ⑥ 对照实验：隔离环境基线 vs 候选索引，重复采样比较耗时与扫描量（尺度适配波动 + 最小差异）
         ↓
@@ -201,7 +201,7 @@ M1 指标采集（p99/CPU/Slow_queries 突变）
 诊断引擎侧配套（本次补齐，落在 `run_experiment` 现有采集内，不新增 MCP 工具）：
 
 ```
-  → 锁证据探针 lock_probe（LOCK_TIME 表/元数据锁逐语句实测 + InnoDB 行锁全窗口轮询，产出「有界残差」）
+  → 锁证据探针 lock_probe（LOCK_TIME 逐语句实测表/行锁 + MDL 全局汇总差值，产出「MDL 上界」）
   → 测量策略 MeasurementPolicy（重复次数、IQR 离散度 + 0.5ms 绝对地板、最小可区分差异）
   → 反例分级 slow_query（verified / lead / unclassified 三路结论）
 ```

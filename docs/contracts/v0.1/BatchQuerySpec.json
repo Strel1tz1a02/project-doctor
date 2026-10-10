@@ -1,0 +1,110 @@
+{
+  "$defs": {
+    "CodeLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Commit",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "exclusiveMinimum": 0,
+          "title": "Line",
+          "type": "integer"
+        },
+        "association_evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Association Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "commit",
+        "path",
+        "line",
+        "association_evidence_ids"
+      ],
+      "title": "CodeLocation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "n_plus_one",
+      "default": "n_plus_one",
+      "title": "Kind",
+      "type": "string"
+    },
+    "strategy": {
+      "enum": [
+        "batch_in",
+        "joinedload",
+        "selectinload"
+      ],
+      "title": "Strategy",
+      "type": "string"
+    },
+    "child_template": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Child Template",
+      "type": "string"
+    },
+    "key_column": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Key Column",
+      "type": "string"
+    },
+    "child_code_location": {
+      "$ref": "#/$defs/CodeLocation"
+    },
+    "observed_child_count": {
+      "minimum": 0,
+      "title": "Observed Child Count",
+      "type": "integer"
+    },
+    "parent_sql_call_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Parent Sql Call Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "strategy",
+    "child_template",
+    "key_column",
+    "child_code_location",
+    "observed_child_count"
+  ],
+  "title": "BatchQuerySpec",
+  "type": "object"
+}

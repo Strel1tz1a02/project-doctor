@@ -84,7 +84,7 @@ def test_collector_failure_is_unknown_and_evidenced() -> None:
     asyncio.run(exercise())
 
 
-def test_covered_no_wait_declares_residual_in_milliseconds() -> None:
+def test_covered_no_wait_is_exact_when_lock_time_and_mdl_are_zero() -> None:
     async def exercise():
         counter_calls = 0
 
@@ -130,7 +130,10 @@ def test_covered_no_wait_declares_residual_in_milliseconds() -> None:
         result = capture.evidence_for("SELECT 1", 3, 4, 0.0)
         assert result.status == "covered_no_wait"
         assert result.coverage == "complete"
-        assert result.residual_ms == 50.0  # 0.05 s poll gap × 1000, not 0.05 ms
+        # LOCK_TIME==0 plus unchanged MDL summary is exact zero; unrelated global
+        # row-lock growth does not block the authoritative LOCK_TIME.
+        assert result.residual_ms is None
+        assert set(result.covered_kinds) == {"table", "metadata", "innodb_data"}
 
     asyncio.run(exercise())
 
@@ -229,12 +232,73 @@ def test_global_counters_and_failure_modes(mode: str) -> None:
             assert set(result.covered_kinds) == {"table", "metadata", "innodb_data"}
         elif mode == "table_delay":
             assert result.status == "observed" and result.coverage == "complete"
-            assert result.residual_ms == 0.003
-        else:
-            assert result.status == "covered_no_wait" and result.residual_ms is not None
-            assert result.residual_ms == (0.1 if mode == "metadata_delay" else 50.0)
+            assert result.residual_ms is None  # MDL unchanged; the wait is lock_wait_ms
+            assert set(result.covered_kinds) == {"table", "metadata", "innodb_data"}
+        elif mode == "metadata_delay":
+            assert result.status == "covered_no_wait" and result.residual_ms == 0.1
+            assert set(result.covered_kinds) == {"table", "innodb_data"}
+        else:  # short_wait: unrelated global row-lock growth does not block LOCK_TIME
+            assert result.status == "covered_no_wait" and result.residual_ms is None
+            assert set(result.covered_kinds) == {"table", "metadata", "innodb_data"}
 
     asyncio.run(run())
+
+
+def test_old_version_requires_clean_row_lock_counters_for_zero() -> None:
+    def make_query(dirty: bool):
+        counter_calls = 0
+
+        async def query(context, sql):
+            nonlocal counter_calls
+            if "global_status" in sql:
+                counter_calls += 1
+                waits = 1 if dirty and counter_calls == 2 else 0
+                return json.dumps(
+                    {
+                        "Innodb_row_lock_waits": waits,
+                        "Innodb_row_lock_time": waits,
+                        "Innodb_row_lock_current_waits": 0,
+                        "Uptime": 100,
+                        "metadata_enabled": 1,
+                        "metadata_count": 10,
+                        "metadata_time": 1000,
+                    }
+                )
+            if "JSON_ARRAYAGG" in sql:
+                return '{"version":"8.0.27"}'
+            return ""
+
+        return query
+
+    async def exercise(dirty: bool):
+        async def publish(path, raw, media, version):
+            return EvidenceRef(
+                artifact_id=path,
+                relative_path=path,
+                media_type=media,
+                format_version=version,
+                sha256="a" * 64,
+                size_bytes=len(raw),
+            )
+
+        capture = await LockProbe(query=make_query(dirty), publish=publish).begin(
+            CallContext(
+                task_id="t",
+                operation_id="o",
+                missing_correlation=["agh_session_id", "tool_call_id"],
+            ),
+            "a" * 32,
+        )
+        await capture.finish()
+        return capture.evidence_for("SELECT 1", 3, 4, 0.0)
+
+    clean = asyncio.run(exercise(False))
+    assert clean.status == "covered_no_wait" and clean.coverage == "complete"
+    assert set(clean.covered_kinds) == {"table", "metadata", "innodb_data"}
+
+    dirty = asyncio.run(exercise(True))
+    assert dirty.status == "unknown" and dirty.coverage == "partial"
+    assert dirty.missing_kinds == ["innodb_data"]
 
 
 def test_request_id_cannot_inject_lock_query() -> None:

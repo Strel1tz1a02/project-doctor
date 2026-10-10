@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from project_doctor.models.common import EvidenceRef
-from project_doctor.models.lock import LOCK_KINDS, LockEvidence
+from project_doctor.models.lock import LOCK_KINDS, LockEvidence, LockKind
 from project_doctor.models.task import CallContext
 
 Query = Callable[[CallContext, str], Awaitable[str]]
@@ -144,17 +144,14 @@ class LockCapture:
                     "poll_interval_seconds": self.probe.interval,
                     "coverage": "unknown"
                     if self.errors or self.metadata_bound_ms() is None
-                    else "complete"
-                    if self.exact_row_zero() and self.metadata_bound_ms() is not None
-                    else "bounded",
-                    "row_and_metadata_zero": self.exact_row_zero()
-                    and self.metadata_bound_ms() == 0,
-                    "residual_ms": self.metadata_bound_ms()
-                    if self.exact_row_zero()
-                    else self.residual_ms,
+                    else "complete",
+                    "lock_time_covers_row_locks": self._lock_time_covers_row_locks(),
+                    "row_lock_counters_clean": self.exact_row_zero(),
+                    "metadata_bound_ms": self.metadata_bound_ms(),
                     "reason": (
-                        "原始全局行锁计数前后无增长且无活跃等待时支持行锁零等待；"
-                        "否则仅以整个采集窗口约束未观测累计等待，采集失败不提供覆盖保证。"
+                        "LOCK_TIME 实测 SQL 表锁与 InnoDB 行锁等待；"
+                        "元数据锁由全局 wait/lock/metadata/sql/mdl 汇总差值约束；"
+                        "版本 < 8.0.28 时行锁需全局计数无增长佐证。"
                     ),
                 },
             ),
@@ -168,13 +165,29 @@ class LockCapture:
                 )
             )
 
-    @property
-    def residual_ms(self) -> float:
-        # Multiple short waits can fall between polls. A configured sleep is not
-        # an upper bound on their total: use the entire capture window instead.
-        return max((self.end - self.start).total_seconds() * 1000, self.probe.residual_ms)
+    def _lock_time_covers_row_locks(self) -> bool:
+        """Whether this server's ``LOCK_TIME`` includes InnoDB row-lock waits.
+
+        Since MySQL 8.0.28 ``LOCK_TIME`` accumulates SQL table-lock and InnoDB
+        row-lock wait time. Before that it covered table locks only, so a zero
+        row-lock wait still needs unchanged global row-lock counters. Versions
+        like ``8.4`` carry an implicit zero patch.
+        """
+        version = str(self.capabilities.get("version", ""))
+        match = re.match(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?", version)
+        if match is None:
+            return False
+        major = int(match.group(1))
+        minor = int(match.group(2) or 0)
+        patch = int(match.group(3) or 0)
+        return (major, minor, patch) >= (8, 0, 28)
 
     def exact_row_zero(self) -> bool:
+        """Cross-check: unchanged global InnoDB row-lock counters.
+
+        Kept for versions where ``LOCK_TIME`` cannot see row locks; on 8.0.28+
+        this is diagnostic context, not a zero-wait gate.
+        """
         before, after = self.counters_before, self.counters_after
         return bool(
             not self.errors
@@ -213,10 +226,11 @@ class LockCapture:
     ) -> LockEvidence:
         """Classify lock evidence per statement.
 
-        ``table_wait_ms`` is the statement's own ``LOCK_TIME`` (table lock
-        wait, an actual measurement, not a sample). InnoDB row locks have no
-        persistent per-statement history. Zero requires unchanged global counters
-        around the request; empty polling alone only permits a capture-window bound.
+        ``table_wait_ms`` is the statement's own ``LOCK_TIME``: the measured
+        SQL table-lock plus (8.0.28+) InnoDB row-lock wait. ``metadata_bound_ms``
+        bounds the only unmeasured kind, metadata (MDL). A measured zero is a
+        zero; a server whose ``LOCK_TIME`` cannot see row locks never fabricates
+        a row-lock zero from it.
         """
         normalized = " ".join(sql_text.split())
         row_wait_observed = False
@@ -244,13 +258,14 @@ class LockCapture:
                 window_end=self.end,
                 evidence_refs=self.refs,
             )
+        metadata_bound = self.metadata_bound_ms()
         if (
             self.errors
             or not self.samples
             or table_wait_ms is None
             or thread_id is None
             or event_id is None
-            or self.metadata_bound_ms() is None
+            or metadata_bound is None
         ):
             return LockEvidence(
                 status="unknown",
@@ -263,28 +278,62 @@ class LockCapture:
                 window_end=self.end,
                 evidence_refs=self.refs,
             )
-        row_zero = self.exact_row_zero()
-        metadata_bound = self.metadata_bound_ms()
         assert metadata_bound is not None
         assert table_wait_ms is not None
-        exact = row_zero and metadata_bound == 0 and table_wait_ms == 0
-        bound = table_wait_ms + metadata_bound if row_zero else self.residual_ms
-        # A zero global increment in the isolated request window is conservative:
-        # unrelated waits prevent zero certification rather than being attributed
-        # to this SQL. A nonzero/uncertain increment only permits a window bound.
+
+        # LOCK_TIME measures table + InnoDB row locks on 8.0.28+; older servers
+        # need unchanged global row-lock counters to certify the row-lock part.
+        row_covered = self._lock_time_covers_row_locks() or self.exact_row_zero()
+        exact = metadata_bound == 0
+        if not row_covered:
+            if table_wait_ms > 0:
+                return LockEvidence(
+                    status="observed",
+                    coverage="partial",
+                    covered_kinds=["table"],
+                    missing_kinds=["innodb_data"],
+                    residual_ms=None if exact else metadata_bound,
+                    reasons=[
+                        "表锁实测 LOCK_TIME>0；该版本 LOCK_TIME 不含行锁且全局行锁计数有增长，"
+                        "行锁部分未覆盖。"
+                    ]
+                    + self.errors,
+                    thread_id=thread_id,
+                    statement_event_id=event_id,
+                    window_start=self.start,
+                    window_end=self.end,
+                    evidence_refs=self.refs,
+                )
+            return LockEvidence(
+                status="unknown",
+                coverage="partial",
+                covered_kinds=["table"],
+                missing_kinds=["innodb_data"],
+                residual_ms=None if exact else metadata_bound,
+                reasons=[
+                    "该 MySQL 版本 LOCK_TIME 不含行锁，且全局行锁计数在窗口内有增长，"
+                    "无法证明行锁零等待。"
+                ]
+                + self.errors,
+                thread_id=thread_id,
+                statement_event_id=event_id,
+                window_start=self.start,
+                window_end=self.end,
+                evidence_refs=self.refs,
+            )
+        covered_kinds: list[LockKind] = ["table", "innodb_data"]
+        if exact:
+            covered_kinds.append("metadata")
         return LockEvidence(
             status="observed" if table_wait_ms > 0 else "covered_no_wait",
             coverage="complete",
-            covered_kinds=sorted(LOCK_KINDS) if row_zero else ["table", "metadata"],
+            covered_kinds=covered_kinds,
             missing_kinds=[],
-            residual_ms=None if exact else bound,
+            residual_ms=None if exact else metadata_bound,
             reasons=[
-                "表锁 LOCK_TIME=0；行锁全局计数无增长且无活跃等待，元数据锁全局耗时无增长。"
-                if exact
-                else (
-                    f"表锁实测 LOCK_TIME={table_wait_ms:g}ms；"
-                    "元数据锁由启用计时的全局汇总差值约束；"
-                    "行锁计数无增长时排除行锁，否则累计未观测等待以上下文整个窗口为界。"
+                (
+                    f"表锁与 InnoDB 行锁实测 LOCK_TIME={table_wait_ms:g}ms"
+                    + ("；元数据锁全局汇总无增长。" if exact else "；元数据锁由全局汇总差值约束。")
                 )
             ]
             + self.errors,
@@ -303,11 +352,6 @@ class LockProbe:
         self.query = query
         self.publish = publish
         self.interval = interval
-
-    @property
-    def residual_ms(self) -> float:
-        """Minimum capture-window bound; the sleep alone is not a total-wait bound."""
-        return self.interval * 1000
 
     async def begin(self, context: CallContext, request_id: str) -> LockCapture:
         current_locks_sql(request_id)

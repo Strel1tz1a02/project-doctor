@@ -1,4 +1,11 @@
-"""Request-associated lock evidence. Missing coverage never means zero wait."""
+"""Request-associated lock evidence. Missing coverage never means zero wait.
+
+``LOCK_TIME`` from ``performance_schema.events_statements_*`` is the
+authoritative per-statement lock-wait measurement: since MySQL 8.0.28 it
+accumulates SQL table-lock and InnoDB row-lock (data-lock) wait time, but not
+metadata-lock (MDL) waits. ``SqlCall.lock_wait_ms`` carries that measurement;
+this model only adds the MDL bound that ``LOCK_TIME`` cannot see.
+"""
 
 from datetime import datetime
 from typing import Literal
@@ -22,9 +29,9 @@ class LockEvidence(Contract):
     coverage: Literal["complete", "partial", "unknown"]
     covered_kinds: list[LockKind] = Field(default_factory=list)
     missing_kinds: list[LockKind] = Field(default_factory=list)
-    # Conservative upper bound on unassigned cumulative lock delay. This can
-    # include global metadata acquisition time or a full sampling window. None
-    # requires exact zero evidence; a value never means an actual zero metric.
+    # Upper bound on the metadata-lock (MDL) delay that LOCK_TIME does not
+    # measure; table + InnoDB row locks are carried on SqlCall.lock_wait_ms.
+    # None requires exact zero for every kind; a value bounds only the MDL part.
     residual_ms: NonNegativeFloat | None = None
     thread_id: NonNegativeInt | None = None
     statement_event_id: NonNegativeInt | None = None
@@ -44,15 +51,15 @@ class LockEvidence(Contract):
         if self.status == "covered_no_wait" or (
             self.status == "observed" and self.coverage == "complete"
         ):
-            if self.status == "observed" and self.residual_ms is None:
-                raise ValueError("complete observed waits require a cumulative delay bound")
             if self.coverage != "complete":
                 raise ValueError("zero wait requires complete associated coverage evidence")
-            if "table" not in self.covered_kinds or "metadata" not in self.covered_kinds:
-                raise ValueError("zero wait requires proven table and metadata lock coverage")
-            if "innodb_data" not in self.covered_kinds and self.residual_ms is None:
+            # LOCK_TIME measures table + InnoDB row locks; metadata (MDL) is the
+            # only kind that may be bounded by a residual instead of exact zero.
+            if "table" not in self.covered_kinds or "innodb_data" not in self.covered_kinds:
+                raise ValueError("zero wait requires proven table and InnoDB row-lock coverage")
+            if "metadata" not in self.covered_kinds and self.residual_ms is None:
                 raise ValueError(
-                    "zero wait requires innodb_data coverage or a declared residual bound"
+                    "zero wait requires metadata coverage or a declared residual bound"
                 )
             if self.missing_kinds:
                 raise ValueError("zero wait requires no unaddressed lock kinds")

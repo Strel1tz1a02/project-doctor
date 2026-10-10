@@ -42,7 +42,52 @@
       "cache": { "state": "cold", "preparation_recipe_ref": "seed:data-init-runner" },
       "credential_refs": [],
       "uncovered_paths": [
-        "N+1: OrderService.searchSlow 每条订单调用 findUserById",
+        "deep-pagination: LIMIT offset,size 与 COUNT 大 offset 扫描",
+        "leading-wildcard LIKE '%user1%' 无法用 B-tree 索引修复"
+      ]
+    },
+    {
+      "id": "n-plus-one-orders-search",
+      "version": 1,
+      "source": "repository",
+      "purpose": "n-plus-one-orders-search",
+      "preparation_recipe_ref": "seed:data-init-runner",
+      "steps": [
+        {
+          "method": "GET",
+          "relative_path": "/api/orders/search",
+          "params": {
+            "email": "user1",
+            "status": "PAID",
+            "page": "1",
+            "size": "20"
+          },
+          "parameter_sources": {
+            "email": { "source": "user_sample", "reference": "README-search-example" },
+            "status": { "source": "user_sample", "reference": "README-search-example" },
+            "page": { "source": "inferred", "reference": "controller-default" },
+            "size": { "source": "inferred", "reference": "controller-default" }
+          },
+          "assertions": {
+            "status_code": 200,
+            "business": [
+              { "json_pointer": "/total", "operator": "exists" },
+              { "json_pointer": "/list", "operator": "exists" }
+            ]
+          }
+        }
+      ],
+      "dataset": {
+        "id": "slow-query-seed",
+        "snapshot_id": "snapshot-resolved-at-first-prepare",
+        "source": "project_seed",
+        "row_counts": { "users": 50000, "orders": 200000 },
+        "relationship_cardinalities": { "orders.user_id": 4 }
+      },
+      "load": { "mode": "serial" },
+      "cache": { "state": "cold", "preparation_recipe_ref": "seed:data-init-runner" },
+      "credential_refs": [],
+      "uncovered_paths": [
         "deep-pagination: LIMIT offset,size 与 COUNT 大 offset 扫描",
         "leading-wildcard LIKE '%user1%' 无法用 B-tree 索引修复"
       ]

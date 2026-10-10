@@ -20,7 +20,7 @@
 verified 只说明指定 SQL 的索引访问代价得到验证，不表示全部请求瓶颈已解释。
 `unclassified` 可以表示本次索引机制未复现，并非证明所有性能问题不存在。
 最小可区分耗时差异不是业务慢查询 SLA；已有覆盖索引的单表等值 COUNT 需由程序核对实际扫描量和已校验计划，模型不得自行判定。
-有界锁证据必须说明 residual_ms；不要把上界写成“实际等待为零”。
+锁证据须区分 lock_wait_ms（LOCK_TIME 实测表/行锁）与 residual_ms（MDL 上界）；不要把上界写成“实际等待为零”。
 
 每个有副作用调用使用稳定业务 operation_id；重试沿用同 ID，改变输入须新建操作。
 不要编造 AGH 会话／调用 ID；不可获取时填写 null 和 missing_correlation。

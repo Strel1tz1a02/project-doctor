@@ -18,19 +18,24 @@
 
 正式请求开始前记录 MySQL 版本、consumer/instrument 状态和 history 容量、全局行锁计数及元数据锁计时汇总，并开始采集当前行锁与元数据锁等待。
 采样通过请求标记、THREAD_ID 与语句 EVENT_ID 关联；完成后发布能力、原始事件和覆盖说明三份制品。
-语句历史中的非零 LOCK_TIME 也可证明观测到部分锁等待。
+`LOCK_TIME` 语义：自 MySQL 8.0.28 起，`events_statements_*` 的 `LOCK_TIME` 是逐语句权威锁等待指标，
+包含 SQL 表锁与 InnoDB 行锁等待，但不含元数据锁（MDL）等待。demo 隔离镜像用 `mysql:8.4`，故
+`LOCK_TIME=0` 即实测表锁与行锁零等待；`LOCK_TIME>0` 即观测到锁等待。
 
-截至 2026-10-09，证据分三种情况：
+截至 2026-10-10，证据分三种情况：
 
 - 关联到真实等待事件：`observed/partial`，保留原始阻塞证据，不能排除锁因素。
 - 采集失败、计时未启用、计数回退或关联缺失：`unknown/partial`，不能声明零等待。
-- 表锁 `LOCK_TIME`、全局行锁计数和启用计时的元数据锁汇总均完整：可以提供完整覆盖或保守的累计耗时上界。行锁计数前后无增长且两端无活跃等待时排除行锁；元数据锁汇总差值约束该语句的元数据锁耗时；表锁时间采用语句实际值。
+- `LOCK_TIME` 实测（表锁 + InnoDB 行锁）与启用计时的元数据锁汇总完整：可提供完整覆盖。
+  表/行锁由 `LOCK_TIME` 实测；元数据锁（MDL）是唯一未测项，用全局 `wait/lock/metadata/sql/mdl` 汇总差值约束。
 
-只有全部锁证据支持精确零值时，才同时输出 `covered_no_wait`、`residual_ms=null`、实际 `lock_wait_ms=0`。
-存在非零表锁耗时，使用 `observed/complete` 并保留累计上界；只有元数据锁上界或行锁采样上界时也保留 `residual_ms`，实际总 `lock_wait_ms=null`。
-完整覆盖表示全部锁类别均已测量或约束，不表示全部耗时为零。缺少行锁精确计数保证时，累计未观测等待以上下文整个采集窗口为界；50ms 轮询间隔不是累计等待上界。
+`LOCK_TIME=0` 且 MDL 汇总无增长 → `covered_no_wait`、`residual_ms=null`、`lock_wait_ms=0`（精确零）。
+`LOCK_TIME=0` 且 MDL 汇总有增长 → `covered_no_wait`、`residual_ms=<MDL 界>`（紧致，非整窗口）。
+`LOCK_TIME>0` → `observed/complete`，等待值落在 `lock_wait_ms`，MDL 仍以残差约束。
+版本 < 8.0.28 时 `LOCK_TIME` 不含行锁，须全局行锁计数前后无增长才可证明行锁零等待，否则拒绝零证明。
+完整覆盖表示表/行锁已实测、MDL 已测量或约束，不表示全部耗时为零。全局行锁计数保留在原始制品里作交叉核对，不再作为 8.0.28+ 的零等待门。
 
-诊断比较“锁累计上界”和“SQL 收益”：上界足以解释收益时保持 `lead`；上界明显小于收益且其余实验门槛满足时，可验证索引访问代价。
+诊断比较”实测锁等待 + MDL 残差”和”SQL 收益”：足以解释收益时保持 `lead`；明显小于收益且其余实验门槛满足时，可验证索引访问代价。
 微秒级非零 `LOCK_TIME` 不舍入成零，也不直接解释数十毫秒收益。采样空结果本身永远不能证明零等待。
 
 单位：Performance Schema 的计时字段由皮秒换算为毫秒（除以 `1e9`）；`Innodb_row_lock_time` 本身为毫秒。官方定义见 [语句事件表](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-events-statements-current-table.html) 与 [服务器状态变量](https://dev.mysql.com/doc/refman/8.4/en/server-status-variables.html)。

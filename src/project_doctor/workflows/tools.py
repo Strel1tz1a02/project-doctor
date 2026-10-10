@@ -144,11 +144,14 @@ class ToolWorkflows:
         await self.store.save_findings(context.task_id, previous + findings)
         updated_hypotheses = []
         for hypothesis in selected.hypotheses:
-            supported = (
-                hypothesis.kind == "slow_query"
-                and hypothesis.explanation == "index_access_cost"
-                and bool(findings)
-                and all(finding.status == "verified" for finding in findings)
+            supported = bool(findings) and all(
+                finding.status == "verified" for finding in findings
+            ) and (
+                (hypothesis.kind == "slow_query" and hypothesis.explanation == "index_access_cost")
+                or (
+                    hypothesis.kind == "n_plus_one"
+                    and hypothesis.explanation == "n_plus_one_batch"
+                )
             )
             updated_hypotheses.append(
                 hypothesis.model_copy(

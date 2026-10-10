@@ -47,13 +47,11 @@ def check_slow_query(
                 insufficient.append("缺少实际扫描工作量或 SQL 耗时。")
             locks = call.lock_evidence
             if locks is None or locks.status == "unknown" or locks.coverage != "complete":
-                insufficient.append("锁等待覆盖证据不完整；轮询空结果不能证明零等待。")
+                insufficient.append("锁等待覆盖证据不完整；不能证明零等待。")
             elif locks:
                 expected_ids.update(ref.artifact_id for ref in locks.evidence_refs)
-                if locks.residual_ms is None and call.lock_wait_ms != 0:
-                    insufficient.append("缺少实际零锁等待指标。")
-                elif locks.residual_ms is not None and call.lock_wait_ms is not None:
-                    insufficient.append("有界锁证据不能作为实际零等待指标。")
+                if call.lock_wait_ms is None:
+                    insufficient.append("缺少锁等待实测指标。")
         if not expected_ids.issubset(known_ids) or not refs:
             insufficient.append("证据引用不完整。")
         groups = [
@@ -76,7 +74,7 @@ def check_slow_query(
         duration_effect = distinguishable(sql_durations[0], sql_durations[1], policy)
         residual_groups = [
             [
-                call.lock_evidence.residual_ms or 0.0
+                (call.lock_wait_ms or 0.0) + (call.lock_evidence.residual_ms or 0.0)
                 for _, cs in group
                 for call in cs
                 if call.lock_evidence is not None
@@ -94,7 +92,7 @@ def check_slow_query(
                 )
             )
         ):
-            insufficient.append("未观测锁等待的残差上界足以解释耗时差异，不能排除锁因素。")
+            insufficient.append("实测锁等待或残差上界足以解释耗时差异，不能排除锁因素。")
         rows_available = bool(rows[0]) and bool(rows[1])
         rows_decreased = rows_available and median(rows[0]) > median(rows[1])
         request_effect = distinguishable(request_durations[0], request_durations[1], policy)

@@ -13,7 +13,7 @@ NonNegativeInt = Annotated[int, Field(ge=0, strict=True)]
 PositiveInt = Annotated[int, Field(gt=0, strict=True)]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 TaskStatus = Literal["created", "running", "blocked", "completed", "partial"]
-ProblemKind = Literal["slow_query", "unclassified"]
+ProblemKind = Literal["slow_query", "n_plus_one", "unclassified"]
 EnvironmentHealth = Literal["available", "restoring", "quarantined"]
 
 

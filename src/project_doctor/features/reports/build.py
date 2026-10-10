@@ -93,7 +93,9 @@ def build_report(bundle: TaskBundle) -> ReportData:
         }
         for result in bundle.experiments
     ]
-    report.limitations.append("预热只证明规定准备动作已执行；轮询空结果不证明零锁等待。")
+    report.limitations.append(
+        "预热只证明规定准备动作已执行；锁等待按 LOCK_TIME 实测表/行锁、MDL 由全局汇总差值约束。"
+    )
     payload["limitations"] = list(report.limitations)
     report.json_content = render_json(payload)
     report.html_content = render_html(report.json_content)

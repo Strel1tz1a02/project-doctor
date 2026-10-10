@@ -107,14 +107,13 @@ def timer_wait_to_ms(timer_wait: Any) -> float | None:
 
 
 def lock_wait_to_ms(lock_time: Any) -> float | None:
-    """Convert table/metadata ``LOCK_TIME`` without discarding nonzero waits.
+    """Convert the per-statement ``LOCK_TIME`` (picoseconds) to milliseconds.
 
-    ``LOCK_TIME`` covers table/metadata locks only; it never includes InnoDB row
-    locks. A nonzero value must stay nonzero (no rounding) so a tiny wait cannot
-    be smuggled past the diagnosis gate's zero-wait threshold. Callers that want
-    a complete lock-exclusion conclusion must combine a zero ``LOCK_TIME`` here
-    with a row-lock observation from ``lock_probe``, which yields a bounded
-    residual for InnoDB row locks rather than an exact zero.
+    Since MySQL 8.0.28 ``LOCK_TIME`` accumulates SQL table-lock and InnoDB
+    row-lock (data-lock) wait time for the statement; it excludes metadata-lock
+    (MDL) waits. A nonzero value must stay nonzero (no rounding) so a tiny wait
+    cannot be smuggled past the diagnosis gate's zero-wait threshold. MDL is the
+    only kind not covered here; ``lock_probe`` bounds it separately.
     """
     if lock_time is None or lock_time == "":
         return None
@@ -167,8 +166,10 @@ def perf_schema_row_to_sql_call(
 ) -> SqlCall:
     """Convert one ``performance_schema`` row into a SqlCall with actual metric sources.
 
-    The legacy lock flags remain accepted for caller compatibility, but never
-    establish interval coverage. LOCK_TIME is retained in raw evidence only.
+    ``LOCK_TIME`` is the per-statement table+row lock wait and becomes the
+    ``lock_wait_ms`` metric; MDL is bounded separately by ``lock_probe``. The
+    legacy lock flags remain accepted for caller compatibility but never
+    establish interval coverage.
     """
     del lock_wait_complete, lock_wait_evidence_id
     sql_text = str(row.get("SQL_TEXT", ""))
@@ -180,9 +181,9 @@ def perf_schema_row_to_sql_call(
     duration_ms = timer_wait_to_ms(row.get("TIMER_WAIT"))
     rows_examined = _as_int(row.get("ROWS_EXAMINED"))
     rows_returned = _as_int(row.get("ROWS_SENT"))
-    # Legacy flags and post-request snapshots do not prove full lock coverage.
-    # LOCK_TIME is retained in raw statement evidence; total wait stays unknown.
-    lock_wait_ms = None
+    # LOCK_TIME is the authoritative per-statement table+row lock wait (8.0.28+);
+    # MDL is the only uncovered kind and is bounded separately by lock_probe.
+    lock_wait_ms = lock_wait_to_ms(row.get("LOCK_TIME"))
 
     metric_sources: dict[MetricName, MetricSource] = {}
     actual = MetricSource(
@@ -194,6 +195,8 @@ def perf_schema_row_to_sql_call(
         metric_sources["rows_examined"] = actual
     if rows_returned is not None:
         metric_sources["rows_returned"] = actual
+    if lock_wait_ms is not None:
+        metric_sources["lock_wait_ms"] = actual
 
     return SqlCall(
         id=call_id,
@@ -208,19 +211,14 @@ def perf_schema_row_to_sql_call(
 
 
 def attach_lock_evidence(call: SqlCall, evidence: LockEvidence) -> SqlCall:
-    """Validate metric, source and coverage together, without partial assignments."""
+    """Attach lock coverage; ``lock_wait_ms`` stays the measured ``LOCK_TIME``.
+
+    The caller already set ``lock_wait_ms`` from ``perf_schema_row_to_sql_call``
+    (table + InnoDB row locks). This only adds the MDL bound carried by
+    ``evidence.residual_ms`` without overwriting that actual metric.
+    """
     payload = call.model_dump(mode="json")
     payload["lock_evidence"] = evidence.model_dump(mode="json")
-    exact = evidence.status == "covered_no_wait" and evidence.residual_ms is None
-    payload["lock_wait_ms"] = 0.0 if exact else None
-    if exact:
-        payload["metric_sources"]["lock_wait_ms"] = {
-            "source": "performance_schema.statement_and_global_lock_counters",
-            "measurement": "actual",
-            "evidence_ids": [ref.artifact_id for ref in evidence.evidence_refs],
-        }
-    else:
-        payload["metric_sources"].pop("lock_wait_ms", None)
     return SqlCall.model_validate(payload)
 
 

@@ -1,5 +1,6 @@
 from project_doctor.features.diagnosis.compare import MeasurementPolicy
 from project_doctor.features.diagnosis.gates import evidence_refs
+from project_doctor.features.diagnosis.n_plus_one import check_n_plus_one
 from project_doctor.features.diagnosis.ports import EvidenceReader, VerifiedJsonReader
 from project_doctor.features.diagnosis.slow_query import check_slow_query
 from project_doctor.models.finding import Finding
@@ -47,14 +48,19 @@ async def evaluate(
                     except (OSError, ValueError):
                         # Missing/invalid plans cannot support a negative diagnosis.
                         pass
-        findings = check_slow_query(
-            experiment,
-            scenario,
-            bundle.task.id,
-            bundle.task.project.commit,
-            policy,
-            verified_plans=plans,
-        )
+        if spec is not None and spec.variable == "query_shape":
+            findings = check_n_plus_one(
+                experiment, scenario, bundle.task.id, bundle.task.project.commit, policy
+            )
+        else:
+            findings = check_slow_query(
+                experiment,
+                scenario,
+                bundle.task.id,
+                bundle.task.project.commit,
+                policy,
+                verified_plans=plans,
+            )
         try:
             check = await reader.verify(evidence_refs(experiment))
             reasons = (

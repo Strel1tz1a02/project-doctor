@@ -121,7 +121,7 @@ def experiment_failures(result: ExperimentResult, scenario: Scenario, commit: st
                 issues.append("缺少当前提交的 SQL 到代码位置关联。")
     if len({item.result_digest for item in result.observations}) != 1:
         issues.append("两组业务结果不一致。")
-    for level in ("baseline", "candidate_index"):
+    for level in spec.levels:
         items = [item for item in result.observations if item.level == level]
         if len({item.repetition for item in items}) != spec.repetitions:
             issues.append("重复测量次数不足或重复编号不完整。")

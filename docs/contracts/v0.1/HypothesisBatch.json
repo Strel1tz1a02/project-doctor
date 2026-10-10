@@ -18,6 +18,7 @@
         "kind": {
           "enum": [
             "slow_query",
+            "n_plus_one",
             "unclassified"
           ],
           "title": "Kind",
