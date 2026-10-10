@@ -34,6 +34,22 @@
 是固定的，二者必须解耦。开启后只评估存在运行包的用例，缺包用例计入
 ``cases_skipped_no_bundle`` 而非 ``cases_missing_bundle``，因此新增用例无需同步
 提供运行包即可保持回归为绿。
+
+单用例多次运行取平均
+--------------------
+
+同一用例可重复执行多次以抑制单次采样噪声：运行包顶层可带 ``runs`` 列表，
+每个元素与单包同形（``report``/``trajectory``/``retest``/``artifacts``/``restore``/
+``cost`` 等）；顶层 ``baseline``（环境基线）按用例共享，不随 ``runs`` 重复。
+缺省 ``runs`` 时整包视为 **1 次运行**（既有金标准 fixture 全部为单次，行为不变）。
+
+``merge_case_results()`` 把 N 次运行聚合为一条用例结果：
+
+- 数值指标取算术平均；
+- 布尔指标取多数（> 半数）；``false_verified`` 例外——任一次误验证即判误验证（零容忍）；
+- 分类指标（``decision_match`` / ``honesty``）取众数，并列时取更严重的一档；
+- 闸门与通过取「与」：任一次不通过即不通过；
+- 奖励用聚合后的指标重算，成本取各次均值。
 """
 
 from __future__ import annotations
@@ -58,7 +74,14 @@ if str(_TOOLS) not in sys.path:
 
 import contract as C  # noqa: E402
 from metrics import EvalInput, CaseResult, evaluate_case  # noqa: E402
-from scores import CaseType, COST_BUDGETS, COST_METRICS  # noqa: E402
+from scores import (  # noqa: E402
+    CaseType,
+    COST_BUDGETS,
+    COST_METRICS,
+    DataType,
+    Score,
+    total_score,
+)
 import validate_cases as V  # noqa: E402
 
 __all__ = [
@@ -66,6 +89,7 @@ __all__ = [
     "baseline_stats",
     "acceptance_reproducible",
     "cost_budgets_block",
+    "merge_case_results",
     "aggregate",
     "run",
     "render_markdown",
@@ -221,6 +245,152 @@ def _percentile(values: list[float], q: float) -> float:
 
 def _round(value: float | None) -> float | None:
     return None if value is None else round(value, 4)
+
+
+# --------------------------------------------------------------------------- #
+# 单用例多次运行：拆分与取平均
+# --------------------------------------------------------------------------- #
+
+#: 分类指标并列时的「严重度」次序：并列取更严重的一档，避免把偶发问题平均掉。
+_CATEGORICAL_SEVERITY: dict[str, dict[str, int]] = {
+    "decision_match": {"over": 2, "under": 1, "exact": 0},
+    "honesty": {"fail": 2, "partial": 1, "pass": 0},
+}
+
+
+def _case_runs(bundle: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """把运行包拆成「多次运行」列表；无 ``runs`` 时整包视为 1 次运行。
+
+    顶层 ``baseline``（环境基线）按用例共享，不进入 ``runs``。
+    """
+    runs = bundle.get("runs")
+    if isinstance(runs, list):
+        valid = [r for r in runs if isinstance(r, Mapping)]
+        if valid:
+            return valid
+    return [bundle]
+
+
+def _merge_categorical(name: str, values: Iterable[Any]) -> Any:
+    """分类指标取众数；并列时取更严重的一档（未知取值按 0 处理）。"""
+    order = _CATEGORICAL_SEVERITY.get(name, {})
+    counts: dict[str, int] = {}
+    for value in values:
+        key = str(value)
+        counts[key] = counts.get(key, 0) + 1
+    return max(counts, key=lambda key: (counts[key], order.get(key, 0)))
+
+
+def _merge_value(name: str, values: list[Any], data_type: DataType) -> Any:
+    """按指标数据类型聚合多次运行的取值（见模块 docstring 的取平均规则）。"""
+    if not values:
+        return None
+    if data_type is DataType.NUMERIC:
+        nums = [float(v) for v in values if v is not None]
+        return _round(_mean(nums)) if nums else None
+    if data_type is DataType.BOOLEAN:
+        bools = [bool(v) for v in values]
+        if name == "false_verified":  # 零容忍：任一次误验证即判误验证
+            return any(bools)
+        return sum(bools) * 2 > len(bools)
+    if data_type is DataType.CATEGORICAL:
+        return _merge_categorical(name, values)
+    return values[0]
+
+
+def _merge_cost_blocks(blocks: list[Any]) -> dict[str, Any]:
+    """把多次运行的成本评估块聚合为一条：得分与逐项取均值，超预算项取并集。"""
+    valid = [b for b in blocks if isinstance(b, Mapping)]
+    if not valid:
+        return {}
+    first = valid[0]
+    exceeded: list[str] = []
+    for block in valid:
+        for name in block.get("exceeded") or []:
+            if name not in exceeded:
+                exceeded.append(name)
+    details: dict[str, dict[str, Any]] = {}
+    for name, item in (first.get("details") or {}).items():
+        item = item or {}
+        scores = [float((b.get("details") or {}).get(name, {}).get("score", 0.0))
+                  for b in valid]
+        raws = [float((b.get("details") or {}).get(name, {}).get("value", 0.0))
+                for b in valid]
+        details[name] = {
+            "value": _round(_mean(raws)),
+            "budget": item.get("budget"),
+            "score": _round(_mean(scores)),
+            "exceeded": name in exceeded,
+        }
+    return {
+        "cost_score": _round(_mean([float(b.get("cost_score") or 0.0) for b in valid])),
+        "exceeded": exceeded,
+        "details": details,
+        "budget": dict(first.get("budget") or {}),
+    }
+
+
+def merge_case_results(results: list[CaseResult]) -> CaseResult:
+    """把同一用例的多次运行结果聚合为一条（取平均）。
+
+    仅 1 次运行时原样返回，保证既有单次运行包的结果与金标准逐位不变。
+    聚合规则见模块 docstring：数值取均值、布尔取多数（``false_verified`` 取或）、
+    分类取众数（并列取更严重）、闸门与通过取「与」、奖励按聚合指标重算。
+    """
+    if not results:
+        raise ValueError("merge_case_results 需要至少一次运行结果")
+    if len(results) == 1:
+        return results[0]
+
+    base = results[0]
+    by_name: dict[str, list[Any]] = {}
+    for result in results:
+        for score in result.scores:
+            by_name.setdefault(score.name, []).append(score.value)
+
+    merged_scores = [
+        Score(
+            name=score.name,
+            value=_merge_value(score.name, by_name.get(score.name, []), score.data_type),
+            data_type=score.data_type,
+            source=score.source,
+            scope=score.scope,
+            comment=score.comment,
+            metadata=dict(score.metadata),
+        )
+        for score in base.scores
+    ]
+    merged_map = {score.name: score.value for score in merged_scores}
+
+    gates = {name: all(r.gates.get(name, True) for r in results) for name in base.gates}
+    passed = all(r.passed for r in results)
+    cost_score_mean = _round(_mean(
+        [float(r.reward["cost"]["cost_score"]) for r in results
+         if (r.reward.get("cost") or {}).get("cost_score") is not None]))
+    reward = total_score(
+        merged_map,
+        reward_profile=base.reward.get("reward_profile"),
+        cost_score=cost_score_mean,
+    )
+    reward["cost"] = _merge_cost_blocks([r.reward.get("cost") for r in results])
+
+    notes = list(base.notes)
+    notes.append(f"多次运行取平均：{len(results)} 次"
+                 "（指标取均值，闸门与通过按全部运行判定）")
+
+    # 白盒层仅供归因（D4），取首次运行的步骤轨迹作为代表，不做跨次拼接以免虚高。
+    return CaseResult(
+        case_id=base.case_id,
+        case_type=base.case_type,
+        scores=merged_scores,
+        gates=gates,
+        passed=passed,
+        notes=notes,
+        reward=reward,
+        steps=list(base.steps),
+        phases=list(base.phases),
+        step_summary=dict(base.step_summary),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -445,27 +615,37 @@ def run(runs_dir: Path, out_dir: Path,
         with bundle_path.open("r", encoding="utf-8") as handle:
             bundle = json.load(handle)
 
-        # 第三步：基线
+        # 第三步：基线（环境基线按用例共享，不随多次运行重复）
         baseline = baseline_stats((bundle.get("baseline") or {}).get("repeats_ms") or [])
         baselines[case_id] = baseline
 
-        # 第四 / 五 / 六步：交付 → 自动评测 → 独立复测（复测结果来自运行包）
-        eval_input = EvalInput.from_raw(
-            case,
-            bundle.get("report"),
-            trajectory=bundle.get("trajectory"),
-            retest=bundle.get("retest"),
-            artifacts=bundle.get("artifacts") or (),
-            restore=bundle.get("restore"),
-            cost=bundle.get("cost"),
-            honesty_override=bundle.get("honesty_override"),
-            line_tolerance=int(bundle.get("line_tolerance", C.DEFAULT_LINE_TOLERANCE)),
-        )
-        result = evaluate_case(eval_input)
+        # 第四 / 五 / 六步：交付 → 自动评测 → 独立复测（复测结果来自运行包）。
+        # 单用例支持多次运行：包内 ``runs`` 为多次运行；缺省时整包视为 1 次。
+        run_payloads = _case_runs(bundle)
+        run_results = [
+            evaluate_case(EvalInput.from_raw(
+                case,
+                payload.get("report"),
+                trajectory=payload.get("trajectory"),
+                retest=payload.get("retest"),
+                artifacts=payload.get("artifacts") or (),
+                restore=payload.get("restore"),
+                cost=payload.get("cost"),
+                honesty_override=payload.get("honesty_override"),
+                line_tolerance=int(payload.get("line_tolerance",
+                                              C.DEFAULT_LINE_TOLERANCE)),
+            ))
+            for payload in run_payloads
+        ]
+        # 多次运行取平均：聚合为一条用例结果（单次运行时原样返回）。
+        result = merge_case_results(run_results)
         evaluated.append(result)
 
         case_entry = result.to_dict()
         case_entry["baseline"] = baseline
+        case_entry["repeats"] = len(run_results)
+        case_entry["repeat_totals"] = [
+            r.reward.get("total") for r in run_results]
         cases_out.append(case_entry)
 
     # 第七步：聚合 + 全局门槛
@@ -474,6 +654,8 @@ def run(runs_dir: Path, out_dir: Path,
     all_passed = bool(evaluated) and all(r.passed for r in evaluated)
     gate_passed = false_verified_count == 0
     overall_passed = gate_passed and all_passed and not missing
+    repeats_total = sum(int(c.get("repeats", 1)) for c in cases_out)
+    mean_repeats = _round(_mean([float(c.get("repeats", 1)) for c in cases_out]))
 
     report = {
         "manifest": manifest,
@@ -497,6 +679,8 @@ def run(runs_dir: Path, out_dir: Path,
             "false_verified_rate": _round(false_verified_count / len(evaluated)) if evaluated else None,
             "gate_passed": gate_passed,
             "overall_passed": overall_passed,
+            "repeats_total": repeats_total,
+            "mean_repeats_per_case": mean_repeats,
         },
         "cases": cases_out,
         "aggregate": agg,
@@ -539,6 +723,11 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     skip_text = f"；跳过（无运行包）：{len(skipped)}" if skipped else ""
     lines.append(f"- 已评估用例：{gl['cases_evaluated']}；缺运行包："
                  f"{', '.join(gl['cases_missing_bundle']) or '无'}{skip_text}")
+    repeats_total = gl.get("repeats_total")
+    if repeats_total is not None:
+        lines.append(f"- 用例重复执行：合计 {repeats_total} 次运行，"
+                     f"平均每用例 {_fmt(gl.get('mean_repeats_per_case'))} 次"
+                     "（多次运行的指标取平均）")
     lines.append("")
 
     # 全局门槛
@@ -859,8 +1048,42 @@ def _self_check() -> None:
     assert bad.score_map()["false_verified"] is True
     assert aggregate([bad])["false_verified"]["count"] == 1
 
+    # 单用例多次运行取平均：单次原样返回；多次时数值取均值、false_verified 取或、闸门取「与」
+    good = results[0]
+    assert merge_case_results([good]) is good
+    assert _case_runs(bundles["case-01-slow-query-fullscan"]) == [
+        bundles["case-01-slow-query-fullscan"]]
+    repeated = merge_case_results([good, good, good])
+    assert repeated.passed is True
+    assert repeated.reward["total"] == good.reward["total"]
+    assert repeated.reward["group_scores"] == good.reward["group_scores"]
+    assert repeated.score_map()["root_cause_recall"] == good.score_map()["root_cause_recall"]
+
+    # 同一用例的两次运行：一次通过、一次误验证 → 聚合后仍判误验证且不通过（零容忍）
+    bad_normal = dict(cases[0])
+    bad_normal["expected"] = dict(bad_normal["expected"], decision="lead")
+    bad_run = evaluate_case(EvalInput.from_raw(
+        bad_normal, {"task": {"status": "completed"}, "findings": [{
+            "status": "verified",
+            "code_locations": [{"path": _MAPPER, "line": 18}],
+            "evidence_refs": ["artifact://plan.json"],
+            "excluded_explanations": [{"explanation": "lock_contention"}],
+            "recommendation": {"validation_status": "retested", "measured_gain_percent": 84.0},
+            "evidence_flags": _flags_all()}]},
+        trajectory=bundles["case-01-slow-query-fullscan"].get("trajectory"),
+        retest=bundles["case-01-slow-query-fullscan"].get("retest"),
+        artifacts=bundles["case-01-slow-query-fullscan"].get("artifacts") or (),
+        restore=bundles["case-01-slow-query-fullscan"].get("restore"),
+        cost=bundles["case-01-slow-query-fullscan"].get("cost")))
+    assert bad_run.score_map()["false_verified"] is True
+    merged = merge_case_results([good, bad_run])
+    assert merged.case_id == good.case_id
+    assert merged.score_map()["false_verified"] is True
+    assert merged.passed is False
+    assert aggregate([merged])["false_verified"]["count"] == 1
+
     print("[ OK ] run_eval.py 自检通过：七步流程 + 三类用例聚合 + 全局误验证门槛 "
-          "+ 步骤级归因聚合（D4 不进总分）均符合预期")
+          "+ 单用例多次运行取平均 + 步骤级归因聚合（D4 不进总分）均符合预期")
 
 
 def main(argv: Iterable[str] | None = None) -> int:

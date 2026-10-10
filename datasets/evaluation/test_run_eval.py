@@ -138,6 +138,104 @@ class BaselineThresholdTest(unittest.TestCase):
             self.assertTrue(lenient["global"]["overall_passed"])
 
 
+class MultiRunAverageTest(unittest.TestCase):
+    """单用例多次运行取平均：数值取均值、``false_verified`` 取或、闸门取「与」。
+
+    单次运行（运行包无 ``runs``）必须与原行为逐位一致；多次运行时把 N 次评测结果
+    聚合为一条用例结果，见 ``run_eval.merge_case_results``。
+    """
+
+    def _write_cases_root(self, root):
+        import json
+        from pathlib import Path
+        bundles, cases = R._sample_bundles()
+        for case in cases:
+            case_dir = root / case["case_id"]
+            case_dir.mkdir()
+            (case_dir / "case.json").write_text(json.dumps(case), encoding="utf-8")
+        schema_dir = root / "_schema"
+        schema_dir.mkdir()
+        real_schema = Path(_HERE).parent / "_schema" / "case.schema.json"
+        (schema_dir / "case.schema.json").write_text(
+            real_schema.read_text(encoding="utf-8"), encoding="utf-8")
+        return bundles, cases
+
+    def _evaluate(self, case, report, bundle):
+        return R.evaluate_case(R.EvalInput.from_raw(
+            case, report, trajectory=bundle.get("trajectory"),
+            retest=bundle.get("retest"), artifacts=bundle.get("artifacts") or (),
+            restore=bundle.get("restore"), cost=bundle.get("cost")))
+
+    def test_single_bundle_counts_as_one_run(self):
+        bundles, cases = R._sample_bundles()
+        case = cases[0]
+        bundle = bundles[case["case_id"]]
+        # 无 runs → 整包视为 1 次运行
+        self.assertEqual(R._case_runs(bundle), [bundle])
+        good = self._evaluate(case, bundle["report"], bundle)
+        # 单次运行原样返回，保证金标准逐位不变
+        self.assertIs(R.merge_case_results([good]), good)
+
+    def test_identical_runs_keep_score_and_total(self):
+        bundles, cases = R._sample_bundles()
+        case = cases[0]
+        bundle = bundles[case["case_id"]]
+        good = self._evaluate(case, bundle["report"], bundle)
+        merged = R.merge_case_results([good, good, good])
+        self.assertEqual(merged.reward["total"], good.reward["total"])
+        self.assertEqual(merged.reward["group_scores"], good.reward["group_scores"])
+        self.assertTrue(merged.passed)
+
+    def test_numeric_metrics_are_averaged(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bundles, cases = self._write_cases_root(root)
+            case = cases[0]
+            base = bundles[case["case_id"]]
+            run_a = {k: v for k, v in base.items() if k != "baseline"}
+            run_b = json.loads(json.dumps(run_a))
+            run_b["cost"] = {"wall_seconds": 90.0, "tool_calls": 30, "artifact_bytes": 4096}
+            bundle = {"baseline": base["baseline"], "runs": [run_a, run_b, run_a]}
+            runs = root / "runs"
+            runs.mkdir()
+            (runs / f"{case['case_id']}.json").write_text(
+                json.dumps(bundle), encoding="utf-8")
+
+            report = R.run(runs, root / "out", cases_root=root, only_bundled=True)
+
+        entry = report["cases"][0]
+        self.assertEqual(entry["repeats"], 3)
+        self.assertEqual(len(entry["repeat_totals"]), 3)
+        scores = {s["name"]: s["value"] for s in entry["scores"]}
+        self.assertAlmostEqual(scores["wall_seconds"], (41.0 + 90.0 + 41.0) / 3, places=4)
+        self.assertAlmostEqual(scores["tool_calls"], (16 + 30 + 16) / 3, places=4)
+        # 多次运行的成本评估块取均值
+        self.assertEqual(entry["reward"]["cost"]["cost_score"], 1.0)
+        self.assertEqual(report["global"]["repeats_total"], 3)
+
+    def test_false_verified_in_any_run_triggers(self):
+        bundles, cases = R._sample_bundles()
+        case = cases[0]
+        bundle = bundles[case["case_id"]]
+        good = self._evaluate(case, bundle["report"], bundle)
+        self.assertFalse(good.score_map()["false_verified"])
+
+        bad_case = dict(case)
+        bad_case["expected"] = dict(case["expected"], decision="lead")
+        bad = self._evaluate(bad_case, bundle["report"], bundle)
+        self.assertTrue(bad.score_map()["false_verified"])
+
+        merged = R.merge_case_results([good, bad])
+        # 任一次误验证 → 聚合后仍判误验证且整例不通过（零容忍）
+        self.assertTrue(merged.score_map()["false_verified"])
+        self.assertFalse(merged.passed)
+        self.assertEqual(merged.case_id, good.case_id)
+
+
 class ReservedDirTest(unittest.TestCase):
     """扫描根目录时必须与 ``tools/validate_cases.py`` 同口径：跳过保留目录。
 
