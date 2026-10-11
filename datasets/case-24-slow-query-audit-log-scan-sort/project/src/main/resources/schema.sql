@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    service_name VARCHAR(64) NOT NULL,
+    level VARCHAR(16) NOT NULL,
+    message VARCHAR(512) NOT NULL,
+    trace_id VARCHAR(64) NOT NULL,
+    created_at_ms BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

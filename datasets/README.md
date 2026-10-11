@@ -37,9 +37,27 @@
 | `case-11-connection-setup-per-request` | `boundary` | `connection_setup` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-12-excessive-logging-sync-debug` | `boundary` | `excessive_logging` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-13-thread-pool-no-verifiable-defect` | `failure` | `thread_pool` | medium | `unclassified` | 已归档，校验通过（等待 Agent 支持） |
-| `case-14-config-regression-pool-size` | `boundary` | `config_regression` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-14-config-regression-pool-size` | `boundary` | `config_regression` | `medium` | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-15-slow-query-threads-fullscan` | `normal` | `slow_query` | easy | `verified` | 已归档，校验通过 |
+| `case-16-n-plus-one-stop-times-hotpath` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-17-connection-pool-background-hold` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-18-deep-pagination-large-offset` | `boundary` | `deep_pagination` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-19-large-response-unbounded-json` | `boundary` | `large_response` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-20-connection-setup-client-per-request` | `boundary` | `connection_setup` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-21-excessive-logging-sync-global-lock` | `boundary` | `excessive_logging` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-22-thread-pool-input-starvation` | `boundary` | `thread_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-23-config-regression-summary-limit` | `boundary` | `config_regression` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-24-slow-query-audit-log-scan-sort` | `normal` | `slow_query` | easy | `verified` | 已归档，校验通过 |
+| `case-25-slow-query-leading-wildcard` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-26-n-plus-one-category-count-loop` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-27-n-plus-one-runner-step-log` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-28-connection-pool-nested-acquire` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-29-connection-pool-growth-task-discard` | `boundary` | `connection_pool` | hard | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-30-slow-query-date-function-column` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-31-n-plus-one-feed-author-like` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-32-connection-pool-long-tx-remote-call` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 
-> `problem_kind` 的取值域已在 `_schema/case.schema.json` 中预留为设计文档划定的 **9 类**性能问题；当前 **9 类均已落地对应用例**：`slow_query`（6 例，`case-01`–`case-06`）、`n_plus_one`（`case-07`）、`deep_pagination`（`case-08`）、`connection_pool`（`case-09`）、`large_response`（`case-10`）、`connection_setup`（`case-11`）、`excessive_logging`（`case-12`）、`thread_pool`（`case-13`）、`config_regression`（`case-14`）。详见《[数据集结构规范](docs/数据集结构规范.md)》「problem_kind 取值与覆盖现状」。
+> `problem_kind` 的取值域已在 `_schema/case.schema.json` 中预留为设计文档划定的 **9 类**性能问题；当前 **9 类均已落地对应用例（共 32 例）**：`slow_query`（10 例，`case-01`–`case-06`、`case-15`、`case-24`、`case-25`、`case-30`）、`n_plus_one`（5 例，`case-07`、`case-16`、`case-26`、`case-27`、`case-31`）、`connection_pool`（5 例，`case-09`、`case-17`、`case-28`、`case-29`、`case-32`）、`deep_pagination`（`case-08`、`case-18`）、`large_response`（`case-10`、`case-19`）、`connection_setup`（`case-11`、`case-20`）、`excessive_logging`（`case-12`、`case-21`）、`thread_pool`（`case-13`、`case-22`）、`config_regression`（`case-14`、`case-23`）。详见《[数据集结构规范](docs/数据集结构规范.md)》「problem_kind 取值与覆盖现状」。
 
 全部用例共用同一套 Spring Boot + MyBatis + MySQL 技术栈，按「正常 / 边界 / 失败」三类各含 ≥2 个用例，构成一个完整的判定谱系：
 

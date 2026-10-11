@@ -1,0 +1,93 @@
+{
+  "case_id": "case-24-slow-query-audit-log-scan-sort",
+  "schema_version": "0.1",
+  "title": "审计日志按级别过滤并按时间倒序查询缺失 (level, created_at_ms) 复合索引导致 audit_logs 全表扫描与文件排序",
+  "case_type": "normal",
+  "difficulty": "easy",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/audit/recent?level=ERROR&limit=100 在 20 万审计日志数据集下 P95 超过 200ms；audit_logs 表除主键外无任何二级索引，按 level 过滤并 ORDER BY created_at_ms DESC 只能全表扫描（EXPLAIN 为 ALL audit_logs）并伴随 Using filesort",
+    "endpoint": "GET /api/audit/recent?level=ERROR&limit=100",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/audit/recent?level=ERROR&limit=100 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "audit_logs": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，保证可复现；level 按权重分布：ERROR≈2%、WARN≈8%、DEBUG≈30%、INFO≈60%）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "missing_index_filter_sort",
+      "mechanism": "audit_logs 表除主键外无任何二级索引；查询按 level 过滤并按 created_at_ms 倒序排序，既无法借助索引完成过滤，也无法借助索引避免排序，只能全表扫描（EXPLAIN 为 ALL audit_logs）并伴随 Using filesort",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/AuditLogMapper.java",
+          "line": 14,
+          "symbol": "findRecentByLevel"
+        }
+      ],
+      "expected_fix": "为 audit_logs(level, created_at_ms) 建立复合索引，使过滤与排序均可走索引，消除全表扫描与文件排序",
+      "expected_status": "verified"
+    }
+  ],
+  "expected": {
+    "decision": "verified",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/AuditLogMapper.java",
+        "line": 14,
+        "symbol": "findRecentByLevel"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 60,
+      "tolerance": 10
+    },
+    "limitations_required": []
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "false_verified",
+      "evidence_compliance",
+      "excluded_explanation_coverage",
+      "recommendation_effective",
+      "correctness_preserved",
+      "artifact_integrity",
+      "restore_verified"
+    ],
+    "reward_profile": "normal_single",
+    "timeout_seconds": 1800,
+    "notes": "改编自 genenetwork/genenetwork2 Issue #419《Slow query》（testing@a5e364f5dfd89d6a09289906da0c1fbf02c33afc；上游为多列 REGEXP 大扫描量慢查询，Rows_examined≈2126 万、Query_time≈187s；许可证以仓库根 LICENSE 为准）。按数据集约定归一化为统一 Spring Boot + MyBatis + MySQL 骨架下的『过滤 + 排序缺复合索引』可证实形态：唯一主缺陷 d1（audit_logs 除主键外无索引，按 level 过滤并 ORDER BY created_at_ms DESC 触发全表扫描 + filesort），可由平台唯一允许的单变量实验（variable=index，baseline vs candidate_index）稳定证实，期望 decision=verified。用于验证 Agent 在『过滤 + 排序缺复合索引 → 全表扫描 + 文件排序』形态下的闭环定位与结构化取证能力。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "AGPL-3.0"
+  }
+}

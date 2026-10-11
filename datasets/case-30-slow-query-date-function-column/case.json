@@ -1,0 +1,123 @@
+{
+  "case_id": "case-30-slow-query-date-function-column",
+  "schema_version": "0.1",
+  "title": "按天过滤用 DATE(FROM_UNIXTIME()) 包裹时间列，谓词非 sargable 导致审计日志全表扫描，加索引收益不确定",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/audit/events/by-day 在 30 万审计日志数据集下 P95 超过 350ms；audit_events 表除主键外无任何二级索引，查询以 DATE(FROM_UNIXTIME(occurred_at_ms / 1000)) = #{day} 对时间列做函数包裹后过滤，再 ORDER BY occurred_at_ms DESC。函数包裹使 occurred_at_ms 上的任何 B-tree 索引都无法参与该过滤（谓词非 sargable），只能全表扫描；平台唯一允许的单变量加索引实验收益不确定",
+    "endpoint": "GET /api/audit/events/by-day?day=2025-06-10&size=20",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/audit/events/by-day?day=2025-06-10&size=20 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "audit_events": 300000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定；为避免依赖运行日期，occurred_at_ms 以固定基准时刻 1750000000000 向前均匀铺开 180 天；actor 取自固定名单，action 取自固定动作集）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "function_wrapped_index_column",
+      "mechanism": "过滤条件写作 DATE(FROM_UNIXTIME(occurred_at_ms / 1000)) = #{day}，对时间列 occurred_at_ms 施加了函数；MySQL 无法对『函数结果』使用 occurred_at_ms 上的 B-tree 索引做范围扫描，谓词非 sargable，即使为该列建立普通索引，优化器仍只能全表扫描（EXPLAIN 为 ALL audit_events）。平台唯一允许的单变量实验（variable=index，为 occurred_at_ms 建普通索引）无法带来稳定收益，故无法证实",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/AuditEventMapper.java",
+          "line": 16,
+          "symbol": "findByDay"
+        }
+      ],
+      "expected_fix": "把过滤改写为可 sargable 的范围条件：在 Java 侧按 day 计算当天 [00:00:00, 次日 00:00:00) 的毫秒边界，SQL 改为 WHERE occurred_at_ms >= #{startMs} AND occurred_at_ms < #{endMs}，使 occurred_at_ms 上的索引可被范围扫描利用；而非为该列建立普通索引或继续使用函数",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d2",
+      "role": "secondary",
+      "kind": "missing_index_sort_column",
+      "mechanism": "结果集 ORDER BY occurred_at_ms DESC 且 audit_events 表无 occurred_at_ms 索引，需 Using filesort 全量排序；其耗时贡献在单变量实验中未与 d1 的非 sargable 扫描单独隔离",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/AuditEventMapper.java",
+          "line": 17,
+          "symbol": "findByDay"
+        }
+      ],
+      "expected_fix": "在过滤条件改写为 sargable 的前提下，为 occurred_at_ms 建立索引以消解 filesort（可与范围过滤共用同一索引）",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d3",
+      "role": "decoy",
+      "kind": "select_star",
+      "mechanism": "SELECT * 返回全部列，无法利用覆盖索引；影响存在但非本用例耗时根因",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/AuditEventMapper.java",
+          "line": 14,
+          "symbol": "findByDay"
+        }
+      ],
+      "expected_fix": "按需返回字段",
+      "expected_status": "unclassified"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/AuditEventMapper.java",
+        "line": 16,
+        "symbol": "findByDay"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 20,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明 DATE(FROM_UNIXTIME(occurred_at_ms / 1000)) = #{day} 对时间列做了函数包裹、谓词非 sargable：为 occurred_at_ms 建立普通 B-tree 索引无法被该过滤利用，单变量加索引实验的收益不确定",
+      "必须声明 d2（ORDER BY occurred_at_ms DESC 缺排序索引导致 filesort）的耗时贡献未在单变量实验下单独证实",
+      "必须声明正确修复是把按天过滤改写为 sargable 的毫秒半开区间 [startMs, endMs)，而非加索引或继续使用函数；结论依赖当前数据规模与单日命中率"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "边界用例（函数包裹索引列导致谓词非 sargable）：d1 为真实缺陷，但对时间列使用 DATE(FROM_UNIXTIME(...)) 函数后，occurred_at_ms 上的 B-tree 索引无法用于过滤，平台唯一允许的单变量加索引实验无法带来稳定收益，无法跨过可证实阈值，故期望整体 decision=lead 并显式声明限制。用于验证 Agent 是否会在『缺陷真实但常规索引修复无效』时过度下结论（false_verified），以及是否能指出需改写为毫秒半开区间的 sargable 范围条件。改编自常见『对时间列按天/按月使用函数过滤导致索引失效』的慢查询场景（许可证待核验）。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "待核验"
+  }
+}

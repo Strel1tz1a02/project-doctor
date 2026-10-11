@@ -1,0 +1,93 @@
+{
+  "case_id": "case-28-connection-pool-nested-acquire",
+  "schema_version": "0.1",
+  "title": "指标聚合在持有外层连接的循环中嵌套取连接，导致连接池饥饿",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "connection_pool",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/metrics/aggregate 在并发请求下 P95 显著升高并频繁出现获取连接超时；接口先获取一个外层连接读取事件总数，随后在 for 循环中对每个模型再调用一次 countByModel，而每次调用都会重新向连接池申请一个连接——即在外层连接被持有的作用域内嵌套取连接。池上限为 4，当并发请求数达到池上限时，所有连接都被外层作用域占用，循环内的嵌套取连接全部阻塞直至 connection-timeout(3000ms) 并失败；冷启动单请求正常，仅并发升高时恶化。",
+    "endpoint": "GET /api/metrics/aggregate?models=16",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/metrics/aggregate?models=16 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "telemetry_events": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，telemetry_events=200000，model-01..model-16）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "nested_connection_acquire",
+      "mechanism": "aggregate 在方法开始即调用 dataSource.getConnection() 取得一个外层连接，并在其 try-with-resources 作用域内进入 for 循环；循环内每次调用 metricsMapper.countByModel(model) 都会由 MyBatis 重新向连接池申请一个连接。即以『持有外层连接』为作用域再次取连接（嵌套取连接）：池上限为 4，并发请求数达到池上限时外层连接占满全部连接，循环内的嵌套取连接无连接可用而阻塞，直至 connection-timeout(3000ms) 抛错。缺陷本质是连接持有范围与取连接时机相互嵌套导致的池饥饿，而非连接泄漏、SQL 变慢或缺索引（逐模型 COUNT 均可走 idx_telemetry_model）。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/MetricsAggregateService.java",
+          "line": 28,
+          "symbol": "aggregate"
+        }
+      ],
+      "expected_fix": "拆开嵌套：先取出外层查询所需数据并立即归还外层连接（外层 try-with-resources 只包住 totalEvents 的一次查询），再在不再持有连接的前提下逐模型查询；或进一步把逐模型 COUNT 合并为一次 GROUP BY model 的聚合查询（无循环、无嵌套取连接），使单请求占用的连接数不超过 1",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/MetricsAggregateService.java",
+        "line": 28,
+        "symbol": "aggregate"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "连接池饥饿属并发窗口下的资源占用问题，需在并发请求数达到或超过池上限（4）时多轮观测才稳定显现，单个冷请求不可见，结论依赖足够的并发度与压测窗口。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明循环内逐模型的 COUNT 均为可走索引（idx_telemetry_model）的单条查询，根因不是任一条 SQL 变慢、缺索引或 N+1 往返次数，而是『持有外层连接期间嵌套取连接』导致的连接占用；量化需结合连接池活跃连接数与获取连接超时计数，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自 open-webui/open-webui（MIT）中『遥测指标聚合以低效 COUNT 查询频繁获取连接、在并发下耗尽连接池』的场景，按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架。保留的原汁原味：聚合接口在持有连接的作用域内对每个维度（此处为 model）逐条发起 COUNT，形成『持连接 + 嵌套取连接』的调用链，并发升高时连接池被占满导致获取连接超时。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口，且当前 Agent 的问题类型仅支持 slow_query（Finding.verified_requires_structural_evidence 要求 kind==slow_query），无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。application.yml 中的 hikari.maximum-pool-size=4 与 connection-timeout=3000 为让占用可观测的环境参数，不是缺陷本身。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "MIT"
+  }
+}

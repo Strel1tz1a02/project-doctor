@@ -1,0 +1,93 @@
+{
+  "case_id": "case-32-connection-pool-long-tx-remote-call",
+  "schema_version": "0.1",
+  "title": "对账批处理在事务边界内串行调用外部支付网关，数据库连接在整个远程调用期间被占用导致连接池饥饿",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "connection_pool",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/reconcile/scan 在并发请求下 P95 显著升高并频繁出现获取连接超时；接口在一个 @Transactional 方法内先查询一批待处理任务，然后对每条任务串行调用外部支付网关（远程调用，每次约 250ms），最后写回结果——事务在整个方法期间一直持有数据库连接，使连接被占用的时长等于该批次的远程调用总时长（batch*250ms）。池上限为 4，当并发请求数达到池上限时全部连接都被长事务长时间占用，其余请求在获取连接处阻塞直至 connection-timeout(3000ms) 并失败；冷启动单请求可正常返回，仅并发升高时恶化。",
+    "endpoint": "GET /api/reconcile/scan?batch=20",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/reconcile/scan?batch=20 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "reconcile_tasks": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，reconcile_tasks=200000，order_no=ORD-1..200000，status 约 60% PENDING / 40% SETTLED）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "connection_held_across_remote_call",
+      "mechanism": "scanAndSettle 被标注 @Transactional（默认 REQUIRED 传播），Spring 的 DataSourceTransactionManager 会在事务开始时从连接池借出一个连接并绑定到当前线程，直至方法返回（提交/回滚）才归还。方法体内先调用 findPendingTasks 读取一批任务（1 次查询），随后在事务仍然开启的情况下于 for 循环中对每条任务串行调用 paymentGatewayClient.authorize —— 这是一个耗时约 250ms 的远程调用（模拟外部支付网关 HTTP 往返）。于是该连接被占用的时长 ≈ batch*250ms（batch=20 时约 5s），远大于 connection-timeout(3000ms)。池上限为 4，并发请求数达到池上限时全部连接都被这类长事务长期占用，后续请求在 borrow 时阻塞直至 connection-timeout 抛『获取连接超时』。缺陷本质是『把耗时的远程 I/O 放进了事务边界内，导致连接持有时长被远程调用拉长』，而非连接泄漏、SQL 变慢或缺索引（findPendingTasks 可走 idx_reconcile_status_id，markSettled 走主键）。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/ReconcileService.java",
+          "line": 29,
+          "symbol": "scanAndSettle"
+        }
+      ],
+      "expected_fix": "把远程调用移出事务边界：不要在一个事务内做外部 I/O。可先用一个短事务读取待处理任务并立即归还连接（或改为不开启事务的查询），然后在事务外逐条调用外部支付网关，最后再用一个短事务（或一次批量更新）写回结果；使单请求持有连接的时长只包含真正的数据库读写，不含远程调用耗时。",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/ReconcileService.java",
+        "line": 29,
+        "symbol": "scanAndSettle"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "连接池饥饿属并发窗口下的资源占用问题，需在并发请求数达到或超过池上限（4）时多轮观测才稳定显现，单个冷请求不可见，结论依赖足够的并发度与压测窗口。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明根因不是任一条 SQL 变慢、缺索引或 N+1：findPendingTasks 可走 idx_reconcile_status_id、markSettled 走主键，只是单请求的数据库往返；真正被拉长的是『连接持有范围覆盖了远程支付网关调用』。量化需结合连接池活跃连接数与获取连接超时计数，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自常见的『对账 / 结算批处理在数据库事务内同步调用第三方支付网关，事务把远程调用耗时也算进连接持有时长，并发下耗尽连接池』的 connection_pool 场景（上游许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『声明式事务在整个方法期间持有连接，而方法内串行执行慢速远程 I/O』的调用链结构；paymentGatewayClient.authorize 用固定 250ms 阻塞调用模拟远程往返。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口，且当前 Agent 的问题类型仅支持 slow_query（Finding.verified_requires_structural_evidence 要求 kind==slow_query），无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。application.yml 中的 hikari.maximum-pool-size=4 与 connection-timeout=3000 为让占用可观测的环境参数，不是缺陷本身。上游许可证尚未核验，provenance.license 标注为「待核验」，不臆断。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "待核验"
+  }
+}

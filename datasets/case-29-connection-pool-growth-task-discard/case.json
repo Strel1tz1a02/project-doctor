@@ -1,0 +1,103 @@
+{
+  "case_id": "case-29-connection-pool-growth-task-discard",
+  "schema_version": "0.1",
+  "title": "连接池异步扩容任务被有界队列的 DiscardPolicy 静默丢弃，池计数虚高而不扩容，导致并发取连接超时",
+  "case_type": "boundary",
+  "difficulty": "hard",
+  "problem_kind": "connection_pool",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/pool/ingest 在并发请求下出现大量获取连接超时、吞吐显著下降；连接池上限配置为 12，但实际可用连接数长期远低于上限。内置连接池在 borrow() 时通过 expandIfNeeded() 按需异步补建连接：每当已分配数未达上限就把 allocated 加一，并把补建任务提交给一个『单线程 + 有界队列(容量 2) + DiscardPolicy』的执行器。当并发 borrow 集中发生时，超过队列容量的补建任务被 DiscardPolicy 静默丢弃，但 allocated 计数器已经加过——于是池『自认为』已达上限 12、不再继续扩容，实际只建出极少（约 3）条连接。并发越高，任务等待连接的时间越长，尾部请求在 borrow-timeout(3000ms) 后抛出『获取连接超时』；单请求低并发时不明显。",
+    "endpoint": "GET /api/pool/ingest?workers=16",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/pool/ingest?workers=1 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "task_events": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，task_events=200000，shard 0..15）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "pool_growth_task_discard",
+      "mechanism": "borrow() 在 self 上加锁后调用 expandIfNeeded()：只要 allocated.get() < maxSize 就 allocated.incrementAndGet()，并把补建任务提交给构造函数中创建的执行器——该执行器线程数为 1、队列为 ArrayBlockingQueue(容量 2)、拒绝策略为 ThreadPoolExecutor.DiscardPolicy()。当多个 borrow 并发进入时，先被接受的补建任务最多只有 1(运行中)+2(排队)=3 个，其余提交因队列已满被 DiscardPolicy 静默丢弃（既不抛错也不执行）。但每次提交前 allocated 都已自增，导致 allocated 很快达到 maxSize(12) 而真实建出的连接只有约 3 条：此后 expandIfNeeded() 因 allocated>=maxSize 直接返回，池不再扩容。于是池计数（allocated=12）与实际连接数（≈3）不一致，等待 borrow 的任务因无连接可用而阻塞，直至 borrow-timeout(3000ms) 抛错。缺陷本质是『扩容任务被丢弃』与『计数先加后建』共同导致的扩容失效/池饥饿，而非连接泄漏、SQL 变慢或缺索引（每个任务内部 SELECT COUNT(*) WHERE shard=? 均可走 idx_task_events_shard 的单条查询）。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/pool/SimpleConnectionPool.java",
+          "line": 79,
+          "symbol": "expandIfNeeded"
+        },
+        {
+          "path": "src/main/java/com/example/slowquery/pool/SimpleConnectionPool.java",
+          "line": 40,
+          "symbol": "SimpleConnectionPool"
+        }
+      ],
+      "expected_fix": "让扩容任务不再被静默丢弃：把有界队列 + DiscardPolicy 改为 CallerRunsPolicy（队列满时在借连接线程内同步补建），或直接同步补建/使用不会拒绝的提交方式，确保每次 allocated 递增都对应一个真正被执行的补建任务；更稳妥的做法是不让 allocated 计数器代表『已建连接数』，改为以真实可用连接数判定扩容上限，避免计数虚高导致池误判已达上限而拒绝扩容，从而让池能够真正扩到 maxSize 并消除取连接超时。",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/pool/SimpleConnectionPool.java",
+        "line": 79,
+        "symbol": "expandIfNeeded"
+      },
+      {
+        "path": "src/main/java/com/example/slowquery/pool/SimpleConnectionPool.java",
+        "line": 40,
+        "symbol": "SimpleConnectionPool"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "连接池扩容失效属并发窗口下的资源占用问题，需在并发 borrow 集中发生（并发请求数 × 单请求 workers 超过真实连接数）时多轮观测才稳定显现，单请求低并发不可见，结论依赖足够的并发度与压测窗口。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明每个入库任务内部的 COUNT(*) 均为可走索引（idx_task_events_shard）的单条查询，根因不是任一条 SQL 变慢、缺索引或 N+1 往返次数，而是『扩容任务被 DiscardPolicy 静默丢弃导致池计数虚高、无法真正扩容』；量化需结合连接池 allocated/idle 与实际连接数、获取连接超时计数，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自 brettwooldridge/HikariCP（Apache-2.0）中『连接池在补充/扩容连接时，把补建任务提交到带丢弃策略的执行器，队列满时任务被静默丢弃，导致池无法达到预期容量而饥饿』的场景（参考 Issue #2378：HikariPool 中 new CustomDiscardPolicy() 与 addBagItem 路径），按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架。保留的原汁原味：连接池在 borrow 路径上按需异步扩容，扩容任务进入有界队列并由丢弃策略处理；任务被丢弃后 allocated 计数已加、真实连接数却未达上限，池不再扩容。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口，且当前 Agent 的问题类型仅支持 slow_query（Finding.verified_requires_structural_evidence 要求 kind==slow_query），无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。application.yml 中的 app.pool.* 参数（max-size=12、queue-capacity=2、queue-threads=1、borrow-timeout-ms=3000）为让占用可观测的环境参数，不是缺陷本身。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "Apache-2.0"
+  }
+}
