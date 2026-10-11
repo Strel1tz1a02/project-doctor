@@ -1,0 +1,93 @@
+{
+  "case_id": "case-21-excessive-logging-sync-global-lock",
+  "schema_version": "0.1",
+  "title": "请求热路径逐行审计日志在全局锁下同步刷盘，并发下吞吐塌陷",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "excessive_logging",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/audit-report 在 size 较大时 P95 明显升高；并发请求越多，单请求耗时越接近串行叠加、吞吐上不去。每返回一行订单就在热路径调用一次审计日志，每次写入都在同一把全局锁下串行化并同步 flush 刷盘，写盘成为请求路径上的串行瓶颈；logs/audit.log 体积增长很快。",
+    "endpoint": "GET /api/orders/audit-report?userId=123&size=500",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/audit-report?userId=123&size=500 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，user_id 均匀分布于 1..50000，orders=200000）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "sync_logging_lock",
+      "mechanism": "AuditLogger.log 在热路径上被逐行调用：每次写入都先获取同一把静态全局锁（static final ReentrantLock MU），在持锁期间同步 out.flush() 刷盘后才释放。结果所有并发请求的日志写入被串行化在同一把锁上，且每次写入都付出一次同步刷盘的固定开销；size 越大、并发越高，锁竞争与刷盘次数越多，单请求耗时越接近串行叠加、吞吐上不去。写盘与锁竞争成为请求路径上的瓶颈，与 SQL 计划本身无关（与上游 logrus『Entry.log() 持 Logger.mu 全局互斥锁并同步 Out.Write』同源）。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/log/AuditLogger.java",
+          "line": 31,
+          "symbol": "log"
+        }
+      ],
+      "expected_fix": "把日志移出请求热路径：去掉逐行审计日志，或改为异步/批量写入（后台队列 + 单写线程，或以 AsyncAppender 之类的异步刷盘替代持全局锁的同步 flush），避免在持全局锁期间做同步刷盘",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/log/AuditLogger.java",
+        "line": 31,
+        "symbol": "log"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "connection_pool"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明本用例的瓶颈在『把日志写盘放在请求热路径上、且写入持全局锁同步刷盘』，由并发下的锁竞争与同步刷盘叠加造成，用 duration_ms 只能间接体现，需结合并发梯度下的吞吐（如 throughput_rps）或日志路径时延才能定量归因。",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，excessive_logging 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明该现象强度随 size 与并发度放大，单请求小 size 时几乎不可观测，结论依赖当前 size=500 × concurrency=4 的负载。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "单 primary 缺陷 boundary 用例：同步日志 + 全局锁型 excessive_logging，改编自 sirupsen/logrus（机制标签 sync_logging_lock，库固有设计：Entry.log() 持 Logger.mu 全局互斥锁并同步 Out.Write）。统一骨架下按数据集约定自建最小调用方：AuditLogger（static final ReentrantLock MU 全局锁 + 持锁同步 out.flush()）被 OrderService.auditReport 逐行调用，把上游『同步日志 + 全局锁串行化』的机制原汁原味地迁移到请求热路径。耗时来自锁竞争与同步刷盘，而非 SQL 计划：查询按 user_id 走 idx_orders_user_created 且 LIMIT，执行计划无问题，无法由单变量索引实验证实；且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。排除项：查询走索引且带 LIMIT，非 missing_index / slow_query；单条 SQL 非循环查库，非 n_plus_one；未占用连接池等待，非 connection_pool。溯源注意：sirupsen/logrus 为 Go 日志库而非服务，须自建最小调用方（属加工成分）；该机制证据偏弱（依赖库源码与文档/社区讨论，未定位到单一 issue/PR），已在 README 如实标注。待支持标注：等待 Agent 支持 excessive_logging 问题类型。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "MIT"
+  }
+}

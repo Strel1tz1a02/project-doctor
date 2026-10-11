@@ -1,0 +1,93 @@
+{
+  "case_id": "case-23-config-regression-summary-limit",
+  "schema_version": "0.1",
+  "title": "摘要接口行数上限在配置回退路径上绕过校验，返回行数远超约定上限（代码未改动）",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "config_regression",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/summary 返回的行数远超约定上限：该接口本应受摘要上限（约 100 行）约束，实际一次返回约 5000 行；接口不报错、HTTP 200；该查询为 ORDER BY id DESC LIMIT n、走主键、执行计划正常；同库的 /api/orders/by-user 一切正常。",
+    "endpoint": "GET /api/orders/summary",
+    "target_metric": "rows_returned"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/summary == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，orders=200000，user_id 均匀分布于 1..50000）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "fallback_default_bypasses_validation",
+      "mechanism": "摘要接口的行数上限由 SummaryLimitResolver 从配置项 report.summary.limit 解析：显式配置存在且合法时，解析后夹取到 [1, HARD_MAX=100]；配置缺失（配置迁移后该键未被带过来）时走回退分支，fallback() 直接返回默认值 5000，未套用同一夹取，回退值绕过了 HARD_MAX 上限约束，下游以该值作为 LIMIT，导致摘要接口返回行数由约 100 暴涨到约 5000。查询本身为 ORDER BY id DESC LIMIT n、走主键、计划正常，无缺索引或单条慢查询。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/config/SummaryLimitResolver.java",
+          "line": 48,
+          "symbol": "fallback"
+        }
+      ],
+      "expected_fix": "对回退值同样套用校验/夹取（如 return clamp(FALLBACK_DEFAULT);，或让回退分支与显式分支共用同一校验路径）",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/config/SummaryLimitResolver.java",
+        "line": 48,
+        "symbol": "fallback"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "rows_returned",
+      "min_improvement_percent": 90,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明本用例的症状『接口返回行数异常偏大』源自配置/回退层（摘要上限的回退值未被重新校验、绕过 HARD_MAX），而非任何单条 SQL 的执行计划或索引问题：/api/orders/summary 为 ORDER BY id DESC LIMIT n、走主键、计划正常。",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，config_regression 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明结论依赖『配置缺失/被迁移』这一条件：当 report.summary.limit 显式存在时回退分支不被触发、行数恢复正常，本用例以该键缺失（迁移后未带过来）触发。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自 dahlia/optique PR #777（MIT，Merged，Fixes #414，Revalidate fallback values in bindEnv() and bindConfig()）；原候选 tphakala/birdnet-go Issue #2361（配置迁移导致默认值回退、GORM Limit(0) 返回 0 行）因仓库许可证为 CC BY-NC-SA 4.0（非商用）未采用，仅作为同一 config_migration_default_regression 机制的佐证。保留的原汁原味：把 optique 的『bindEnv()/bindConfig() 回退值未重新校验、绕过内层 parser 约束（min/max/pattern/choice）』同构迁移为 SummaryLimitResolver 的回退分支 fallback() 直接返回默认值而不套用 clamp(HARD_MAX)；显式配置路径则正常校验夹取，两路径行为不一致。按数据集约定的改造：上游为 TypeScript（packages/env、packages/config、packages/core），本项目按统一骨架改写为 Java 17 + Spring Boot 3.2.5 + MyBatis 3.0.3 + MySQL 8.0；判分指标统一为可实测字段 rows_returned（约定上限 100 vs 实测约 5000）；表与初始化沿用统一 orders 骨架。边界用例（问题类型 config_regression，等待 Agent 支持）。设计意图：检验 Agent 能否把『接口不报错、SQL 计划正常、代码未改动、却返回远超上限的行数』的现象归因到配置/回退层的校验缺失——primary d1 是回退值绕过上限约束，属真实且机制明确的配置回归，理想情况下可由『对照显式配置 + 修正回退路径后重测行数』证实。可证实性判定：当前 Agent 的 ProblemKind 仅支持 slow_query，且 Finding.verified 要求结构性证据对应 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：/api/orders/summary 为 ORDER BY id DESC LIMIT n、走主键、计划正常，missing_index、slow_query、n_plus_one、jvm_gc_pause 均无证据，不应被判为根因。待支持标注：等待 Agent 支持 config_regression 问题类型。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "MIT"
+  }
+}

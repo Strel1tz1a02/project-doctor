@@ -1,0 +1,93 @@
+{
+  "case_id": "case-20-connection-setup-client-per-request",
+  "schema_version": "0.1",
+  "title": "遗留批处理接口每请求新建数据库连接（绕过连接池），反复付出建连握手开销",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "connection_setup",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/legacy-batch P95 偏高，耗时以固定建连开销为主（查询本身很快）；批处理请求量升高时数据库连接数呈锯齿状 churn",
+    "endpoint": "GET /api/orders/legacy-batch?size=50",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/legacy-batch?size=50 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，user_id 均匀分布于 1..50000，orders=200000）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "per_request_connection_setup",
+      "mechanism": "该批处理接口绕过连接池，每次请求都用 DriverManager.getConnection 新建一条数据库连接；无论查询多快，每次调用都要固定付出 TCP 建连 + MySQL 握手/认证开销，该开销与 SQL 本身无关；连接数随请求波动呈锯齿状 churn。方法正常 try-with-resources 关闭连接，因此不是连接泄漏（与上游『每请求重建客户端、破坏连接池、浪费 TLS 握手』同源）。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/LegacyBatchReportService.java",
+          "line": 19,
+          "symbol": "loadBatch"
+        }
+      ],
+      "expected_fix": "改用连接池（如注入 DataSource，从池中复用连接），消除每次请求的建连与握手开销",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/LegacyBatchReportService.java",
+        "line": 19,
+        "symbol": "loadBatch"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "connection_leak", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 40,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明本用例的耗时以『每次请求固定付出的 TCP 建连 + MySQL 握手/认证开销』为主，查询本身很快；该开销与数据规模、索引无关，不能靠执行计划或补索引实验体现",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，connection_setup 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明连接已在 try-with-resources 中正常关闭，应据此显式排除 connection_leak 假设，结论依据是『每请求新建连接』这一结构特征而非连接未归还"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "边界用例（问题类型 connection_setup，等待 Agent 支持）。改编自 christianhelle/httprunner Issue #213（机制标签 client_per_request）：上游每次请求重建 HTTP 客户端，破坏连接池、浪费 TLS 握手；统一骨架下按数据集约定迁移为『接口绕过连接池、每请求用 DriverManager.getConnection 新建数据库连接』这一同构结构。primary d1 位于 LegacyBatchReportService.loadBatch，每次调用都付出固定的建连握手开销，真实且机制明确，理想情况下可由『对比每请求新建连接与连接池复用』的变量实验证实。可证实性判定：无法由平台唯一允许的单变量索引实验证实（SQL 走主键 LIMIT，执行计划无问题），且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。排除项：连接在 try-with-resources 中关闭，非 connection_leak；查询本身很快，非 slow_query / missing_index；无证据指向 jvm_gc_pause。待支持标注：等待 Agent 支持 connection_setup 问题类型。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "MIT"
+  }
+}

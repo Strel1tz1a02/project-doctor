@@ -1,0 +1,108 @@
+{
+  "case_id": "case-18-deep-pagination-large-offset",
+  "schema_version": "0.1",
+  "title": "商品列表接口使用大偏移 LIMIT/OFFSET 导致深分页越翻越慢",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "deep_pagination",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/items/page 在 120 万商品数据集下，翻到深位移（offset=170000、limit=20）时延迟显著升高，而首页稳定在个位数毫秒；items 表已具备 idx_items_created_at，偏移越大越慢",
+    "endpoint": "GET /api/items/page?offset=170000&limit=20",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/items/page?offset=170000&limit=20 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "items": 1200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，items=1200000，category 均匀分布于 5 类，created_at 随机分布于近 365 天）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "deep_offset",
+      "mechanism": "findItemsByOffset 使用 LIMIT #{limit} OFFSET #{offset}，深位移时 offset 接近全表行数（offset=170000）；MySQL 须沿主键顺序扫描并按序丢弃前 offset 行后才返回 limit 行，代价随 offset 线性增长。schema 已具备 idx_items_created_at，缺索引并非根因",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/ItemMapper.java",
+          "line": 16,
+          "symbol": "findItemsByOffset"
+        }
+      ],
+      "expected_fix": "改为键集/游标分页：WHERE id > :上一页末尾主键 ORDER BY id LIMIT #{limit}；或延迟关联——先用覆盖索引子查询取本页主键再回表查明细",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d2",
+      "role": "decoy",
+      "kind": "redundant_count",
+      "mechanism": "pageItems 每次请求额外执行 SELECT COUNT(*) FROM items 求总数；该成本对首页与深页恒定，无法解释『深位移明显慢于首页』这一随 offset 变化的特征，属干扰项",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/ItemMapper.java",
+          "line": 20,
+          "symbol": "countItems"
+        }
+      ],
+      "expected_fix": "总数改为缓存或近似估计（非本用例耗时根因）",
+      "expected_status": "unclassified"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/ItemMapper.java",
+        "line": 16,
+        "symbol": "findItemsByOffset"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "lock_contention", "network_latency"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 40,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明深分页的判定依据是『LIMIT limit OFFSET offset 需顺序扫描并丢弃 offset 行』，而非缺索引（items 已具备 idx_items_created_at）",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，深分页在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明结论依赖位移深度与数据规模：offset 较小时深分页代价可忽略，本用例以 offset=170000、limit=20 触发"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自 pymc-labs/decision-hub Issue #56（MIT，won't fix，database.py 1396–1399 base.limit(limit).offset(offset)，OFFSET 170000）；原候选 zbnerd/probabilistic-valuation-engine#233（P1，深分页 SELECT * FROM items ORDER BY id LIMIT 10 OFFSET 1000000，OFFSET 增大后由约 1ms 退化至约 5000ms）因仓库根目录无 LICENSE 未采用，仅作为同一 deep_offset 机制的佐证。保留的原汁原味：limit/offset 分页语义（base.limit(limit).offset(offset)）逐字迁移为 ItemMapper.findItemsByOffset 的 LIMIT #{limit} OFFSET #{offset}；表名 items 与 ORDER BY id 的排序语义保留。按数据集约定的改造：上游为 Python + SQLAlchemy，本项目按统一骨架改写为 Java 17 + Spring Boot 3.2.5 + MyBatis 3.0.3 + MySQL 8.0；判分指标统一为可实测字段 duration_ms；数据规模按数据集约定设定为 items=1200000（≥100 万行）以稳定复现深位移退化。边界用例（问题类型 deep_pagination，等待 Agent 支持）。设计意图：检验 Agent 能否识别『查询代价随位移深度线性增长』——primary d1 使用 LIMIT/OFFSET，深位移时需沿主键丢弃 offset 行；items 已具备 idx_items_created_at，缺索引不是根因，故无法用常规『补索引单变量实验』证实；且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，本用例不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：d2（SELECT COUNT(*) 求总数）对所有页成本恒定，不应被判为根因。待支持标注：等待 Agent 支持深分页问题类型。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "MIT"
+  }
+}

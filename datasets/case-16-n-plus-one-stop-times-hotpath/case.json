@@ -1,0 +1,110 @@
+{
+  "case_id": "case-16-n-plus-one-stop-times-hotpath",
+  "schema_version": "0.1",
+  "title": "行程状态热路径在循环中逐条查询 StopTimes 导致 N+1 查询",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "n_plus_one",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/trips/block-details 在 5 万行程 / 50 万 stop_times 数据集下 P95 超过 150ms；接口需为最近行程列表附带每个行程的停靠点数量，负载升高时延迟随之上升",
+    "endpoint": "GET /api/trips/block-details?size=200",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/trips/block-details?size=200 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "stops": 5000,
+      "trips": 50000,
+      "stop_times": 500000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，stops=5000，trips=50000，stop_times=500000，每个 trip 10 条 stop_times）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "n_plus_one",
+      "mechanism": "getNextAndPreviousTripIds 在 for 循环中对每个 trip 单独调用 findStopTimesByTripId(trip.getTripId())，形成 1+size 次数据库往返（N+1）；单条查询按主键 (trip_id, stop_sequence) 走索引、执行计划无问题，开销来自调用次数随 size 线性增长",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/BlockTripService.java",
+          "line": 35,
+          "symbol": "getNextAndPreviousTripIds"
+        }
+      ],
+      "expected_fix": "改为批量查询：对 trip.getTripId() 收集去重后一次 findStopTimesByTripIds(List)，在内存中用 Map 按 trip_id 分组回填停靠点数量，使数据库往返降为 2 次",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d2",
+      "role": "secondary",
+      "kind": "n_plus_one",
+      "mechanism": "calculateBlockTripSequence 在第二个 for 循环中再次对每个 trip 单独调用 findStopTimesByTripId(trip.getTripId())，与 d1 同源、同样放大查询次数；它是同一请求内的相邻热路径，有贡献但非本用例唯一主根因（primary 定位在 getNextAndPreviousTripIds）",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/BlockTripService.java",
+          "line": 51,
+          "symbol": "calculateBlockTripSequence"
+        }
+      ],
+      "expected_fix": "与 d1 合并为一次批量查询（同一趟收集 trip_id 去重后查询，两个循环共享结果）",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/BlockTripService.java",
+        "line": 35,
+        "symbol": "getNextAndPreviousTripIds"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 30,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明 N+1 的判定依据是『随列表条数线性增长的额外数据库往返次数』，而非任何单条 SQL 的执行计划",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，N+1 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明结论依赖列表页大小 size：逐条查询的开销在 size 较小时可忽略，本用例以 size=200 触发"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自 OneBusAway/maglev Issue #404《Performance Bug: N+1 Query Problem - StopTimes Queries in Hot Path Loops》（Apache-2.0，commit main@601597759171a7b7df98799d13687870d910f4f8）。保留的原查询语义：上游 Go + gtfsdb 在 internal/restapi/trips_helper.go 的 GetNextAndPreviousTripIDs（line 199，循环 line 198）与 calculateBlockTripSequence（line 479，循环 line 471）中对每个 trip 逐条查询 StopTimes（WHERE trip_id = ?），批量解为 gtfsdb/query.sql line 965 GetStopTimesForTripIDs（已在 trips_for_location_handler.go line 233 使用）；本项目按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留 GTFS 表名 trips/stop_times/stops 与列名 trip_id/block_id/stop_sequence/stop_id。primary 唯一（d1=getNextAndPreviousTripIds@BlockTripService.java:35），calculateBlockTripSequence 同源查询列为 d2 secondary。边界用例（问题类型 n_plus_one，等待 Agent 支持）：无法由单变量索引实验证实（单条按主键查询执行计划无问题），且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 N+1 问题类型。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "Apache-2.0"
+  }
+}

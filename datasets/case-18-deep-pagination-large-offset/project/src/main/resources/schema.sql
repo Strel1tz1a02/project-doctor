@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS items (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(128) NOT NULL,
+    category VARCHAR(64) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_items_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

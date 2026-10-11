@@ -1,0 +1,93 @@
+{
+  "case_id": "case-17-connection-pool-background-hold",
+  "schema_version": "0.1",
+  "title": "后台任务在轮询外部数据源期间持续占用数据库连接，连接池被逐步耗尽",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "connection_pool",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/reports/background 在并发触发多个后台任务时 P95 显著升高；每个后台任务一开始就获取数据库连接并在轮询外部数据源的 sleep 期间持续持有，池上限 10 被并发任务占满后，其余任务在获取连接处阻塞直至 connection-timeout 并以获取连接超时失败；冷启动单个任务正常，仅并发/任务数升高时恶化。",
+    "endpoint": "GET /api/reports/background?tasks=16&pollIntervalMs=800",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/reports/background?tasks=16&pollIntervalMs=800 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，orders=200000）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "connection_hold",
+      "mechanism": "runTask 在任务一开始就调用 dataSource.getConnection() 获取连接，并在随后模拟轮询外部数据源的 Thread.sleep 循环期间一直持有该连接，直到任务末尾才归还；并发触发多个后台任务时，持有连接的并发任务数超过池上限 10，其余任务在获取连接处阻塞直至 connection-timeout。缺陷本质是『连接持有范围过大（跨越轮询等待）』，而非连接泄漏或 SQL 本身变慢。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/BackgroundTaskService.java",
+          "line": 51,
+          "symbol": "runTask"
+        }
+      ],
+      "expected_fix": "缩短连接持有范围：仅在真正访问数据库时获取连接（把 getConnection() 移到轮询循环之后、紧邻查询处，或用 try-with-resources 包住查询并在查询结束后立即归还），使轮询/等待期间不持有任何连接",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/BackgroundTaskService.java",
+        "line": 51,
+        "symbol": "runTask"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "连接池被占用属并发窗口下的资源占用问题，需在并发触发多个后台任务时多轮观测才显现，单个冷任务不可见，结论依赖足够长的压测窗口与足够的并发度。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "连接持有型占用的量化需结合连接池活跃连接数随时间上升或获取连接超时计数等指标，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自 airas-org/airas Issue #648《[Bug fix] Refactor DB session management to prevent connection pool exhaustion in background tasks》（MIT，commit main@89679ca8fac1dc6bd247f421aa87fd399a9a1411，须回退到修复前版本）。保留的原汁原味：上游为 Python + SQLAlchemy，长时间后台任务（最长约 100h）在 sleep/轮询外部 API 期间持续占用 DB Session，触发 SQLAlchemy.exc.TimeoutError: QueuePool limit reached（默认池 15），修复方向为短生命周期 Session（with Session(self.engine) as session），改动 container.py 与 BaseRepository；本项目按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『后台任务在轮询等待期间持有连接 → 并发下连接池耗尽』的调用链结构，判分指标统一为可实测字段 duration_ms。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口，且当前 Agent 的问题类型仅支持 slow_query，无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "MIT"
+  }
+}

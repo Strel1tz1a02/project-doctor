@@ -1,0 +1,93 @@
+{
+  "case_id": "case-15-slow-query-threads-fullscan",
+  "schema_version": "0.1",
+  "title": "线程时间戳聚合 MAX(updated_at_ms)/MAX(recency_at_ms) 缺失索引导致 threads 全表扫描",
+  "case_type": "normal",
+  "difficulty": "easy",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/threads/max-timestamps 在 20 万线程数据集下 P95 超过 150ms；threads 表在 updated_at_ms / recency_at_ms 上没有任何索引，SELECT MAX(...) 聚合只能全表扫描（EXPLAIN 为 SCAN threads）",
+    "endpoint": "GET /api/threads/max-timestamps",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/threads/max-timestamps == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "threads": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，保证可复现）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "missing_index_max_scan",
+      "mechanism": "threads 表除主键外无任何二级索引；updated_at_ms / recency_at_ms 均无索引，SELECT MAX(updated_at_ms), MAX(recency_at_ms) FROM threads 无法借助索引取最大值，只能全表扫描（EXPLAIN 为 SCAN threads）",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/ThreadMapper.java",
+          "line": 11,
+          "symbol": "selectMaxTimestamps"
+        }
+      ],
+      "expected_fix": "为 threads(updated_at_ms) 与 threads(recency_at_ms) 建立索引，使 MAX 聚合可走索引取边界值，消除全表扫描",
+      "expected_status": "verified"
+    }
+  ],
+  "expected": {
+    "decision": "verified",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/ThreadMapper.java",
+        "line": 11,
+        "symbol": "selectMaxTimestamps"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 70,
+      "tolerance": 10
+    },
+    "limitations_required": []
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "false_verified",
+      "evidence_compliance",
+      "excluded_explanation_coverage",
+      "recommendation_effective",
+      "correctness_preserved",
+      "artifact_integrity",
+      "restore_verified"
+    ],
+    "reward_profile": "normal_single",
+    "timeout_seconds": 1800,
+    "notes": "改编自 openai/codex Issue #38373《State startup query scans the full threads table》（Apache-2.0，问题存在时 commit a7b8c074b577f897111c14de3a5e127b91e2a479）。保留原查询语义（原为 SELECT MAX(threads.updated_at_ms), MAX(threads.recency_at_ms) FROM threads，执行计划 SCAN threads），按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架：唯一主缺陷 d1（updated_at_ms / recency_at_ms 列无索引导致 MAX 全表扫描），可由平台唯一允许的单变量实验（variable=index，baseline vs candidate_index）证实，期望 decision=verified。用于验证 Agent 在『聚合查询缺索引 → 全表扫描』形态下的闭环定位与结构化取证能力。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "Apache-2.0"
+  }
+}
