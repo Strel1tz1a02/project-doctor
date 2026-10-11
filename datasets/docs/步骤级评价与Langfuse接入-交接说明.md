@@ -310,8 +310,8 @@ python evaluation/model_judge.py         # 阶段四 评审请求计划自检
 python -m unittest discover -s evaluation -p "test_*.py" -v
 ```
 
-本轮验证结果：**全部自检 OK；单测 132 项全通过**（`test_steps` 43 + `test_metrics` 45 + `test_golden_bundle` 16 +
-`test_run_eval` 10 + `test_followups` 18）。其中 `test_golden_bundle` 证明**引入步骤层后 golden 总分与全局门槛未变**；
+本轮验证结果：**全部自检 OK；单测 136 项全通过**（`test_steps` 43 + `test_metrics` 45 + `test_golden_bundle` 16 +
+`test_run_eval` 14 + `test_followups` 18）。其中 `test_golden_bundle` 证明**引入步骤层后 golden 总分与全局门槛未变**；
 `test_followups` 覆盖用例扩容（8→14）与追加模块的回归。
 
 > 环境提示：仓库默认 `python` 为 3.10.x；本层纯标准库实现，无第三方依赖（`pytest` 未安装，用 `unittest` 即可）。
@@ -354,7 +354,7 @@ _schema/case.schema.json
 
 - **D5 部署（就绪，待凭证执行）**：`langfuse_deploy.py` 已能离线产出**有序部署请求计划**
   （`dataset → ingestion → dataset-item → dataset-run-item`，含端点白名单与金标准不泄漏守卫），并生成 `replay.ps1` / `replay.sh`；
-  `langfuse_export.py` 备好摄入 JSON。**建 Dataset（14 用例）+ Dataset Run** 只需配好环境变量
+  `langfuse_export.py` 备好摄入 JSON。**建 Dataset（32 用例）+ Dataset Run** 只需配好环境变量
   （`LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`）后执行回放脚本，详见《步骤级评价与Langfuse接入-D5部署说明.md》。
 - **阶段三 · 在线只读接口（就绪）**：`interface_source.py` 已能生成只读请求计划（仅 `GET`/`HEAD` + `/api/read/` 前缀），
   越界方法/端点直接拒绝，并支持本地导出归一化为 `StepTrace` fixture；待执行侧确认接口形态后即可对接。
@@ -371,7 +371,7 @@ _schema/case.schema.json
 3. **追加轮次又加了五样**：步骤 fixture 富化（`step_fixtures.py`）、只读接口取数（`interface_source.py`）、D5 部署计划（`langfuse_deploy.py`）、阶段四模型评审（`model_judge.py`）、回归测试（`test_followups.py`）；并将用例从 8 扩到 **14**。
 4. **步骤分不改判定**：`metric_score(group="step") → None`；golden 总分与全局门槛不动。
 5. **白盒核心**：`step_downgrade_correctness` 把 `false_verified` 定位到 `evaluate_evidence` 那一步。
-6. **验收命令**：`python -m unittest discover -s evaluation -p "test_*.py"`（应 132 项通过）。
+6. **验收命令**：`python -m unittest discover -s evaluation -p "test_*.py"`（应 136 项通过）。
 7. **待办**：D5 部署回放（待凭证）、阶段三在线接口对接（待接口形态）、阶段四接入真实评审模型（待 endpoint/key）。
 
 ---
@@ -427,6 +427,6 @@ _schema/case.schema.json
 
 - 新增 `evaluation/test_followups.py`（18 项）覆盖上述全部内容。
 - `FROZEN_RELATIVE` 扩充至 **18 项**（新增 `langfuse_deploy.py` / `step_fixtures.py` / `interface_source.py` / `model_judge.py` / `test_followups.py`）。
-- 全量单测 **132 项全通过**（详见 §7）。
+- 全量单测 **136 项全通过**（详见 §7）。
 
 > 边界重申：以上模块全部**零网络、零 SUT 调用**；回放脚本仅在**配好凭证后**由人手动执行，属「我方部署」动作，不是评测运行时行为。

@@ -46,7 +46,10 @@ _ROOT = _HERE.parent  # 数据集根 project-doctor/datasets/
 _STEPS_DIR = _HERE / "fixtures" / "steps"
 _RUN_BUNDLE_DIR = _HERE / "fixtures" / "run-bundle"
 
-EXPECTED_CASE_COUNT = 14
+# 数据集用例总数：随扩充增长（8 → 14 → 32）。
+EXPECTED_DATASET_CASE_COUNT = 32
+# 冻结的金标准 fixture 数量：run-bundle / steps 各一份，保持 14 不变。
+EXPECTED_FIXTURE_COUNT = 14
 NEW_CASE_IDS = (
     "case-09-connection-pool-leak",
     "case-10-large-response-unbounded",
@@ -66,11 +69,11 @@ def _case_dirs() -> list[Path]:
 
 
 class DatasetExpansionTest(unittest.TestCase):
-    """数据集由 8 例扩充到 14 例：目录齐备 + schema 全绿。"""
+    """数据集用例目录齐备 + schema 全绿（当前 32 例；含首轮 8→14 扩充）。"""
 
-    def test_fourteen_cases_on_disk(self):
+    def test_dataset_case_count_on_disk(self):
         dirs = _case_dirs()
-        self.assertEqual(len(dirs), EXPECTED_CASE_COUNT, [d.name for d in dirs])
+        self.assertEqual(len(dirs), EXPECTED_DATASET_CASE_COUNT, [d.name for d in dirs])
 
     def test_six_new_cases_present(self):
         names = {d.name for d in _case_dirs()}
@@ -85,7 +88,7 @@ class DatasetExpansionTest(unittest.TestCase):
     def test_all_cases_pass_schema(self):
         schema = V.load_schema(V.DEFAULT_SCHEMA_PATH)
         targets = V.discover_cases()
-        self.assertEqual(len(targets), EXPECTED_CASE_COUNT)
+        self.assertEqual(len(targets), EXPECTED_DATASET_CASE_COUNT)
         for case_path in targets:
             errors = V.validate_file(case_path, schema)
             self.assertEqual(errors, [], f"{case_path}: {errors}")
@@ -95,9 +98,9 @@ class StepFixtureCoverageTest(unittest.TestCase):
     """步骤 fixture 覆盖全部用例，且富化报告不改动通过判定（D4）。"""
 
     def test_both_fixture_sets_cover_all_cases(self):
-        self.assertEqual(len(F.load_step_fixtures(str(_STEPS_DIR))), EXPECTED_CASE_COUNT)
+        self.assertEqual(len(F.load_step_fixtures(str(_STEPS_DIR))), EXPECTED_FIXTURE_COUNT)
         bundles = sorted(_RUN_BUNDLE_DIR.glob("*.json"))
-        self.assertEqual(len(bundles), EXPECTED_CASE_COUNT)
+        self.assertEqual(len(bundles), EXPECTED_FIXTURE_COUNT)
 
     def test_enrich_report_adds_steps_without_changing_verdict(self):
         ids = sorted(F.load_step_fixtures(str(_STEPS_DIR)))
@@ -164,16 +167,16 @@ class LangfuseDeployPlanTest(unittest.TestCase):
 
     def test_kind_order_and_counts_for_real_cases(self):
         cases = D.load_cases(_ROOT)
-        self.assertEqual(len(cases), EXPECTED_CASE_COUNT)
+        self.assertEqual(len(cases), EXPECTED_DATASET_CASE_COUNT)
         plan = D.build_plan(D._sample_report(), cases, run_name="run-check",
                             generated_at="2026-10-02T08:00:00Z")
         order = plan.kinds_in_order()
         self.assertEqual(order[0], "dataset")
         self.assertEqual(order[1], "ingestion")
         counts = plan.counts()
-        self.assertEqual(counts["total"], 2 + 2 * EXPECTED_CASE_COUNT)
-        self.assertEqual(counts["dataset_item"], EXPECTED_CASE_COUNT)
-        self.assertEqual(counts["dataset_run_item"], EXPECTED_CASE_COUNT)
+        self.assertEqual(counts["total"], 2 + 2 * EXPECTED_DATASET_CASE_COUNT)
+        self.assertEqual(counts["dataset_item"], EXPECTED_DATASET_CASE_COUNT)
+        self.assertEqual(counts["dataset_run_item"], EXPECTED_DATASET_CASE_COUNT)
 
     def test_endpoints_stay_in_whitelist(self):
         plan = D.build_plan(D._sample_report(), D.load_cases(_ROOT), run_name="run-check",
