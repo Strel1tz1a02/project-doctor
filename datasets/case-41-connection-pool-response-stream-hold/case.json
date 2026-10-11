@@ -1,0 +1,93 @@
+{
+  "case_id": "case-41-connection-pool-response-stream-hold",
+  "schema_version": "0.1",
+  "title": "导出接口在事务内把结果分块流式写入 HTTP 响应并受慢客户端背压阻塞，数据库连接在整段响应写出期间被占用导致连接池饥饿",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "connection_pool",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/export/chunked-stream 在并发请求下 P95 显著升高并频繁出现获取连接超时；接口在一个 @Transactional 方法内先用一条可走索引的查询取一批报表行，再在同一个事务边界内对每一行做固定规模的字段加工，并逐块写入 HTTP 响应的输出流、每块写出后立即 flush。当客户端消费较慢时，OutputStream 的写/flush 会被下游背压阻塞，而此写操作位于事务方法体内，数据库连接在整个响应写出期间一直被占用，持有时长≈客户端消费完整个响应所需的时长。池上限为 4，并发请求数达到池上限时全部连接都被这类长响应写出的请求占用，其余请求在获取连接处阻塞直至 connection-timeout(3000ms) 并失败；冷启动单请求（客户端消费快）可正常返回，仅并发升高且客户端偏慢时恶化。",
+    "endpoint": "GET /api/export/chunked-stream?chunks=8000",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/export/chunked-stream?chunks=8000 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "export_rows": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，export_rows=200000，segment 取自 5 个分区，amount 取自 [0,1000000)）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "connection_held_across_response_stream",
+      "mechanism": "streamChunked 被标注 @Transactional（默认 REQUIRED 传播），Spring 的 DataSourceTransactionManager 在事务开始时从连接池借出一个连接并绑定到当前线程，直至方法返回才归还。方法体内先用 exportRowMapper.findRows 做一次可走索引（ORDER BY id 走主键）的查询取回一批行，然后在同一事务边界内对每行执行 formatChunk 做固定规模 CPU 加工，并把结果逐块写入由控制器传入的 HttpServletResponse.getOutputStream()，每块写出后立即 flush。flush 会把数据推给客户端 socket，一旦客户端消费偏慢，socket 发送缓冲写满后 write/flush 即在阻塞的 I/O 上等待（下游背压）。关键点在于：这段可能被背压阻塞的响应写出发生在事务方法体内，数据库连接在整个响应写出期间都不会归还，单请求持有时长由客户端消费速度主导，而非数据库读写本身。池上限为 4，并发请求数达到池上限时全部连接都被这类长响应写出的请求占用，后续请求在 borrow 时阻塞直至 connection-timeout 抛『获取连接超时』。缺陷本质是『把可能被慢客户端长期阻塞的响应流写出整体放进了单个数据库事务，连接持有时长被响应写出时长拉长』，而非缺索引、SQL 变慢或 N+1（findRows 是一条可走索引的单表查询，循环内没有逐条回查），也非远程调用（循环内没有外部服务调用）。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/ChunkedExportService.java",
+          "line": 24,
+          "symbol": "streamChunked"
+        }
+      ],
+      "expected_fix": "把数据库事务的范围与响应写出解耦：不要在一个 @Transactional 方法内一边持有连接一边向慢客户端流式写响应。应先在一个短事务内把需要导出的数据一次性（或分批）读入内存/临时缓冲并立即归还连接，再到事务外执行响应的分块写出；或改用流式读取 + 事务外写出的结构（例如先提交事务再写响应），使单请求持有数据库连接的时长只包含真正的数据库读写，不含被客户端背压阻塞的响应写出耗时。",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/ChunkedExportService.java",
+        "line": 24,
+        "symbol": "streamChunked"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "连接池饥饿属并发窗口下的资源占用问题，且依赖客户端消费偏慢（背压），需在并发请求数达到或超过池上限（4）且客户端消费不足以跟上生产速度时多轮观测才稳定显现，单个冷请求（客户端消费快）不可见，结论依赖足够的并发度与压测窗口。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明根因不是缺索引、慢 SQL 或 N+1：findRows 是一条可走索引（ORDER BY id 走主键）的单表查询、循环内没有逐条回查，问题在『响应流写出（可能被慢客户端背压长期阻塞）被放在数据库事务边界内，导致连接的持有时长被响应写出时长主导』。量化需结合连接池活跃连接数与获取连接超时计数，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自常见的『导出/下载接口在数据库事务内一边持有连接一边向（可能很慢的）客户端分块流式写响应，连接被响应写出时长长期占用，并发下耗尽连接池』的 connection_pool 场景（上游许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『声明式事务覆盖含响应流写出的整段方法，连接持有时长等于响应写出时长』的调用链结构；逐行 formatChunk 用固定规模 CPU 计算模拟加工，逐块 flush 模拟向慢客户端写出的背压。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口与慢客户端，且当前 Agent 的问题类型仅支持 slow_query（Finding.verified_requires_structural_evidence 要求 kind==slow_query），无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。application.yml 中的 hikari.maximum-pool-size=4 与 connection-timeout=3000 为让占用可观测的环境参数，不是缺陷本身。上游许可证尚未核验，provenance.license 标注为「待核验」，不臆断。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "待核验"
+  }
+}

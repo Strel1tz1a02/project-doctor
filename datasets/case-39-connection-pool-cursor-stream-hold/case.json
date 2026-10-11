@@ -1,0 +1,93 @@
+{
+  "case_id": "case-39-connection-pool-cursor-stream-hold",
+  "schema_version": "0.1",
+  "title": "报表导出在事务内用 MyBatis 游标流式读取大结果集并逐行加工，数据库连接在整段流式遍历期间被占用导致连接池饥饿",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "connection_pool",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/reports/stream-export 在并发请求下 P95 显著升高并频繁出现获取连接超时；接口在一个 @Transactional 方法内以 MyBatis Cursor 流式读取一批报表行（单条查询，可走索引），并在 try-with-resources 的整个遍历过程中对每一行做较重的字段加工（固定规模 CPU 计算）。由于游标必须与当前绑定连接的 SqlSession 保持打开、而外层事务又覆盖了整个方法，连接在整段流式遍历期间一直被占用，持有时长≈行数×单行加工耗时。池上限为 4，当并发请求数达到池上限时全部连接都被这类长流式请求占用，其余请求在获取连接处阻塞直至 connection-timeout(3000ms) 并失败；冷启动单请求可正常返回，仅并发升高时恶化。",
+    "endpoint": "GET /api/reports/stream-export?limit=20000",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/reports/stream-export?limit=20000 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "report_rows": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，report_rows=200000，region 取自 5 个区域、metric 取自 5 个指标）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "cursor_stream_holds_connection",
+      "mechanism": "streamExport 被标注 @Transactional（默认 REQUIRED 传播），Spring 的 DataSourceTransactionManager 在事务开始时从连接池借出一个连接并绑定到当前线程，直至方法返回才归还。方法体内用 reportRowMapper.streamRows 打开一个 MyBatis Cursor（fetchSize=Integer.MIN_VALUE 的流式结果集），并在 try-with-resources 中对游标逐行迭代、对每一行执行 formatRow 做固定规模的 CPU 加工。流式游标要求底层 SqlSession/连接在其整个遍历期间保持打开，而事务又把整段遍历包了进来，于是该连接被占用的时长 ≈ 行数 × 单行加工耗时，远大于 connection-timeout(3000ms)。池上限为 4，并发请求数达到池上限时全部连接都被这类长流式请求长期占用，后续请求在 borrow 时阻塞直至 connection-timeout 抛『获取连接超时』。缺陷本质是『把一个耗时的、逐行处理的流式遍历整体放进了单个事务，导致连接持有时长被整段遍历拉长』，而非连接泄漏、SQL 变慢或缺索引（streamRows 是一条可走 idx_report_region_id 的单表查询，循环内也没有逐行回查）。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/ReportExportService.java",
+          "line": 23,
+          "symbol": "streamExport"
+        }
+      ],
+      "expected_fix": "缩短连接的持有范围：不要把整段游标遍历放进单个事务。可在事务内只取需要的数据或以分页短查询逐批读取（每批用一次短事务立即归还连接），把逐行加工移出事务边界；或改用非流式的分页查询（每页一次查询、加工在事务外进行），使单请求持有连接的时长只包含真正的数据库读写，不含逐行加工的耗时。",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/ReportExportService.java",
+        "line": 23,
+        "symbol": "streamExport"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "连接池饥饿属并发窗口下的资源占用问题，需在并发请求数达到或超过池上限（4）时多轮观测才稳定显现，单个冷请求不可见，结论依赖足够的并发度与压测窗口。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明根因不是任一条 SQL 变慢、缺索引或 N+1：streamRows 是一条可走 idx_report_region_id 的单表查询、循环内没有逐行回查，只是单请求连接被整段流式遍历占用。量化需结合连接池活跃连接数与获取连接超时计数，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自常见的『报表/导出服务在数据库事务内用 ORM 游标/流式读取大结果集并逐行处理，连接在整段遍历期间被占用，并发下耗尽连接池』的 connection_pool 场景（上游许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『声明式事务覆盖整段游标流式遍历，连接持有时长等于遍历时长』的调用链结构；逐行 formatRow 用固定规模 CPU 计算模拟耗时的字段加工。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口，且当前 Agent 的问题类型仅支持 slow_query（Finding.verified_requires_structural_evidence 要求 kind==slow_query），无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。application.yml 中的 hikari.maximum-pool-size=4 与 connection-timeout=3000 为让占用可观测的环境参数，不是缺陷本身。上游许可证尚未核验，provenance.license 标注为「待核验」，不臆断。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "待核验"
+  }
+}

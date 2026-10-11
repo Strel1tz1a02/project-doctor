@@ -1,0 +1,110 @@
+{
+  "case_id": "case-38-n-plus-one-repository-nested-commits",
+  "schema_version": "0.1",
+  "title": "仓库列表在嵌套循环中逐条查询提交与提交者导致 N+1 查询",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "n_plus_one",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/repositories/recent 在 2 万仓库 / 20 万提交 / 5 万提交者数据集下 P95 超过 200ms；接口需为最近仓库列表附带每个仓库的提交列表，并为每条提交附带提交者名称，实现先在仓库循环中对每个仓库查询一次提交列表，再在提交循环中对每条提交查询一次提交者名称，形成嵌套的 N+1（1+N+N×M）数据库往返，延迟随仓库数与每仓库提交数放大",
+    "endpoint": "GET /api/repositories/recent?size=20",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/repositories/recent?size=20 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "repositories": 20000,
+      "commits": 200000,
+      "committers": 50000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，committers=50000，repositories=20000，commits=200000（repository_id 均匀分布于 1..20000，committer_id 均匀分布于 1..50000））",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "n_plus_one",
+      "mechanism": "buildRepositories 先用一次查询取回 size 个仓库（1 次），再在仓库 for 循环中对每个仓库单独调用 findCommitsByRepositoryId(repository.getId())，形成 1+size 次数据库往返（N+1）；单条 findCommitsByRepositoryId 走 idx_commits_repository_id、执行计划无问题，开销来自调用次数随仓库数线性增长",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/RepositoryService.java",
+          "line": 29,
+          "symbol": "buildRepositories"
+        }
+      ],
+      "expected_fix": "改为批量查询：对 repository.getId() 收集后一次 findCommitsByRepositoryIds(List)（IN 查询），在内存中用 Map 按 repositoryId 分组回填，使提交列表的数据库往返降为 2 次",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d2",
+      "role": "secondary",
+      "kind": "n_plus_one",
+      "mechanism": "buildRepositories 在提交的内层 for 循环中对每条提交再次单独调用 findCommitterNameById(commit.getCommitterId())，形成嵌套放大（N×M）；它与 d1 同源、进一步放大查询次数（合计 1+N+N×M），本用例 primary 定位在外层仓库→提交列表查询",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/RepositoryService.java",
+          "line": 35,
+          "symbol": "buildRepositories"
+        }
+      ],
+      "expected_fix": "与 d1 一并批量化：对 committer_id 去重后一次 findCommitterNamesByIds(List)，在内存中用 Map 按 committerId 回填提交者名称，消除内层逐条往返",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/RepositoryService.java",
+        "line": 29,
+        "symbol": "buildRepositories"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 30,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明 N+1 的判定依据是『随列表页大小线性增长、并在嵌套循环中按每仓库提交数进一步放大的额外数据库往返次数』，而非任何单条 SQL 的执行计划（单条 findCommitsByRepositoryId 走 idx_commits_repository_id、findCommitterNameById 走 committers 主键）",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，n_plus_one 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明结论依赖列表页大小 size 与每仓库提交数：逐条查询的开销在 size 较小时可忽略，本用例以 size=20 触发，且为外层仓库→提交、内层提交→提交者两段嵌套循环（1+N+N×M）"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自常见的『仓库 / 项目列表 → 提交明细 → 提交者』逐层回查的 N+1 场景（上游许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『先取仓库列表，再在外层循环查提交列表、在内层循环查提交者』的嵌套 N+1 语义：primary 唯一（d1=buildRepositories@RepositoryService.java:29 的仓库→提交列表查询），内层提交→提交者查询列为 d2 secondary，合计 1+N+N×M。边界用例（问题类型 n_plus_one，等待 Agent 支持）：无法由单变量索引实验证实（单条查询均走主键 / 索引、执行计划无问题），且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 N+1 问题类型。上游许可证尚未核验，provenance.license 标注为「待核验」，不臆断。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "待核验"
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "case_id": "case-34-slow-query-implicit-type-conversion",
+  "schema_version": "0.1",
+  "title": "会员号列以数值参数比较触发隐式类型转换，VARCHAR 列上的索引失效导致 members 全表扫描",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/members/by-no?memberNo=100000001 在 30 万会员数据集下 P95 超过 200ms；members.member_no 为 VARCHAR(32) 且已建有单列索引 idx_members_member_no，但查询由 Java 侧以 long 参数绑定（JDBC 发送 BIGINT），MySQL 为完成比较会把 member_no 整列隐式转换为数值（DOUBLE），B-tree 索引无法用于「转换后的列」这一比较，优化器放弃该索引（EXPLAIN 为 ALL members、key=NULL），退化为全表扫描",
+    "endpoint": "GET /api/members/by-no?memberNo=100000001",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/members/by-no?memberNo=100000001 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "members": 300000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，members=300000，member_no 生成为 9 位纯数字字符串（100000001 起顺序编号），level 按权重分布：BRONZE≈40%、SILVER≈30%、GOLD≈20%、PLATINUM≈10%）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "implicit_type_conversion_index_drop",
+      "mechanism": "members.member_no 是 VARCHAR(32) 且建有索引 idx_members_member_no；查询条件 member_no = #{memberNo} 由 MyBatis 以 long 参数绑定（JDBC 发送 BIGINT）。MySQL 在比较字符串列与数值时，会按『类型转换规则』把整个字符串列转成 DOUBLE 再比较（而非把参数转成字符串），使列不再以原始值参与比较，member_no 上任何 B-tree 索引都无法用于该比较，优化器退化为全表扫描（EXPLAIN type=ALL、key=NULL）。缺陷本质是参数类型与列类型不匹配触发的隐式类型转换，而非缺索引或数据分布倾斜。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/MemberMapper.java",
+          "line": 12,
+          "symbol": "findByMemberNo"
+        }
+      ],
+      "expected_fix": "消除隐式类型转换：把查询参数类型改为 String（Java 侧传字符串，使 member_no 以 VARCHAR 参与比较，索引可被使用）；或在 SQL 中显式保持字符串语义（如 member_no = CAST(#{memberNo} AS CHAR)）。注意修复不是「为 member_no 再加索引」，索引已存在、失效来自转换。",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/MemberMapper.java",
+        "line": 12,
+        "symbol": "findByMemberNo"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 30,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "本用例属隐式类型转换导致的索引失效（VARCHAR 列与数值参数比较），索引已存在、失效来自参数类型不匹配；修复方式是改参数类型或显式字符串语义，而非补索引。平台唯一允许的单变量实验（variable=index，baseline vs candidate_index）对其收益的证实不稳定，期望结论只能为 lead。",
+      "必须声明根因判定依据是 EXPLAIN 的 type=ALL / key=NULL（索引存在但未被使用）与隐式类型转换行为，而非 duration_ms 单指标或 CPU/GC 等旁证。",
+      "必须声明诊断依赖 MySQL 的类型转换规则（字符串列与数值比较时把列转为数值），换库或改参数类型后行为会改变。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自 MySQL 隐式类型转换（字符串列与数值比较时将整列转为数值比较）导致既有索引失效的公开文档与社区案例（MySQL 官方文档《Type Conversion in Expression Evaluation》及大量社区报告；上游为公开数据库文档与行为说明，无独立代码许可证，provenance.license 标为「待核验」）。按数据集约定归一化为统一 Spring Boot + MyBatis + MySQL 骨架下的『参数类型与列类型不匹配 → 隐式转换 → 索引失效 → 全表扫描』可定位形态：唯一主缺陷 d1（MemberMapper.findByMemberNo，member_no VARCHAR = 数值参数）。边界用例（问题类型 slow_query，但为类型转换导致的索引失效）：无法由单变量索引实验稳定证实，期望整体 decision=lead 并显式声明限制。用于验证 Agent 在『索引存在但因类型转换失效』形态下的 EXPLAIN 取证与参数类型修正能力。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "待核验"
+  }
+}

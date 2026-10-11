@@ -354,7 +354,7 @@ _schema/case.schema.json
 
 - **D5 部署（就绪，待凭证执行）**：`langfuse_deploy.py` 已能离线产出**有序部署请求计划**
   （`dataset → ingestion → dataset-item → dataset-run-item`，含端点白名单与金标准不泄漏守卫），并生成 `replay.ps1` / `replay.sh`；
-  `langfuse_export.py` 备好摄入 JSON。**建 Dataset（32 用例）+ Dataset Run** 只需配好环境变量
+  `langfuse_export.py` 备好摄入 JSON。**建 Dataset（41 用例）+ Dataset Run** 只需配好环境变量
   （`LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`）后执行回放脚本，详见《步骤级评价与Langfuse接入-D5部署说明.md》。
 - **阶段三 · 在线只读接口（就绪）**：`interface_source.py` 已能生成只读请求计划（仅 `GET`/`HEAD` + `/api/read/` 前缀），
   越界方法/端点直接拒绝，并支持本地导出归一化为 `StepTrace` fixture；待执行侧确认接口形态后即可对接。
@@ -430,3 +430,33 @@ _schema/case.schema.json
 - 全量单测 **136 项全通过**（详见 §7）。
 
 > 边界重申：以上模块全部**零网络、零 SUT 调用**；回放脚本仅在**配好凭证后**由人手动执行，属「我方部署」动作，不是评测运行时行为。
+
+---
+
+## 12. 第三批扩容（数据集 32 → 41 用例）
+
+在前两批基础上，对前三类 `problem_kind`（`slow_query` / `n_plus_one` / `connection_pool`）各补 **3 例**，共 +9 例（`case-33`~`case-41`），数据集由 32 例扩至 **41 例**。口径沿用前两批：来源可公开追溯、支持在此基础上改编；**不做任何结构创新**（复用 `_template/` 与 13 字段 `case.json`、`project/` 标准布局，**不新增 fixture**，金标准 fixture 恒为 14）。
+
+### 12.1 落盘批次（每类 3 例、逐批自检）
+
+| 批次 | 用例目录 | 关键机制 |
+| --- | --- | --- |
+| `slow_query` | `case-33-slow-query-or-cross-column` / `case-34-slow-query-implicit-type-conversion` / `case-35-slow-query-charset-mismatch-join` | 跨列 OR 弃用索引 / 隐式类型转换 / 字符集不匹配 JOIN |
+| `n_plus_one` | `case-36-n-plus-one-product-category-brand` / `case-37-n-plus-one-section-course-resource` / `case-38-n-plus-one-repository-nested-commits` | `2N+1` / `2N+1` / `1+N+N×M` |
+| `connection_pool` | `case-39-connection-pool-cursor-stream-hold` / `case-40-connection-pool-hot-row-lock-hold` / `case-41-connection-pool-response-stream-hold` | 游标流式读 / 热点行 `FOR UPDATE` / 响应分块流式写 |
+
+9 例全部为 `boundary` / `medium` / `lead`（`n_plus_one` 与 `connection_pool` 在当前 Agent 契约下不含 `verified`），`evaluation.notes` 统一写「等待 Agent 支持 `problem_kind`」。
+
+### 12.2 索引与测试同步
+
+- `README.md` 索引表登记 `case-33`~`case-41`；`使用说明.md` / `数据集结构规范.md` / 本文件 / `方案.md` / `真实项目样例候选清单.md` 同步为 41 例口径。
+- `evaluation/test_followups.py` 数据集规模常量 `EXPECTED_DATASET_CASE_COUNT` 由 32 改为 **41**；`EXPECTED_FIXTURE_COUNT` 保持 **14** 不变。
+
+### 12.3 验收（41 例）
+
+- `python tools/validate_cases.py` → **41/41 通过**。
+- `python tools/isolation_guard.py` → **41/41 隔离合规**。
+- `python -B -m unittest discover -s evaluation` → **136 项全通过**。
+- `python -B -m unittest discover -s tools` → **53 项通过（skipped=1）**。
+
+第三批候选的上游来源与落盘映射见《真实项目样例候选清单.md》§八。第三批**未新增模块、未改动 FROZEN 清单**（仅数据集规模常量与文档同步），仍满足「零网络、零 SUT 调用」。

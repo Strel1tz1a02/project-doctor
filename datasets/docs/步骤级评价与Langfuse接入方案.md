@@ -2,7 +2,7 @@
 
 > 状态：**阶段一、二、三、四（脚手架）均已落地**。本文保留为设计稿；D1–D7 已确认并按建议执行，
 > 其中 **D5 经用户调整为我方负责部署**。逐文件的改动明细、验证方式与交接要点见
-> **《步骤级评价与Langfuse接入-交接说明.md》**（含追加轮次 §11）。数据集已扩充至 **32 个用例**；
+> **《步骤级评价与Langfuse接入-交接说明.md》**（含追加轮次 §11）。数据集已扩充至 **41 个用例**；
 > 阶段三 `interface_source.py`、阶段四 `model_judge.py`、D5 部署包 `langfuse_deploy.py` 均已就绪，
 > 待凭证 / 接口形态确认后执行真实对接。全量单测 **136 项通过**。
 > 目标读者：队长 / 组员 / 执行侧（A、B 线）。
@@ -296,7 +296,7 @@ verification           ← evaluate_evidence / finish_task (retest, restore)
 **阶段二 · Langfuse 离线回写**
 5. `langfuse_export.py`：把用例分（trace 级）+ 步骤分（observation 级）产出为 Langfuse 摄入 JSON；
    可选：用 Langfuse Python SDK 写入（需 project/keys）。✅ 已落地（离线产出）
-6. 建 Dataset（**32** 用例）与 Dataset Run，验证在 Langfuse UI 可见、可过滤。
+6. 建 Dataset（**41** 用例）与 Dataset Run，验证在 Langfuse UI 可见、可过滤。
    ✅ 已就绪：`langfuse_deploy.py` 离线产出有序部署请求计划（`dataset → ingestion → dataset-item → dataset-run-item`）+ `replay.ps1`/`replay.sh`，配好凭证即可执行（D5）。
 
 **阶段三 · 在线只读接口（"调用对方函数接口"）**

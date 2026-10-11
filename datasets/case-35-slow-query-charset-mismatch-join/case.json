@@ -1,0 +1,94 @@
+{
+  "case_id": "case-35-slow-query-charset-mismatch-join",
+  "schema_version": "0.1",
+  "title": "作者-文章 JOIN 两侧连接列字符集不一致（utf8mb4 与 utf8mb3）使 articles 侧索引失效，30 万行全表扫描",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/articles/by-author?authorCode=A000012 在 30 万文章 / 5 万作者数据集下 P95 超过 200ms；authors.author_code 为新建 utf8mb4 列，articles.author_code 是历史表遗留的 utf8mb3 列，两列虽同名同类型却字符集不同，JOIN 条件 a.author_code = au.author_code 需要先按字符集/排序规则把 utf8mb3 一侧转换后才能比较，被转换列 articles.author_code 上的 B-tree 索引无法用于该连接比较（EXPLAIN type=ALL、key=NULL），优化器对 articles 退化为全表扫描",
+    "endpoint": "GET /api/articles/by-author?authorCode=A000012",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/articles/by-author?authorCode=A000012 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "articles": 300000,
+      "authors": 50000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，authors=50000，author_code 生成为 A + 6 位零填充（A000001..A050000）；articles=300000，article_code 生成为 ART + 9 位零填充，author_code 在 A000001..A050000 间均匀随机）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "charset_mismatch_join_index_drop",
+      "mechanism": "authors.author_code 与 articles.author_code 上均建有单列索引，但两列字符集不同：authors 为 utf8mb4、articles 为历史遗留的 utf8mb3。JOIN 条件 a.author_code（utf8mb3）= au.author_code（utf8mb4）在比较时需按字符集/排序规则的 coercibility 规则先把 utf8mb3 一侧转换（转换后不再是列上的原始 B-tree 键值），articles.author_code 上的 idx_articles_author_code 因此无法用于该连接比较，优化器对 articles 退化为全表扫描（EXPLAIN type=ALL、key=NULL），对 30 万行逐行比较；WHERE au.author_code = ? 仍可走 authors 侧索引（故外层命中 1 行），瓶颈完全落在 articles 侧。缺陷本质是两侧连接列字符集（排序规则）不一致使被转换列索引失效，而非缺索引或数据分布倾斜。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/ArticleMapper.java",
+          "line": 14,
+          "symbol": "findByAuthorCode"
+        }
+      ],
+      "expected_fix": "消除连接列的字符集/排序规则不一致：把 articles.author_code 与 authors.author_code 统一为同一字符集与排序规则（例如都把 articles 侧迁移/改为 utf8mb4 utf8mb4_unicode_ci，或建表时显式指定一致字符集），使连接比较可直接在列上使用索引。注意修复不是「为 author_code 再加索引」，两侧索引均已存在，失效来自字符集不一致。",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/ArticleMapper.java",
+        "line": 14,
+        "symbol": "findByAuthorCode"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 30,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "本用例属连接列字符集/排序规则不一致导致的索引失效（utf8mb3 与 utf8mb4 比较需转换被转换列），两侧索引均已存在、失效来自列定义不一致；修复方式是统一字符集而非补索引。平台唯一允许的单变量实验（variable=index，baseline vs candidate_index）对其收益的证实不稳定，期望结论只能为 lead。",
+      "必须声明根因判定依据是 EXPLAIN 中 articles 的 type=ALL / key=NULL（索引存在但未被使用）与两侧连接列字符集不一致的事实，而非 duration_ms 单指标或 CPU/GC 等旁证。",
+      "必须声明诊断依赖两侧列的字符集/排序规则定义（换库、改列字符集或改 SQL 中显式 COLLATE 后行为会改变）。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自 MySQL 在比较字符集/排序规则不同的两列时按 coercibility 规则转换其中一侧、致被转换列索引失效的公开文档与社区案例（MySQL 官方文档《Collation Coercibility in Expressions》及大量「utf8mb3 与 utf8mb4 表 JOIN 索引失效」排障记录；上游为公开数据库文档与行为说明，无独立代码许可证，provenance.license 标为「待核验」）。按数据集约定归一化为统一 Spring Boot + MyBatis + MySQL 骨架下的『两侧连接列字符集不一致 → 被转换侧索引失效 → 全表扫描』可定位形态：唯一主缺陷 d1（ArticleMapper.findByAuthorCode，authors.author_code utf8mb4 与 articles.author_code utf8mb3 不一致）。边界用例（问题类型 slow_query，但为字符集不一致导致的索引失效）：无法由单变量索引实验稳定证实，期望整体 decision=lead 并显式声明限制。用于验证 Agent 在『索引存在但因字符集不一致失效』形态下的 EXPLAIN 取证与字符集统一建议能力。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "待核验"
+  }
+}

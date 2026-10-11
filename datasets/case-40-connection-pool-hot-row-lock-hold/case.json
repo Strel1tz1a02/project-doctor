@@ -1,0 +1,93 @@
+{
+  "case_id": "case-40-connection-pool-hot-row-lock-hold",
+  "schema_version": "0.1",
+  "title": "计数接口在事务内对同一热点行做 SELECT ... FOR UPDATE 悲观锁定并叠加逐次加工，事务排队期间各自持有连接导致连接池饥饿",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "connection_pool",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/counters/increment 在并发请求同一热点键（默认 CNT-1）时 P95 显著升高并频繁出现获取连接超时；接口在一个 @Transactional 方法内先对计数行执行 SELECT ... FOR UPDATE 取悲观排他锁，再做一段固定规模的字段加工（recomputeWindow）并写回。由于同一键上的事务彼此互斥，请求会串行排队；但每个已开启事务的请求都已从连接池借出并持有自己的连接，在等锁与加工期间都不会归还，持有时长≈等待时间+加工时间。池上限为 4，当并发请求数达到池上限且都打在同一热点键上时全部连接被占用，其余请求在获取连接处阻塞直至 connection-timeout(3000ms) 并失败；冷启动单请求可正常返回，仅并发升高时恶化。",
+    "endpoint": "GET /api/counters/increment?key=CNT-1",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/counters/increment?key=CNT-1 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "counters": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，counters=200000，key 形如 CNT-1..CNT-200000，value 取自 [0,100000)）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "hot_row_lock_holds_connection",
+      "mechanism": "incrementHot 被标注 @Transactional（默认 REQUIRED 传播），Spring 的 DataSourceTransactionManager 在事务开始时从连接池借出一个连接并绑定到当前线程，直至方法返回才归还。方法体内首先执行 counterMapper.lockByKey，即 SELECT value FROM counters WHERE counter_key = #{key} FOR UPDATE，对目标行加排他锁；随后在同一事务内做固定规模的 recomputeWindow 加工（约 4000 次整数运算）再 updateValue 写回。当并发请求都操作同一个热点键（CNT-1）时，它们在该行的排他锁上互斥排队，同一时刻只有一个事务能推进，其余事务在 lockByKey 处阻塞。关键在于：被阻塞的事务在此之前已经借出并持有自己的连接，在等待锁与执行加工期间连接都不会归还，单请求实际持有时长≈排在其前面的事务数×单次加工+等待时间。池上限为 4，并发请求数达到池上限且命中同一热点行时全部连接都被这类『持锁等待』请求占用，后续请求在 borrow 时阻塞直至 connection-timeout 抛『获取连接超时』。缺陷本质是『把一个对热点行的悲观排他锁串行化操作整体放进单个事务，并发下事务排队期间连接被连带占用』，而非缺索引（lockByKey 走唯一键 uk_counter_key 主键级等值定位）、也非逐行回查或远程调用（循环内既无逐条回查也无外部 I/O）。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/CounterService.java",
+          "line": 19,
+          "symbol": "incrementHot"
+        }
+      ],
+      "expected_fix": "缩短连接的持有范围并缩小锁的粒度：不要在事务内把『取锁 + 加工 + 写回』整体囊括并共享连接，可把固定规模的加工移出被锁保护的临界区（先读快照、在事务外计算、再用一次短事务原子更新），或改用乐观并发（版本号/条件更新）替代对热点行的悲观排他锁，避免同一热点键上的事务长时间排队并各自持有连接。",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/CounterService.java",
+        "line": 19,
+        "symbol": "incrementHot"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "n_plus_one", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "连接池饥饿属并发窗口下的资源占用问题，需在并发请求数达到或超过池上限（4）且命中同一热点键时多轮观测才稳定显现，单个冷请求不可见，结论依赖足够的并发度与压测窗口。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明根因不是缺索引、慢 SQL 或 N+1：lockByKey 是走唯一键 uk_counter_key 的单行等值定位，循环内既没有逐条回查也没有外部 I/O，问题在『热点行悲观锁串行化 + 事务内加工导致的连接持有时长』。量化需结合连接池活跃连接数与获取连接超时计数，仅凭 duration_ms 无法与锁等待本身完全区分。"
+    ]
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "改编自常见的『计数/序列/库存热点行更新使用 SELECT ... FOR UPDATE 悲观锁定，并在事务内附带其它处理，高并发下事务排队且各自占用连接，最终耗尽连接池』的 connection_pool 场景（上游许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『声明式事务内对热点行加排他锁 → 加工 → 写回，事务排队期间连接被连带占用』的调用链结构；recomputeWindow 用固定规模 CPU 计算模拟事务内加工耗时。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口，且当前 Agent 的问题类型仅支持 slow_query（Finding.verified_requires_structural_evidence 要求 kind==slow_query），无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。application.yml 中的 hikari.maximum-pool-size=4 与 connection-timeout=3000 为让占用可观测的环境参数，不是缺陷本身。上游许可证尚未核验，provenance.license 标注为「待核验」，不臆断。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-11",
+    "source": "adapted",
+    "license": "待核验"
+  }
+}
