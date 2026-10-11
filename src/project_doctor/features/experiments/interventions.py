@@ -2,8 +2,9 @@
 or arbitrary runtime toggles.
 
 ``IndexRecipe`` is the single-statement DDL the runtime applies to a database;
-``QueryShapeRecipe`` is the temporary, reversible runtime flag toggle used to prove
-an N+1 mechanism before the fix layer performs a permanent rewrite.
+``QueryShapeRecipe`` and ``PaginationRecipe`` are the temporary, reversible runtime
+flag toggles used to prove an N+1 or deep-pagination mechanism before the fix layer
+performs a permanent rewrite.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from dataclasses import dataclass
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _QUERY_SHAPE_STRATEGIES = {"batch_in", "joinedload", "selectinload"}
+_PAGINATION_STRATEGIES = {"keyset", "max_page_limit"}
 _RECIPE = re.compile(
     r"\ACREATE\s+(?P<unique>UNIQUE\s+)?INDEX\s+(?P<name>\w+)\s+ON\s+(?P<table>\w+)\s*"
     r"\(\s*(?P<columns>\w+(?:\s*,\s*\w+)*)\s*\)\Z",
@@ -119,3 +121,62 @@ def parse_query_shape_recipe(recipe: str) -> QueryShapeRecipe:
     if fields["baseline_value"] == fields["candidate_value"]:
         raise ValueError("query_shape baseline and candidate values must differ")
     return QueryShapeRecipe(strategy=strategy, **fields)
+
+
+@dataclass(frozen=True)
+class PaginationRecipe:
+    """A temporary, reversible runtime flag toggle proving a deep-pagination mechanism.
+
+    Toggles the demo's pagination branch (``offset`` vs ``keyset``) so the two
+    query shapes can be compared as a single-variable, symmetric, reversible change.
+    """
+
+    strategy: str
+    flag: str
+    baseline_value: str
+    candidate_value: str
+    sort_column: str
+    query_template: str
+
+
+def parse_pagination_recipe(recipe: str) -> PaginationRecipe:
+    """Accept exactly one JSON object describing a pagination flag toggle.
+
+    Unknown fields, a wrong strategy, missing values, or an unchanged flag are
+    rejected. The runtime applies ``baseline_value`` for the baseline level, sets
+    ``candidate_value`` for the candidate level, then restores ``baseline_value``.
+    """
+    text = recipe.strip()
+    if not text:
+        raise ValueError("pagination recipe is empty")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("pagination recipe must be a single JSON object") from exc
+    if not isinstance(data, dict):
+        raise ValueError("pagination recipe must be a JSON object")
+    if set(data) != {
+        "strategy",
+        "flag",
+        "baseline_value",
+        "candidate_value",
+        "sort_column",
+        "query_template",
+    }:
+        raise ValueError(
+            "pagination recipe must declare strategy/flag/baseline_value/"
+            "candidate_value/sort_column/query_template"
+        )
+    strategy = data["strategy"]
+    if strategy not in _PAGINATION_STRATEGIES:
+        raise ValueError("unsupported pagination strategy")
+    fields = {
+        name: data[name]
+        for name in ("flag", "baseline_value", "candidate_value", "sort_column", "query_template")
+    }
+    for name, value in fields.items():
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"pagination recipe field {name} must be a non-empty string")
+    if fields["baseline_value"] == fields["candidate_value"]:
+        raise ValueError("pagination baseline and candidate values must differ")
+    return PaginationRecipe(strategy=strategy, **fields)

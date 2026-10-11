@@ -1,4 +1,5 @@
 from project_doctor.features.diagnosis.compare import MeasurementPolicy
+from project_doctor.features.diagnosis.deep_pagination import check_deep_pagination
 from project_doctor.features.diagnosis.gates import evidence_refs
 from project_doctor.features.diagnosis.n_plus_one import check_n_plus_one
 from project_doctor.features.diagnosis.ports import EvidenceReader, VerifiedJsonReader
@@ -50,6 +51,10 @@ async def evaluate(
                         pass
         if spec is not None and spec.variable == "query_shape":
             findings = check_n_plus_one(
+                experiment, scenario, bundle.task.id, bundle.task.project.commit, policy
+            )
+        elif spec is not None and spec.variable == "pagination":
+            findings = check_deep_pagination(
                 experiment, scenario, bundle.task.id, bundle.task.project.commit, policy
             )
         else:

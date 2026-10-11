@@ -22,7 +22,7 @@ def experiment_input_digest(spec: ExperimentSpec) -> str:
 
 
 def needed_requests(spec: ExperimentSpec) -> int:
-    """One business request per repetition per level (baseline and candidate_index)."""
+    """One business request per repetition per level (baseline and its candidate level)."""
     warmup = spec.warmup.requests_per_level if spec.warmup else 0
     return (spec.repetitions + warmup) * len(spec.levels)
 

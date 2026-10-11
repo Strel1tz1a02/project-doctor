@@ -56,7 +56,7 @@ class ExperimentSpec(Contract):
     scenario_id: Identifier
     scenario_version: PositiveInt
     hypothesis_ids: Annotated[list[Identifier], Field(min_length=1, max_length=3)]
-    variable: Literal["index", "query_shape"]
+    variable: Literal["index", "query_shape", "pagination"]
     levels: tuple[Literal["baseline"], CandidateLevel]
     intervention_recipe_ref: Identifier
     repetitions: Annotated[int, Field(ge=3, strict=True)]
@@ -68,10 +68,12 @@ class ExperimentSpec(Contract):
 
     @model_validator(mode="after")
     def variable_matches_candidate_level(self) -> ExperimentSpec:
-        expected: CandidateLevel = (
-            "candidate_index" if self.variable == "index" else "candidate_batch"
-        )
-        if self.levels[1] != expected:
+        mapping: dict[Literal["index", "query_shape", "pagination"], CandidateLevel] = {
+            "index": "candidate_index",
+            "query_shape": "candidate_batch",
+            "pagination": "candidate_pagination",
+        }
+        if self.levels[1] != mapping[self.variable]:
             raise ValueError("experiment variable must match its candidate level")
         return self
 

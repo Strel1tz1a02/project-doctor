@@ -495,7 +495,8 @@
       "enum": [
         "baseline",
         "candidate_index",
-        "candidate_batch"
+        "candidate_batch",
+        "candidate_pagination"
       ],
       "title": "Level",
       "type": "string"

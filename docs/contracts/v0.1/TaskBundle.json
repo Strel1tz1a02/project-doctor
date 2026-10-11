@@ -387,6 +387,60 @@
       "title": "DatasetProfile",
       "type": "object"
     },
+    "DeepPaginationSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "const": "deep_pagination",
+          "default": "deep_pagination",
+          "title": "Kind",
+          "type": "string"
+        },
+        "strategy": {
+          "enum": [
+            "keyset",
+            "max_page_limit"
+          ],
+          "title": "Strategy",
+          "type": "string"
+        },
+        "query_template": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Query Template",
+          "type": "string"
+        },
+        "sort_column": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Sort Column",
+          "type": "string"
+        },
+        "code_location": {
+          "$ref": "#/$defs/CodeLocation"
+        },
+        "observed_offset": {
+          "minimum": 0,
+          "title": "Observed Offset",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "strategy",
+        "query_template",
+        "sort_column",
+        "code_location",
+        "observed_offset"
+      ],
+      "title": "DeepPaginationSpec",
+      "type": "object"
+    },
     "EvidenceRef": {
       "additionalProperties": false,
       "properties": {
@@ -627,7 +681,8 @@
         "variable": {
           "enum": [
             "index",
-            "query_shape"
+            "query_shape",
+            "pagination"
           ],
           "title": "Variable",
           "type": "string"
@@ -643,7 +698,8 @@
             {
               "enum": [
                 "candidate_index",
-                "candidate_batch"
+                "candidate_batch",
+                "candidate_pagination"
               ],
               "type": "string"
             }
@@ -791,6 +847,7 @@
           "enum": [
             "slow_query",
             "n_plus_one",
+            "deep_pagination",
             "unclassified"
           ],
           "title": "Kind",
@@ -868,13 +925,28 @@
         "fix_spec": {
           "anyOf": [
             {
-              "$ref": "#/$defs/BatchQuerySpec"
+              "discriminator": {
+                "mapping": {
+                  "deep_pagination": "#/$defs/DeepPaginationSpec",
+                  "n_plus_one": "#/$defs/BatchQuerySpec"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/BatchQuerySpec"
+                },
+                {
+                  "$ref": "#/$defs/DeepPaginationSpec"
+                }
+              ]
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Fix Spec"
         },
         "limitations": {
           "items": {
@@ -914,6 +986,7 @@
           "enum": [
             "slow_query",
             "n_plus_one",
+            "deep_pagination",
             "unclassified"
           ],
           "title": "Kind",
@@ -1325,7 +1398,8 @@
           "enum": [
             "baseline",
             "candidate_index",
-            "candidate_batch"
+            "candidate_batch",
+            "candidate_pagination"
           ],
           "title": "Level",
           "type": "string"
@@ -1497,7 +1571,8 @@
           "enum": [
             "baseline",
             "candidate_index",
-            "candidate_batch"
+            "candidate_batch",
+            "candidate_pagination"
           ],
           "title": "Level",
           "type": "string"
@@ -2235,7 +2310,8 @@
           "enum": [
             "baseline",
             "candidate_index",
-            "candidate_batch"
+            "candidate_batch",
+            "candidate_pagination"
           ],
           "title": "Level",
           "type": "string"

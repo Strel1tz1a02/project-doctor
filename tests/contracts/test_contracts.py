@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from project_doctor.entrypoints.settings import Settings
 from project_doctor.models.common import CodeLocation, EvidenceRef, Limits
+from project_doctor.models.deep_pagination import DeepPaginationSpec
 from project_doctor.models.experiment import ExperimentSpec, ReconcileResult
 from project_doctor.models.finding import Finding, Recommendation
 from project_doctor.models.hypothesis import HypothesisBatch
@@ -166,6 +167,61 @@ def test_n_plus_one_fix_spec_must_match_kind_and_mechanism() -> None:
     with pytest.raises(ValidationError, match="mechanism"):
         Finding.model_validate(
             {**n_plus_one, "recommendation": {**data["recommendation"], "mechanism": "joinedload"}}
+        )
+
+
+def test_pagination_experiment_uses_candidate_pagination_level() -> None:
+    data = copy.deepcopy(load_case()["spec"])
+    data["variable"] = "pagination"
+    data["levels"] = ["baseline", "candidate_pagination"]
+    spec = ExperimentSpec.model_validate(data)
+    assert spec.variable == "pagination"
+    assert spec.levels == ("baseline", "candidate_pagination")
+    invalid = copy.deepcopy(data)
+    invalid["levels"] = ["baseline", "candidate_batch"]
+    with pytest.raises(ValidationError, match="variable"):
+        ExperimentSpec.model_validate(invalid)
+
+
+def test_deep_pagination_spec_is_strict_and_enumerated() -> None:
+    location = load_case()["bundle"]["findings"][0]["code_locations"][0]
+    spec = DeepPaginationSpec(
+        strategy="keyset",
+        query_template="SELECT * FROM orders WHERE status = ? ORDER BY id LIMIT ? OFFSET ?",
+        sort_column="id",
+        code_location=CodeLocation.model_validate(location),
+        observed_offset=100000,
+    )
+    assert spec.kind == "deep_pagination"
+    for field, value in (("strategy", "seek"), ("extra_field", True)):
+        invalid = spec.model_dump()
+        invalid[field] = value
+        with pytest.raises(ValidationError):
+            DeepPaginationSpec.model_validate(invalid)
+
+
+def test_deep_pagination_fix_spec_must_match_kind_and_mechanism() -> None:
+    data = load_case()["bundle"]["findings"][0]
+    location = data["code_locations"][0]
+    spec = DeepPaginationSpec(
+        strategy="keyset",
+        query_template="SELECT * FROM orders WHERE status = ? ORDER BY id LIMIT ? OFFSET ?",
+        sort_column="id",
+        code_location=CodeLocation.model_validate(location),
+        observed_offset=100000,
+    )
+    with pytest.raises(ValidationError, match="kind"):
+        Finding.model_validate({**data, "fix_spec": spec.model_dump()})
+    deep = {
+        **data,
+        "kind": "deep_pagination",
+        "recommendation": {**data["recommendation"], "mechanism": "keyset"},
+        "fix_spec": spec.model_dump(),
+    }
+    Finding.model_validate(deep)
+    with pytest.raises(ValidationError, match="mechanism"):
+        Finding.model_validate(
+            {**deep, "recommendation": {**data["recommendation"], "mechanism": "max_page_limit"}}
         )
 
 

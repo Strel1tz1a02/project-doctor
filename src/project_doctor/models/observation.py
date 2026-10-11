@@ -16,8 +16,8 @@ from project_doctor.models.common import (
 )
 from project_doctor.models.lock import LockEvidence
 
-ExperimentLevel = Literal["baseline", "candidate_index", "candidate_batch"]
-CandidateLevel = Literal["candidate_index", "candidate_batch"]
+ExperimentLevel = Literal["baseline", "candidate_index", "candidate_batch", "candidate_pagination"]
+CandidateLevel = Literal["candidate_index", "candidate_batch", "candidate_pagination"]
 MetricName = Literal["duration_ms", "rows_examined", "rows_returned", "lock_wait_ms"]
 
 

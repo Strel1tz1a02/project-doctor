@@ -76,7 +76,7 @@ def build_server(workflows: ToolWorkflows, timeouts: dict[str, float]) -> FastMC
         scenario_version: int,
         spec: ExperimentSpec,
     ) -> ExperimentResult:
-        """Execute a persisted scenario under a single-variable index experiment, then restore."""
+        """Execute a persisted scenario under a single-variable experiment, then restore."""
         return await bounded(
             "run_experiment",
             workflows.run_experiment(

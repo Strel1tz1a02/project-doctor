@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MODULES = (
     "common",
     "dataset",
+    "deep_pagination",
     "environment",
     "errors",
     "experiment",

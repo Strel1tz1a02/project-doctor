@@ -17,6 +17,7 @@
       "enum": [
         "slow_query",
         "n_plus_one",
+        "deep_pagination",
         "unclassified"
       ],
       "title": "Kind",

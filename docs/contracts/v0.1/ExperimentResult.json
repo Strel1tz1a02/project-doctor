@@ -143,7 +143,8 @@
         "variable": {
           "enum": [
             "index",
-            "query_shape"
+            "query_shape",
+            "pagination"
           ],
           "title": "Variable",
           "type": "string"
@@ -159,7 +160,8 @@
             {
               "enum": [
                 "candidate_index",
-                "candidate_batch"
+                "candidate_batch",
+                "candidate_pagination"
               ],
               "type": "string"
             }
@@ -518,7 +520,8 @@
           "enum": [
             "baseline",
             "candidate_index",
-            "candidate_batch"
+            "candidate_batch",
+            "candidate_pagination"
           ],
           "title": "Level",
           "type": "string"
@@ -656,7 +659,8 @@
           "enum": [
             "baseline",
             "candidate_index",
-            "candidate_batch"
+            "candidate_batch",
+            "candidate_pagination"
           ],
           "title": "Level",
           "type": "string"
@@ -983,7 +987,8 @@
           "enum": [
             "baseline",
             "candidate_index",
-            "candidate_batch"
+            "candidate_batch",
+            "candidate_pagination"
           ],
           "title": "Level",
           "type": "string"

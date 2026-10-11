@@ -1,8 +1,8 @@
 # B → 修复层：数据交接格式
 
-日期：2026-10-10。
+日期：2026-10-10（N+1）；2026-10-11 追加深分页（问题四）。
 
-本文固化 N+1 查询诊断（问题二）诊断层与**问题修复层**之间的结构化数据交接格式。
+本文固化 N+1 查询诊断（问题二）与深分页诊断（问题四）的诊断层与**问题修复层**之间的结构化数据交接格式。
 它是 [N+1 诊断设计文档 §5](../../superpowers/specs/2026-10-10-n-plus-one-diagnosis-design.md)
 的落地契约，随代码实现同步维护；实现以 [models/n_plus_one.py](../../../src/project_doctor/models/n_plus_one.py)
 与 [models/finding.py](../../../src/project_doctor/models/finding.py) 为准。
@@ -18,14 +18,14 @@
 
 ## 2. 交接体 = `Finding` + `Recommendation` + `fix_spec`
 
-`Finding` 上新增可选字段 `fix_spec: BatchQuerySpec | None`。N+1 结论的完整交接体由三部分构成：
+`Finding` 上新增可选字段 `fix_spec: BatchQuerySpec | DeepPaginationSpec | None`（按 `kind` 判别联合）。N+1 结论的完整交接体由三部分构成：
 
 - `Finding`：诊断结论（kind / status / 证据 / 影响）。
 - `Recommendation`：修复动作与机制（可读 + 可枚举）。
 - `fix_spec`：`BatchQuerySpec`，修复层据此确定性改写的结构化目标。
 
 慢查询（`slow_query`）沿用其既有的 `Recommendation`（`mechanism="index_access_cost"`），
-`fix_spec` 为 `None`——本文只规范 N+1 的 `fix_spec` 交接。
+`fix_spec` 为 `None`——N+1 的 `fix_spec` 见 §3，深分页的见 §9。
 
 ## 3. `BatchQuerySpec`（`models/n_plus_one.py`）
 
@@ -159,3 +159,97 @@ class BatchQuerySpec(Contract):
 - 修复层**不能改写**诊断判据、测试数据或通过标准；只能回填复测三字段。
 - 交接体与 `Finding.evidence_refs` / `sql_call_ids` 可追溯：修复层复测对照必须引用同一场景、数据快照与提交。
 - `fix_spec` 为 `None` 时（`key_column` 无法提取或结论为 `unclassified`）不构成结构化交接，修复层不得凭自由文本改写。
+
+## 9. 深分页（问题四）交接
+
+深分页结论的交接体与 N+1 结构相同：`Finding(kind="deep_pagination")` + `Recommendation` +
+`fix_spec`（`DeepPaginationSpec`）。与 N+1 的区别仅在于 `fix_spec` 的具体类型与策略枚举
+（`keyset` / `max_page_limit`）；§7 的复测回填与 §8 的交接不变量**全部复用**。
+
+### 9.1 `DeepPaginationSpec`（`models/deep_pagination.py`）
+
+```python
+PaginationStrategy = Literal["keyset", "max_page_limit"]
+
+class DeepPaginationSpec(Contract):
+    kind: Literal["deep_pagination"] = "deep_pagination"
+    strategy: PaginationStrategy
+    query_template: Identifier          # 参数化深分页 SQL 模板（含 LIMIT ? OFFSET ?）
+    sort_column: Identifier             # keyset 稳定排序列，如 "id"
+    code_location: CodeLocation         # OFFSET 查询定义位置（mapper 方法）
+    observed_offset: NonNegativeInt     # 观测到的 OFFSET 值 M
+```
+
+| 字段 | 语义 | 约束 |
+|---|---|---|
+| `kind` | 固定 `deep_pagination`，与 `Finding.kind` 一致 | 校验器强制相等 |
+| `strategy` | 修复机制，枚举 `keyset` / `max_page_limit` | 未知值拒绝 |
+| `query_template` | 参数化深分页 SQL 模板（字面量归为 `?`，含 `LIMIT ? OFFSET ?`） | 由 `parameterize_sql` 或 `SqlCall.template_sql` 得到 |
+| `sort_column` | keyset 稳定排序列，来自 `ORDER BY` | 由模板 `ORDER BY <col>` 提取 |
+| `code_location` | OFFSET 查询的 SQL 定义位置（mapper 方法） | 来自 `SqlCall.code_location`，提交/路径/行可核验 |
+| `observed_offset` | 观测到的 OFFSET 值 M | 由 `normalized_sql` 的 LIMIT 子句提取 |
+
+### 9.2 完整交接 JSON 示例
+
+```json
+{
+  "id": "finding-<sha20>",
+  "task_id": "<task-id>",
+  "kind": "deep_pagination",
+  "status": "verified",
+  "scenario_id": "deep-pagination-orders-search",
+  "experiment_ids": ["<experiment-id>"],
+  "sql_call_ids": ["sql-<req>-page"],
+  "code_locations": [
+    { "commit": "<commit>", "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java", "line": 14 }
+  ],
+  "evidence_refs": ["<artifact-id>", "..."],
+  "excluded_explanations": ["<已排除解释>"],
+  "impact": {
+    "method": "intervention",
+    "latency_delta_ms": 90.0,
+    "affected_request_ids": ["<req>", "..."],
+    "shared_sql_call_ids": ["sql-<req>-page"],
+    "uncertainty": ["本次单变量 keyset 干预，仅证明 OFFSET 扫描量相关的耗时变化。"]
+  },
+  "recommendation": {
+    "action": "把 OFFSET 分页改为 keyset 分页（WHERE id > 上次值 ORDER BY id LIMIT ?），消除随页码线性增长的扫描-丢弃成本",
+    "mechanism": "keyset",
+    "conditions": ["排序列为 id", "须在 id 上有索引且值稳定单调", "服务端缓存游标并处理并列值"],
+    "costs": ["游标状态需随请求传递", "随机跳页需限制最大页"],
+    "validation_status": "expected_mechanism",
+    "measured_gain_percent": null
+  },
+  "fix_spec": {
+    "kind": "deep_pagination",
+    "strategy": "keyset",
+    "query_template": "SELECT * FROM orders WHERE status = ? ORDER BY id LIMIT ? OFFSET ?",
+    "sort_column": "id",
+    "code_location": {
+      "commit": "<commit>",
+      "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+      "line": 14
+    },
+    "observed_offset": 100000
+  },
+  "limitations": ["..."]
+}
+```
+
+### 9.3 临时干预 vs 永久改写
+
+| | `PaginationRecipe`（§4.1） | `DeepPaginationSpec`（本文） |
+|---|---|---|
+| 用途 | 实验运行时**临时、可逆**地切换分页形状，证明机制 | 交给修复层做**永久代码改写** |
+| 消费者 | 实验运行时（A 侧） | 问题修复层 |
+| 载体 | `features/experiments/interventions.py` | `models/deep_pagination.py` |
+
+二者字段同名（`strategy` / `sort_column` / `query_template`），但**不是**同一对象：配方用运行时开关
+（`flag` + 两个取值）翻转，`fix_spec` 描述最终要改写的代码目标。
+
+### 9.4 代码位置语义（诚实边界）
+
+`Finding.code_locations` 与 `fix_spec.code_location` 都取** OFFSET 查询的 SQL 定义位置**
+（mapper 方法），因为诊断层只能从 `SqlCall.code_location` 确知这一点。触发深翻页/页码映射的
+** Java 调用代码行**（如 `OrderService.java` 的 `offset = (page-1)*size`）诊断层不直接给出，
+由修复层按 mapper 方法**回溯**得到；该限制记录为一条 `limitation`。

@@ -152,6 +152,10 @@ class ToolWorkflows:
                     hypothesis.kind == "n_plus_one"
                     and hypothesis.explanation == "n_plus_one_batch"
                 )
+                or (
+                    hypothesis.kind == "deep_pagination"
+                    and hypothesis.explanation == "deep_pagination_keyset"
+                )
             )
             updated_hypotheses.append(
                 hypothesis.model_copy(

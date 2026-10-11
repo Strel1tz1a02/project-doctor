@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
@@ -15,6 +15,7 @@ from project_doctor.models.common import (
     ProblemKind,
     TaskStatus,
 )
+from project_doctor.models.deep_pagination import DeepPaginationSpec
 from project_doctor.models.n_plus_one import BatchQuerySpec
 
 
@@ -66,13 +67,16 @@ class Finding(Contract):
     excluded_explanations: list[ExcludedExplanation] = Field(default_factory=list)
     impact: Impact
     recommendation: Recommendation | None = None
-    fix_spec: BatchQuerySpec | None = None
+    fix_spec: Annotated[
+        BatchQuerySpec | DeepPaginationSpec | None,
+        Field(discriminator="kind"),
+    ] = None
     limitations: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def verified_requires_structural_evidence(self) -> Finding:
         if self.status == "verified" and (
-            self.kind not in {"slow_query", "n_plus_one"}
+            self.kind not in {"slow_query", "n_plus_one", "deep_pagination"}
             or not self.experiment_ids
             or not self.sql_call_ids
             or not self.code_locations
@@ -93,7 +97,7 @@ class Finding(Contract):
             self.recommendation is not None
             and self.recommendation.mechanism != self.fix_spec.strategy
         ):
-            raise ValueError("n_plus_one recommendation mechanism must match fix_spec strategy")
+            raise ValueError("recommendation mechanism must match fix_spec strategy")
         return self
 
 
