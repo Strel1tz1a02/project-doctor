@@ -46,8 +46,8 @@ _ROOT = _HERE.parent  # 数据集根 project-doctor/datasets/
 _STEPS_DIR = _HERE / "fixtures" / "steps"
 _RUN_BUNDLE_DIR = _HERE / "fixtures" / "run-bundle"
 
-# 数据集用例总数：随扩充增长（8 → 14 → 32 → 41）。
-EXPECTED_DATASET_CASE_COUNT = 41
+# 数据集用例总数：随扩充增长（8 → 14 → 32 → 41 → 43）。
+EXPECTED_DATASET_CASE_COUNT = 43
 # 冻结的金标准 fixture 数量：run-bundle / steps 各一份，保持 14 不变。
 EXPECTED_FIXTURE_COUNT = 14
 NEW_CASE_IDS = (
@@ -69,7 +69,7 @@ def _case_dirs() -> list[Path]:
 
 
 class DatasetExpansionTest(unittest.TestCase):
-    """数据集用例目录齐备 + schema 全绿（当前 41 例；含首轮 8→14 扩充）。"""
+    """数据集用例目录齐备 + schema 全绿（当前 43 例；含首轮 8→14 扩充）。"""
 
     def test_dataset_case_count_on_disk(self):
         dirs = _case_dirs()

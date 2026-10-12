@@ -217,6 +217,42 @@ class MultiRunAverageTest(unittest.TestCase):
         self.assertEqual(entry["reward"]["cost"]["cost_score"], 1.0)
         self.assertEqual(report["global"]["repeats_total"], 3)
 
+    def test_repeat_stability_fields_and_markdown_block(self):
+        """多次运行时逐用例暴露稳定性字段，且全局「版本稳定性」块与 md 同步。"""
+        import json
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bundles, cases = self._write_cases_root(root)
+            case = cases[0]
+            base = bundles[case["case_id"]]
+            run_good = {k: v for k, v in base.items() if k != "baseline"}
+            run_bad = json.loads(json.dumps(run_good))
+            run_bad["report"] = {}  # 空报告 → 该次判定不通过
+            bundle = {"baseline": base["baseline"],
+                      "runs": [run_good, run_bad, run_good]}
+            runs = root / "runs"
+            runs.mkdir()
+            (runs / f"{case['case_id']}.json").write_text(
+                json.dumps(bundle), encoding="utf-8")
+
+            report = R.run(runs, root / "out", cases_root=root, only_bundled=True)
+            md = (root / "out" / "report.md").read_text(encoding="utf-8")
+
+        entry = report["cases"][0]
+        self.assertEqual(entry["repeats"], 3)
+        self.assertAlmostEqual(entry["repeat_pass_rate"], 2 / 3, places=4)
+        self.assertFalse(entry["repeat_false_verified"])
+        self.assertIsNotNone(entry["reward_dispersion"])
+
+        stab = report["global"]["stability"]
+        self.assertEqual(stab["cases_multi_run"], 1)
+        self.assertEqual(stab["unstable_pass_cases"], [case["case_id"]])
+        self.assertIn("## 版本稳定性（多次运行）", md)
+        self.assertIn("结论不一致（重复通过率 < 100%）", md)
+
     def test_false_verified_in_any_run_triggers(self):
         bundles, cases = R._sample_bundles()
         case = cases[0]

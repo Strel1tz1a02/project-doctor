@@ -1,0 +1,100 @@
+{
+  "case_id": "case-42-slow-query-unattributable-gain",
+  "schema_version": "0.1",
+  "title": "报表聚合查询的候选复合索引在受控基线下增益低且基线波动过大，耗时变化无法归因",
+  "case_type": "boundary",
+  "difficulty": "hard",
+  "problem_kind": "slow_query",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/orders/report/aggregate 在生产库（约 500 万行）偶发 P95 超 2s；但在受控基线（固定 Random(42) 生成 20 万行）下重复运行，单次耗时离散度远超 25% 的可复现门槛，候选复合索引相对基线的耗时差低于声明阈值，无法把任何耗时变化归因到该索引。冷启动首次运行正常，仅在高负载/生产规模下偶发变慢。",
+    "endpoint": "GET /api/orders/report/aggregate?status=PAID&from=2025-01-01",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/orders/report/aggregate?status=PAID&from=2025-01-01 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "orders": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，orders=200000）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "unattributable_index_gain",
+      "mechanism": "疑似 orders(status, created_at) 缺失导致按 status 过滤后需要 filesort；但受控基线自身重复运行的离散度超过 25% 的可复现门槛，候选索引相对基线的耗时差低于声明的 min_improvement_percent，单变量实验无法把耗时变化稳定归因到该索引；生产与受控环境在数据规模、统计信息上的差异更可能解释生产的偶发高延迟。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/OrderReportMapper.java",
+          "line": 19,
+          "symbol": "aggregateByStatus"
+        }
+      ],
+      "expected_fix": "先在可复现的规模与统计信息下建立稳定基线，再决定是否新增索引；在无法建立可归因增益前，不应改动代码或新增索引",
+      "expected_status": "lead"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/OrderReportMapper.java",
+        "line": 19,
+        "symbol": "aggregateByStatus"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 50,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "受控基线的重复运行离散度超过 25% 的可复现门槛，不满足把耗时变化归因到候选索引的前提。",
+      "候选索引的实际收益依赖生产数据规模与统计信息，固定数据集下无法复现该规模效应，结论只能为 lead。",
+      "在无法建立可复现、可归因的增益前，正确行为是保持克制：不改动代码、不新增索引，并显式声明上述限制。"
+    ],
+    "repair": {
+      "expected_to_change": false
+    }
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified",
+      "repair_warranted",
+      "repair_target_hit",
+      "repair_restraint",
+      "gain_attributable"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "克制用例（expected.repair.expected_to_change=false）：考察 Agent 在证据不足、耗时变化无法归因时是否保持克制——期望结论 lead、显式声明限制，且不改动代码（不新增索引、不打补丁）。修复能力四项指标由运行包的 retest.repair 驱动：若 Agent 未尝试改动（attempted=false / patch_present=false），repair_warranted / repair_target_hit / repair_restraint / gain_attributable 均判为满足；一旦尝试改动即判负。单 primary 缺陷 boundary 用例，与 case-02（组合缺陷、期望 lead 但含可验证子缺陷）不同，本用例的核心语义是『不该改』。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-12",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

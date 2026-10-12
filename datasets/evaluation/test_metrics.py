@@ -10,13 +10,17 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
+from pathlib import Path
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+
+_ROOT = Path(_HERE).parent  # 数据集根 project-doctor/datasets/
 
 import contract as C  # noqa: E402
 from contract import (  # noqa: E402
@@ -650,6 +654,86 @@ class RepairCapabilityTest(unittest.TestCase):
         self.assertFalse(m["repair_restraint"])
         self.assertFalse(m["gain_attributable"])
         self.assertIn("repair_restraint", result.failed_gates())
+
+
+# --------------------------------------------------------------------------- #
+# P1 探针：真实落盘的「不该改」克制用例（case-42 / case-43）端到端断言
+# --------------------------------------------------------------------------- #
+
+class RealRestraintCasesProbeTest(unittest.TestCase):
+    """读盘断言两个克制用例：期望 lead + 未触碰代码 → 修复四项全满足且整体通过。
+
+    运行包不提供 ``retest`` 块（``retest.repair`` 缺失）时按「未尝试改动」处理，
+    这正是克制用例的预期形态；同时校验真实 ``case.json`` 的 ``expected.repair``
+    声明与 ``limitations_required`` 文本口径跟评测器的克制分支一致。
+    """
+
+    RESTRAINT_CASES = (
+        "case-42-slow-query-unattributable-gain",
+        "case-43-connection-pool-config-not-root-cause",
+    )
+
+    def _case(self, case_id: str) -> dict:
+        return json.loads((_ROOT / case_id / "case.json").read_text(encoding="utf-8"))
+
+    def _honest_report(self, case: dict) -> dict:
+        expected = Expected.from_case(case)
+        return {
+            "task": {"status": "completed"},
+            "findings": [{
+                "status": "lead",
+                "limitations": list(expected.limitations_required),
+                "excluded_explanations": [
+                    {"explanation": e} for e in expected.excluded_explanations
+                ],
+            }],
+        }
+
+    def test_restraint_cases_pass_with_all_repair_metrics_true(self):
+        for case_id in self.RESTRAINT_CASES:
+            with self.subTest(case_id=case_id):
+                case = self._case(case_id)
+                inp = EvalInput.from_raw(
+                    case, self._honest_report(case),
+                    trajectory={"required_steps_done": list(C.REQUIRED_STEPS),
+                                "hypothesis_count": 2,
+                                "experiments_single_variable": True,
+                                "records_retained": True},
+                    retest=None,
+                    artifacts=[{"ref": "artifact://plan-1.json",
+                                "sha256_verified": True, "readable": True}],
+                    restore={"rolled_back": True, "verified": True},
+                    cost={"wall_seconds": 42.0, "tool_calls": 17, "artifact_bytes": 2048},
+                )
+                result = evaluate_case(inp)
+                m = result.score_map()
+                self.assertTrue(m["repair_warranted"], case_id)
+                self.assertTrue(m["repair_target_hit"], case_id)
+                self.assertTrue(m["repair_restraint"], case_id)
+                self.assertTrue(m["gain_attributable"], case_id)
+                self.assertTrue(result.passed, (case_id, result.failed_gates()))
+
+    def test_unexpected_patch_on_real_case_fails(self):
+        """同一真实用例：一旦 Agent 尝试改动，修复四项应判负且整体不通过。"""
+        case_id = self.RESTRAINT_CASES[0]
+        case = self._case(case_id)
+        inp = EvalInput.from_raw(
+            case, self._honest_report(case),
+            trajectory={"required_steps_done": list(C.REQUIRED_STEPS),
+                        "records_retained": True},
+            retest={"performed": True, "improvement_percent": 5.0,
+                    "business_assertions_passed": True,
+                    "repair": {"attempted": True, "patch_present": True,
+                               "patch_files": [{"path": "src/main/java/X.java", "line": 1}],
+                               "gain_attributable": True}},
+            artifacts=[], restore={}, cost={},
+        )
+        result = evaluate_case(inp)
+        m = result.score_map()
+        self.assertFalse(m["repair_warranted"])
+        self.assertFalse(m["repair_target_hit"])
+        self.assertFalse(m["repair_restraint"])
+        self.assertFalse(result.passed)
 
 
 if __name__ == "__main__":

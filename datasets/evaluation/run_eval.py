@@ -406,6 +406,65 @@ def _metric_values(results: list[CaseResult], metric: str) -> list[float]:
     return [float(r.score_map()[metric]) for r in results if metric in r.score_map()]
 
 
+def repeat_stats(results: list[CaseResult]) -> dict[str, Any]:
+    """汇总同一用例多次运行的稳定性（**在合并前**对原始逐次结果计算）。
+
+    与「取平均合并为一条用例结果」互补：合并回答「这次运行整体打几分」，
+    本函数回答「同一用例重复跑，结论稳不稳」。三个信号：
+
+    - ``repeat_pass_rate``：N 次运行中整体通过的占比（1.0 = 每次都通过）；
+    - ``repeat_false_verified``：任一次出现误验证即 True（与合并口径一致的零容忍）；
+    - ``reward_dispersion``：各次总分 ``total`` 的相对离散度 ``(max-min)/median``；
+      单次运行无波动可言，返回 ``None``（而非 0，避免与「稳定」混淆）。
+    """
+    n = len(results)
+    if n == 0:
+        return {"repeat_pass_rate": None, "repeat_false_verified": False,
+                "reward_dispersion": None}
+    totals = [float(r.reward["total"]) for r in results
+              if r.reward.get("total") is not None]
+    dispersion = None
+    if len(totals) >= 2:
+        med = _median(totals)
+        dispersion = _round((max(totals) - min(totals)) / med) if med else None
+    return {
+        "repeat_pass_rate": _round(sum(1 for r in results if r.passed) / n),
+        "repeat_false_verified": any(
+            r.score_map().get("false_verified") is True for r in results),
+        "reward_dispersion": dispersion,
+    }
+
+
+def _stability_summary(cases_out: list[dict[str, Any]],
+                       threshold: float = RETEST_DISPERSION_THRESHOLD) -> dict[str, Any]:
+    """由逐用例条目汇总「版本稳定性」块（跨重复运行）。
+
+    缺失 ``repeat_*`` 字段的用例（旧报告或单次运行）按「无波动信息」处理，
+    不计入多次运行统计。
+    """
+    multi = [c for c in cases_out if int(c.get("repeats", 1)) >= 2]
+    rates = [float(c["repeat_pass_rate"]) for c in multi
+             if c.get("repeat_pass_rate") is not None]
+    dispersions = [float(c["reward_dispersion"]) for c in multi
+                   if c.get("reward_dispersion") is not None]
+    return {
+        "cases_total": len(cases_out),
+        "cases_multi_run": len(multi),
+        "runs_total": sum(int(c.get("repeats", 1)) for c in cases_out),
+        "mean_repeat_pass_rate": _round(_mean(rates)) if rates else None,
+        "max_reward_dispersion": _round(max(dispersions)) if dispersions else None,
+        "dispersion_threshold": threshold,
+        "unstable_pass_cases": [c["case_id"] for c in multi
+                                if c.get("repeat_pass_rate") is not None
+                                and float(c["repeat_pass_rate"]) < 1.0],
+        "over_dispersion_cases": [c["case_id"] for c in multi
+                                  if c.get("reward_dispersion") is not None
+                                  and float(c["reward_dispersion"]) > threshold],
+        "repeat_false_verified_cases": [c["case_id"] for c in cases_out
+                                        if c.get("repeat_false_verified")],
+    }
+
+
 def aggregate(results: list[CaseResult]) -> dict[str, Any]:
     """按《Agent 评估方法》的维度聚合逐用例结果。"""
     by_type: dict[str, list[CaseResult]] = {}
@@ -646,6 +705,8 @@ def run(runs_dir: Path, out_dir: Path,
         case_entry["repeats"] = len(run_results)
         case_entry["repeat_totals"] = [
             r.reward.get("total") for r in run_results]
+        # 稳定性信号在「合并前」由逐次结果算出（见 repeat_stats）。
+        case_entry.update(repeat_stats(run_results))
         cases_out.append(case_entry)
 
     # 第七步：聚合 + 全局门槛
@@ -656,6 +717,7 @@ def run(runs_dir: Path, out_dir: Path,
     overall_passed = gate_passed and all_passed and not missing
     repeats_total = sum(int(c.get("repeats", 1)) for c in cases_out)
     mean_repeats = _round(_mean([float(c.get("repeats", 1)) for c in cases_out]))
+    stability = _stability_summary(cases_out)
 
     report = {
         "manifest": manifest,
@@ -681,6 +743,7 @@ def run(runs_dir: Path, out_dir: Path,
             "overall_passed": overall_passed,
             "repeats_total": repeats_total,
             "mean_repeats_per_case": mean_repeats,
+            "stability": stability,
         },
         "cases": cases_out,
         "aggregate": agg,
@@ -761,18 +824,20 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     # 逐用例
     lines.append("## 逐用例结果")
     lines.append("")
-    lines.append("| 用例 | 类型 | 通过 | 结论 | 召回 | 定位命中 | 失败闸门 | 基线可复现 | 总分 |")
-    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    lines.append("| 用例 | 类型 | 通过 | 结论 | 召回 | 定位命中 | 失败闸门 | 基线可复现 | 重复通过率 | 总分波动 | 总分 |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for case in report["cases"]:
         scores = {s["name"]: s["value"] for s in case["scores"]}
         lines.append(
-            "| {cid} | {ctype} | {passed} | {decision} | {recall} | {hit} | {gates} | {base} | {total} |".format(
+            "| {cid} | {ctype} | {passed} | {decision} | {recall} | {hit} | {gates} | {base} | {rrate} | {disp} | {total} |".format(
                 cid=case["case_id"], ctype=case["case_type"], passed=_fmt(case["passed"]),
                 decision=_fmt(scores.get("decision_match")),
                 recall=_fmt(scores.get("root_cause_recall")),
                 hit=_fmt(scores.get("code_location_hit")),
                 gates=", ".join(case["failed_gates"]) or "—",
                 base=_fmt((case.get("baseline") or {}).get("reproducible")),
+                rrate=_pct(case.get("repeat_pass_rate")),
+                disp=_fmt(case.get("reward_dispersion")),
                 total=_fmt((case.get("reward") or {}).get("total")),
             ))
     lines.append("")
@@ -806,6 +871,24 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     lines.append(f"| 成本 | 成本合规得分均值（0–1） | {_fmt(cost.get('cost_score_mean'))} |")
     lines.append(f"| 成本 | 超预算用例数 | {cost.get('budget_exceeded_count', 0)} |")
     lines.append("")
+
+    # 版本稳定性（同一用例多次运行；缺 repeat_* 的旧报告或无多次运行时整块省略）
+    stab = (report.get("global") or {}).get("stability") or {}
+    if stab and stab.get("cases_multi_run"):
+        lines.append("## 版本稳定性（多次运行）")
+        lines.append("")
+        lines.append(f"- 多次运行的用例：{stab.get('cases_multi_run', 0)}/{stab.get('cases_total', 0)}"
+                     f"（合计 {stab.get('runs_total', 0)} 次运行）")
+        lines.append(f"- 平均重复通过率：{_pct(stab.get('mean_repeat_pass_rate'))}"
+                     f"；最大总分波动：{_fmt(stab.get('max_reward_dispersion'))}"
+                     f"（阈值 {_pct(stab.get('dispersion_threshold'))}）")
+        unstable = stab.get("unstable_pass_cases") or []
+        over = stab.get("over_dispersion_cases") or []
+        fv = stab.get("repeat_false_verified_cases") or []
+        lines.append(f"- 结论不一致（重复通过率 < 100%）：{', '.join(unstable) or '无'}")
+        lines.append(f"- 总分波动超阈：{', '.join(over) or '无'}")
+        lines.append(f"- 任一次误验证（false_verified）：{', '.join(fv) or '无'}")
+        lines.append("")
 
     # 步骤级归因（白盒层，D4：仅供归因，不进 group_scores / total_score，不改通过判定）
     st = agg.get("step") or {}
