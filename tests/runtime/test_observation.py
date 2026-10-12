@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from project_doctor.integrations.observation.plans import PlanEstimate, attach_plan, parse_plan
+from project_doctor.integrations.observation.plans import (
+    PlanEstimate,
+    all_filtered,
+    attach_plan,
+    parse_plan,
+)
 from project_doctor.integrations.observation.reference import CodeReference, attach_code_location
 from project_doctor.models.observation import SqlCall
 
@@ -69,6 +74,81 @@ def test_parse_plan_reads_v2_table_scan_under_filter() -> None:
     assert parse_plan(plan, "plan-evidence-5") == PlanEstimate(
         access_type="ALL", estimated_rows=10000, key_used=None, evidence_id="plan-evidence-5"
     )
+
+
+def test_parse_plan_reads_filtered_selectivity() -> None:
+    plan = {
+        "query_block": {
+            "table": {"access_type": "ref", "rows_examined_per_scan": 100, "key": "idx",
+                      "filtered": 80.0}
+        }
+    }
+    assert parse_plan(plan, "plan-evidence-6").filtered == 80.0
+
+
+def test_parse_plan_reads_filtered_from_numeric_string() -> None:
+    plan = {"query_block": {"table": {"filtered": "80.00"}}}
+    assert parse_plan(plan, "plan-evidence-7").filtered == 80.0
+
+
+def test_parse_plan_filtered_missing_is_none() -> None:
+    plan = {"query_block": {"table": {"access_type": "ALL"}}}
+    assert parse_plan(plan, "plan-evidence-8").filtered is None
+
+
+def test_parse_plan_reads_v2_filtered() -> None:
+    plan = {
+        "json_schema_version": "2.0",
+        "query_plan": {
+            "operation": "Filter",
+            "inputs": [
+                {"operation": "Table scan on t", "access_type": "table", "filtered": 80.0}
+            ],
+        },
+    }
+    assert parse_plan(plan, "plan-evidence-9").filtered == 80.0
+
+
+# --- all_filtered (every joined table, not just the first) ------------------
+
+
+def test_all_filtered_collects_v1_single_and_list_tables() -> None:
+    assert all_filtered({"query_block": {"table": {"filtered": 30.0}}}) == [30.0]
+    assert all_filtered(
+        {"query_block": {"table": [{"filtered": 40.0}, {"filtered": 50.0}]}}
+    ) == [40.0, 50.0]
+
+
+def test_all_filtered_collects_every_joined_table_v1() -> None:
+    plan = {
+        "query_block": {
+            "nested_loop": [
+                {"table": {"table_name": "orders", "filtered": 20.0}},
+                {"table": {"table_name": "users", "filtered": 90.0}},
+            ]
+        }
+    }
+    assert sorted(all_filtered(plan)) == [20.0, 90.0]
+
+
+def test_all_filtered_walks_whole_v2_tree() -> None:
+    plan = {
+        "json_schema_version": "2.0",
+        "query_plan": {
+            "operation": "Filter",
+            "filtered": 90.0,
+            "inputs": [
+                {"operation": "Table scan on t", "access_type": "table", "filtered": 10.0}
+            ],
+        },
+    }
+    assert sorted(all_filtered(plan)) == [10.0, 90.0]
+
+
+def test_all_filtered_ignores_missing_or_non_numeric() -> None:
+    assert all_filtered({}) == []
+    assert all_filtered({"query_block": {"table": {"access_type": "ALL"}}}) == []
+    assert all_filtered({"query_block": {"nested_loop": [{"table": {"filtered": True}}]}}) == []
 
 
 # --- plan evidence attachment -----------------------------------------------

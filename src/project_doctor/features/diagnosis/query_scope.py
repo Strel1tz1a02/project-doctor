@@ -11,6 +11,8 @@ _COUNT = re.compile(
     re.IGNORECASE,
 )
 
+_LIKE_COLUMN = re.compile(r"`?([A-Z0-9_]+)`?\s+LIKE", re.IGNORECASE)
+
 
 def already_covering_count(calls: list[SqlCall], plans: dict[str, dict[str, Any]]) -> bool:
     """Only single-table equality COUNT with verified, existing covering ref access.
@@ -52,18 +54,36 @@ def scope_limitations(templates: list[str]) -> list[str]:
         "索引收益依赖被查询的过滤值：高占比取值下优化器可能仍走全表扫描，收益不稳定；"
         "本次没有改变状态分布倾斜比例，不能外推其他取值。",
     ]
+    like_column: str | None = None
+    like_match = _LIKE_COLUMN.search(sql)
+    if like_match is not None:
+        like_column = like_match.group(1).lower()
     if "COUNT(" in sql or "COUNT (" in sql:
         notes.append(
             "COUNT(*) 的耗时贡献未通过单独删除或改写计数查询的实验证实；"
             "计数是否冗余取决于业务用途，不能由索引实验推断。"
         )
     if "LIKE" in sql:
-        notes.append("LIKE 前导通配符可能限制普通索引收益；本次未单独改写 LIKE，不能证实该根因。")
+        notes.append(
+            f"{like_column or '列'} 前导通配符 LIKE '%…%' 可能限制普通索引收益；"
+            "本次未单独改写 LIKE，不能证实该根因。"
+        )
     if len(templates) > 2:
         notes.append("多条查询可能涉及 N+1，但本次未单独改变调用次数，不能证实 N+1 根因。")
     if "LIMIT" in sql:
         notes.append(
             "深分页未通过改变 offset 或分页方式的单变量实验单独证实；"
-            "分页与 COUNT 的耗时结论依赖数据规模及 offset 大小。"
+            "分页与 COUNT 的耗时结论依赖数据规模与 offset 大小。"
         )
+    unproven: list[str] = []
+    if "LIKE" in sql:
+        unproven.append(f"{like_column or 'LIKE'} 前导通配符")
+    if "COUNT(" in sql or "COUNT (" in sql:
+        unproven.append("COUNT")
+    if len(templates) > 2:
+        unproven.append("N+1")
+    if "LIMIT" in sql:
+        unproven.append("深分页")
+    if len(unproven) >= 2:
+        notes.append("、".join(unproven) + " 等候选根因未能在单变量索引实验下证实。")
     return notes

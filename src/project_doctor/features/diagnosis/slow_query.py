@@ -5,9 +5,37 @@ from typing import Any, Literal
 from project_doctor.features.diagnosis.compare import MeasurementPolicy, distinguishable, stable
 from project_doctor.features.diagnosis.gates import evidence_refs, experiment_failures
 from project_doctor.features.diagnosis.query_scope import already_covering_count, scope_limitations
+from project_doctor.integrations.observation.plans import all_filtered
 from project_doctor.models.experiment import ExperimentResult
 from project_doctor.models.finding import ExcludedExplanation, Finding, Impact, Recommendation
 from project_doctor.models.scenario import Scenario
+
+# A single-value index experiment cannot prove a stable gain when the filtered value is
+# low-selectivity (a large share of rows match). MySQL's ``filtered`` (0-100) expresses
+# that share; above this threshold the optimizer may still full-scan, so ``verified`` is
+# withheld. 50 separates a uniform 20% filter (case-01) from an 80%-skewed one (case-05).
+SELECTIVITY_THRESHOLD_PERCENT = 50.0
+
+
+def _low_selectivity(
+    calls: list[Any],
+    plans: dict[str, dict[str, Any]],
+    threshold: float = SELECTIVITY_THRESHOLD_PERCENT,
+) -> bool:
+    """True when any cited plan shows a low-selectivity filter (``filtered`` ∈ [threshold, 100)).
+
+    ``filtered == 100`` means no WHERE filtering at all and is excluded: a pure
+    ``ORDER BY`` gain is a different situation, not a skewed-filter case. Every table of
+    a joined plan is inspected, not just the first.
+    """
+    for call in calls:
+        for plan_id in call.plan_evidence_ids:
+            raw = plans.get(plan_id)
+            if not isinstance(raw, dict):
+                continue
+            if any(threshold <= filtered < 100.0 for filtered in all_filtered(raw)):
+                return True
+    return False
 
 
 def check_slow_query(
@@ -105,8 +133,16 @@ def check_slow_query(
             status = "lead"
             reasons = list(insufficient)
         elif rows_decreased and duration_effect:
-            status = "verified"
-            reasons = []
+            if _low_selectivity(relevant, verified_plans or {}):
+                status = "lead"
+                reasons = [
+                    "扫描工作量与 SQL 耗时虽下降，但执行计划显示过滤选择性过低"
+                    f"（filtered ≥ {SELECTIVITY_THRESHOLD_PERCENT:.0f}%），高占比取值下优化器"
+                    "可能仍走全表扫描，单值实验的收益不稳定，不能证实索引机制。"
+                ]
+            else:
+                status = "verified"
+                reasons = []
         elif not rows_decreased:
             if (
                 rows_available

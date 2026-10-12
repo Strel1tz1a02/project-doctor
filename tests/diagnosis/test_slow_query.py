@@ -207,3 +207,103 @@ def test_count_negative_requires_covering_plan_and_unchanged_actual_work(
     )
     assert findings[0].status == ("unclassified" if condition == "covered" else "lead")
     assert any("COUNT" in note for note in findings[0].limitations)
+
+
+def _selectivity_plans(bundle: TaskBundle, filtered: float) -> dict[str, dict[str, object]]:
+    return {
+        key: {
+            "query_block": {
+                "table": {
+                    "table_name": "orders",
+                    "access_type": "ref",
+                    "key": "idx",
+                    "filtered": filtered,
+                }
+            }
+        }
+        for item in bundle.experiments[0].observations
+        for call in item.sql_calls
+        for key in call.plan_evidence_ids
+    }
+
+
+def test_low_selectivity_plan_downgrades_verified_to_lead(bundle: TaskBundle) -> None:
+    add_spec(bundle)
+    result = check_slow_query(
+        bundle.experiments[0],
+        bundle.scenarios[0],
+        bundle.task.id,
+        bundle.task.project.commit,
+        verified_plans=_selectivity_plans(bundle, 80.0),
+    )
+    assert result[0].status == "lead"
+    assert any("选择性" in note for note in result[0].limitations)
+
+
+def test_high_selectivity_plan_preserves_verified(bundle: TaskBundle) -> None:
+    add_spec(bundle)
+    result = check_slow_query(
+        bundle.experiments[0],
+        bundle.scenarios[0],
+        bundle.task.id,
+        bundle.task.project.commit,
+        verified_plans=_selectivity_plans(bundle, 20.0),
+    )
+    assert result[0].status == "verified"
+
+
+def _join_selectivity_plans(
+    bundle: TaskBundle, driving_filtered: float, joined_filtered: float
+) -> dict[str, dict[str, object]]:
+    return {
+        key: {
+            "query_block": {
+                "nested_loop": [
+                    {
+                        "table": {
+                            "table_name": "orders",
+                            "access_type": "ref",
+                            "key": "idx",
+                            "filtered": driving_filtered,
+                        }
+                    },
+                    {
+                        "table": {
+                            "table_name": "users",
+                            "access_type": "ref",
+                            "key": "idx2",
+                            "filtered": joined_filtered,
+                        }
+                    },
+                ]
+            }
+        }
+        for item in bundle.experiments[0].observations
+        for call in item.sql_calls
+        for key in call.plan_evidence_ids
+    }
+
+
+def test_join_low_selectivity_on_secondary_table_downgrades_verified(bundle: TaskBundle) -> None:
+    add_spec(bundle)
+    result = check_slow_query(
+        bundle.experiments[0],
+        bundle.scenarios[0],
+        bundle.task.id,
+        bundle.task.project.commit,
+        verified_plans=_join_selectivity_plans(bundle, driving_filtered=10.0, joined_filtered=80.0),
+    )
+    assert result[0].status == "lead"
+    assert any("选择性" in note for note in result[0].limitations)
+
+
+def test_join_high_selectivity_on_every_table_preserves_verified(bundle: TaskBundle) -> None:
+    add_spec(bundle)
+    result = check_slow_query(
+        bundle.experiments[0],
+        bundle.scenarios[0],
+        bundle.task.id,
+        bundle.task.project.commit,
+        verified_plans=_join_selectivity_plans(bundle, driving_filtered=10.0, joined_filtered=20.0),
+    )
+    assert result[0].status == "verified"

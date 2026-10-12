@@ -18,9 +18,24 @@ class PlanEstimate:
     estimated_rows: int | None
     key_used: str | None
     evidence_id: str
+    filtered: float | None = None
 
 
 _V2_ACCESS_TYPE = {"table": "ALL"}  # v2 "table" scan == v1 "ALL" full scan
+
+
+def _as_number(value: Any) -> float | None:
+    """Coerce MySQL ``filtered`` (0-100) from int/float/numeric-string, else ``None``."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def parse_plan(plan: dict[str, Any], evidence_id: str) -> PlanEstimate:
@@ -41,6 +56,7 @@ def parse_plan(plan: dict[str, Any], evidence_id: str) -> PlanEstimate:
         estimated_rows=int(rows) if isinstance(rows, (int, float)) else None,
         key_used=key_used if isinstance(key_used, str) else None,
         evidence_id=evidence_id,
+        filtered=_as_number(table.get("filtered")),
     )
 
 
@@ -61,6 +77,48 @@ def _first_table_node(plan: dict[str, Any]) -> dict[str, Any]:
     if isinstance(table, list):
         table = table[0] if table else None
     return table if isinstance(table, dict) else {}
+
+
+def all_filtered(plan: dict[str, Any]) -> list[float]:
+    """Collect every table's ``filtered`` (0-100) selectivity, not just the first.
+
+    v1 joins carry one ``filtered`` per ``nested_loop[].table``; v2 stores it on any node
+    of the ``query_plan`` tree. A low-selectivity filter on a joined table is as relevant
+    to index-benefit stability as one on the driving table, so callers deciding ``verified``
+    must inspect all of them rather than ``parse_plan(..).filtered`` alone.
+    """
+    values: list[float] = []
+
+    def append(node: Any) -> None:
+        if isinstance(node, dict):
+            filtered = _as_number(node.get("filtered"))
+            if filtered is not None:
+                values.append(filtered)
+
+    query_plan = plan.get("query_plan")
+    if isinstance(query_plan, dict):
+        def walk(node: Any) -> None:
+            append(node)
+            if isinstance(node, dict):
+                for child in node.get("inputs", []):
+                    walk(child)
+
+        walk(query_plan)
+        return values
+
+    query_block = plan.get("query_block")
+    block = query_block if isinstance(query_block, dict) else plan
+    table = block.get("table")
+    if isinstance(table, list):
+        for item in table:
+            append(item)
+    else:
+        append(table)
+    nested = block.get("nested_loop")
+    if isinstance(nested, list):
+        for item in nested:
+            append(item.get("table") if isinstance(item, dict) else None)
+    return values
 
 
 def attach_plan(call: SqlCall, plan: PlanEstimate) -> SqlCall:
