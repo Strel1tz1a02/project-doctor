@@ -14,7 +14,7 @@
 
 设计意图：项目存在**一个真实、机制明确的结构性缺陷**——`GET /api/orders/by-user` 在 `recentByUser` 的 `for` 循环中，对**每一条**返回订单打印 `DEBUG` 日志；同时 `logback-spring.xml` 配置了一个**同步** `FileAppender`（`<immediateFlush>true</immediateFlush>`）写入 `logs/app.log`。单次请求 `size=500` 即产生数百条同步写盘操作，耗时随返回行数近似线性增长。
 
-与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：`project/src/main/resources/schema.sql` 已为 `orders` 增加 `idx_orders_user_created (user_id, created_at)`，`by-user` 查询走索引、本身很快，**唯一瓶颈只剩日志**（这也刻意消除了 `case-04` 基座自带的缺索引干扰）。理想情况下可由「降低日志级别 / 改用异步 appender 后时延显著下降」证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query`（且 `Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
+与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：`project/src/main/resources/schema.sql` 已为 `orders` 增加 `idx_orders_user_created (user_id, created_at)`，`by-user` 查询走索引、本身很快，**唯一瓶颈只剩日志**（这也刻意消除了 `case-04` 基座自带的缺索引干扰）。理想情况下可由「降低日志级别 / 改用异步 appender 后时延显著下降」证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query` / `n_plus_one` / `deep_pagination`（且 `Finding.verified_requires_structural_evidence` 要求 `kind ∈ {slow_query, n_plus_one, deep_pagination}`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
 
 用例用于在 Agent 扩展问题类型之前，先检验其是否能：
 

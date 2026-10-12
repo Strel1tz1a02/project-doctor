@@ -14,7 +14,7 @@
 
 设计意图：项目存在**一个真实、机制明确的结构性缺陷**——`GET /api/orders/all` 经 `OrderService.listAll()` → `OrderMapper.findAllOrders()` **无分页**地 `SELECT *` 取回全表约 20 万行，并**逐行序列化含 `remark`（约 200 字符）的完整实体**，单次响应体达数十 MB。真正的开销在**结果序列化与网络传输**，而不在 SQL 执行计划本身。
 
-与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：全表扫描无 `WHERE`、无 `ORDER BY`，计划本身毫无问题，加索引也不会改变返回量。真正的成本是「把全表塞进一个响应体」的序列化与传输。理想情况下可由「响应字节数 / 返回行数随全表规模增长」证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query`（且 `Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
+与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：全表扫描无 `WHERE`、无 `ORDER BY`，计划本身毫无问题，加索引也不会改变返回量。真正的成本是「把全表塞进一个响应体」的序列化与传输。理想情况下可由「响应字节数 / 返回行数随全表规模增长」证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query` / `n_plus_one` / `deep_pagination`（且 `Finding.verified_requires_structural_evidence` 要求 `kind ∈ {slow_query, n_plus_one, deep_pagination}`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
 
 用例用于在 Agent 扩展问题类型之前，先检验其是否能：
 
@@ -71,5 +71,5 @@ curl "http://localhost:8080/api/orders/all"
 ## 与其它用例的关系
 
 - 与 `case-08-deep-pagination-large-offset`（`deep_pagination`）同属「大结果集 / 大响应」谱系：`case-08` 关注深分页 `offset` 的扫描代价，本用例关注**无分页地返回全表**导致的响应体过大（序列化 / 传输代价）。
-- 与 `case-07-n-plus-one-order-user` 同属「问题类型待 Agent 支持」的预置用例，均为 `boundary / lead`。
+- 与 `case-07-n-plus-one-order-user` 同属 `boundary` 预置用例；`case-07`（`n_plus_one`）的类型现已由 Agent 支持、可由结构化证据闭环（期望 `verified`），本用例（`large_response`）的类型当前仍**待 Agent 支持**，故为 `boundary / lead`。
 - 与 `slow_query` 系用例的区别：本用例的耗时**不体现在执行计划**上（无 `WHERE` / `ORDER BY` 的全表扫描计划本身无问题），不能用单变量索引实验证实，正是其被定为 `boundary` 的原因。

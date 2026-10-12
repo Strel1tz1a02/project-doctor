@@ -23,8 +23,8 @@
 
 与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：单条查询本就走主键。真正
 的开销是**每请求重新建立连接**。理想情况下可由「对比每请求新建连接 vs 连接池复用」的变量实验
-证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query`（且
-`Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`），因此**在本用例上
+证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query` / `n_plus_one` / `deep_pagination`（且
+`Finding.verified_requires_structural_evidence` 要求 `kind ∈ {slow_query, n_plus_one, deep_pagination}`），因此**在本用例上
 不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
 
 用例用于在 Agent 扩展问题类型之前，先检验其是否能：
@@ -92,6 +92,5 @@ curl "http://localhost:8080/api/orders/legacy-recent?size=50"
 - 与 `case-09-connection-pool-leak` 互补：`case-09` 是「取了连接从不归还」（池被耗尽、最终获取超时），
   本用例是「每请求新建连接且正常关闭」（固定建连开销、连接数 churn）；两者共用连接主题但机制相反，
   用于检验 Agent 能否区分 `connection_leak` 与 `connection_setup`。
-- 与 `case-07-n-plus-one-order-user`、`case-08-deep-pagination-large-offset` 同属「问题类型待 Agent 支持」的
-  预置用例，均为 `boundary / lead`。
+- 与 `case-07-n-plus-one-order-user`、`case-08-deep-pagination-large-offset` 同属 `boundary` 预置用例；其中 `case-07`（`n_plus_one`）、`case-08`（`deep_pagination`）的类型现已由 Agent 支持（`case-07` 期望 `verified`、`case-08` 因证据不足仍取 `lead`），本用例（`connection_setup`）的类型当前仍**待 Agent 支持**，故为 `boundary / lead`。
 - 与 `slow_query` 系用例的区别：本用例的耗时**不体现在执行计划**上，不能用单变量索引实验证实，正是其被定为 `boundary` 的原因。

@@ -15,7 +15,7 @@
 
 设计意图：项目存在**一个真实、机制明确的结构性缺陷**——`GET /api/providers/releases` 经 `ProviderReleaseService.listAll()` → `ProviderReleaseMapper.findAllReleases()` **无分页**地 `SELECT *` 取回 `provider_releases` 全表约 5000 行，并**逐行序列化含 `payload`（约 6 KB JSON）的完整实体**，单次响应体约 30 MB，远超上游约定的 **16 MiB 上限**。真正的开销在**结果序列化与网络传输**，而不在 SQL 执行计划本身。
 
-与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：全表扫描无 `WHERE`，`provider` 上已建索引也不会改变返回量。真正的成本是「把全表塞进一个响应体」的序列化与传输。理想情况下可由「响应字节数 / 返回行数随数据规模增长」证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query`（且 `Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
+与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：全表扫描无 `WHERE`，`provider` 上已建索引也不会改变返回量。真正的成本是「把全表塞进一个响应体」的序列化与传输。理想情况下可由「响应字节数 / 返回行数随数据规模增长」证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query` / `n_plus_one` / `deep_pagination`（且 `Finding.verified_requires_structural_evidence` 要求 `kind ∈ {slow_query, n_plus_one, deep_pagination}`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
 
 用例用于在 Agent 扩展问题类型之前，先检验其是否能：
 
@@ -83,4 +83,4 @@ curl "http://localhost:8080/api/providers/releases"
 
 - 与 `case-10-large-response-unbounded`（`large_response`）同属「大响应」谱系：`case-10` 为手工构造（`orders` 表、20 万行、`remark` 大字段），本用例为真实项目改编（`provider_releases` 表、5000 行 × 约 6 KB `payload`、对应上游 16 MiB 上限），二者共享统一骨架便于对照。
 - 与 `case-08` / `case-18`（`deep_pagination`）的区别：后两者耗时来自「扫描并丢弃 offset 行」；本用例关注**无分页地返回全表**导致的响应体过大（序列化 / 传输代价）。
-- 与 `case-07-n-plus-one-order-user` 同属「问题类型待 Agent 支持」的预置用例，均为 `boundary / lead`。
+- 与 `case-07-n-plus-one-order-user` 同属 `boundary` 预置用例；`case-07`（`n_plus_one`）的类型现已由 Agent 支持、可由结构化证据闭环（期望 `verified`），本用例（`large_response`）的类型当前仍**待 Agent 支持**，故为 `boundary / lead`。

@@ -17,7 +17,7 @@
 
 每次调用都必须付出**固定的 TCP 建连 + MySQL 握手/认证开销**，该开销与 SQL 本身无关：查询 `SELECT id, order_no, amount FROM orders ORDER BY id DESC LIMIT ?` 走主键、只取几十行、执行计划毫无问题，但整条请求的耗时仍被“建连握手”主导，且连接数随请求量呈锯齿状 churn。
 
-与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：单条查询本就走主键。真正的开销是**每请求重新建立连接**。理想情况下可由「对比每请求新建连接 vs 连接池复用」的变量实验证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query`（且 `Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
+与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：单条查询本就走主键。真正的开销是**每请求重新建立连接**。理想情况下可由「对比每请求新建连接 vs 连接池复用」的变量实验证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query` / `n_plus_one` / `deep_pagination`（且 `Finding.verified_requires_structural_evidence` 要求 `kind ∈ {slow_query, n_plus_one, deep_pagination}`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
 
 用例用于在 Agent 扩展问题类型之前，先检验其是否能：
 
@@ -93,4 +93,4 @@ curl "http://localhost:8080/api/orders/legacy-batch?size=50"
 
 - 与 `case-11-connection-setup-per-request`（`connection_setup`）同属「每请求新建连接」家族：`case-11` 为手工构造（`LegacyReportService.loadRecent`、`slow_query_demo`），本用例为真实项目改编（`LegacyBatchReportService.loadBatch`、`batch_demo`、对应上游 httprunner#213 的 client-per-request），二者共享统一骨架便于对照。
 - 与 `case-09-connection-pool-leak` 互补：`case-09` 是「取了连接从不归还」（池被耗尽、最终获取超时），本用例是「每请求新建连接且正常关闭」（固定建连开销、连接数 churn）；两者共用连接主题但机制相反。
-- 与 `case-07-n-plus-one-order-user`、`case-18` / `case-19` 同属「问题类型待 Agent 支持」的预置用例，均为 `boundary / lead`。
+- 与 `case-07-n-plus-one-order-user`、`case-18` / `case-19` 同属 `boundary` 预置用例；其中 `case-07`（`n_plus_one`）与 `case-18`（`deep_pagination`）的类型现已由 Agent 支持（`case-07` 期望 `verified`、`case-18` 因证据不足仍取 `lead`），本用例（`connection_setup`）与 `case-19`（`large_response`）的类型当前仍**待 Agent 支持**，均为 `boundary / lead`。

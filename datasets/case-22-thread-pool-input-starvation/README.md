@@ -20,7 +20,7 @@
 
 一次 `analyze(rounds=8)` 会把 8 个阻塞任务排入同一调度器：前 4 个立即**占满全部 4 个线程**，其余 4 个排在队列里。此期间任何提交到同一 `dispatcher` 的 `asyncRecent` 只能**排在阻塞任务之后等待**，直到有线程腾出为止——交互式请求的输入延迟被**饿死**（个位数毫秒 → 数百毫秒以上）。`analyze` 结束后随即回落。
 
-与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：查询按 `user_id` 走 `idx_orders_user_created` 且带 `LIMIT`，执行计划毫无问题。真正的成本是「把阻塞式工作与延迟敏感的交互式工作混在同一个有限调度器上、且未做隔离」。理想情况下可由「分析运行中 vs 空闲」两种负载的对比证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query`（且 `Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
+与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：查询按 `user_id` 走 `idx_orders_user_created` 且带 `LIMIT`，执行计划毫无问题。真正的成本是「把阻塞式工作与延迟敏感的交互式工作混在同一个有限调度器上、且未做隔离」。理想情况下可由「分析运行中 vs 空闲」两种负载的对比证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query` / `n_plus_one` / `deep_pagination`（且 `Finding.verified_requires_structural_evidence` 要求 `kind ∈ {slow_query, n_plus_one, deep_pagination}`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
 
 用例用于在 Agent 扩展问题类型之前，先检验其是否能：
 
@@ -95,4 +95,4 @@ curl "http://localhost:8080/api/orders/async-recent?userId=123&size=20"
 
 - 与 `case-13-thread-pool-no-verifiable-defect`（`thread_pool`）互补：`case-13` 是**不可证实的失败用例**（线程池配置合理、队列常年近乎为空，无可证实根因，`failure / unclassified`）；本用例是**真实可复现的边界用例**（共享调度器被长任务占满、交互式请求被饿死，`boundary / lead`），二者共享统一骨架便于对照。
 - 与 `case-09-connection-pool-leak` / `case-14-config-regression-pool-size` 的区别：后两者是**数据库连接池**问题（连接不归还 / 池被调小）；本用例是**应用内线程调度器**的饥饿，与数据库连接池无关，`connection_pool` 作为被排除的解释。
-- 与 `case-07-n-plus-one-order-user`、`case-18` / `case-19` / `case-20` / `case-21` 同属「问题类型待 Agent 支持」的预置用例，均为 `boundary / lead`。
+- 与 `case-07-n-plus-one-order-user`、`case-18` / `case-19` / `case-20` / `case-21` 同属 `boundary` 预置用例；其中 `case-07`（`n_plus_one`）与 `case-18`（`deep_pagination`）的类型现已由 Agent 支持（`case-07` 期望 `verified`、`case-18` 因证据不足仍取 `lead`），本用例（`thread_pool`）与 `case-19` / `case-20` / `case-21` 的类型当前仍**待 Agent 支持**，均为 `boundary / lead`。

@@ -17,7 +17,7 @@
 
 结果：所有并发请求的日志写入被串行化在同一把锁上，且每次写入都付出一次同步刷盘的固定开销。`size` 越大、并发越高，锁竞争与刷盘次数越多，单请求耗时越接近串行叠加、吞吐上不去。真正的开销在**写盘与锁竞争**，而不在 SQL 执行计划本身。
 
-与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：查询按 `user_id` 走 `idx_orders_user_created` 且带 `LIMIT`，执行计划毫无问题。真正的成本是「把日志写盘放在请求热路径上，且写入持全局锁同步刷盘」。理想情况下可由「并发梯度下的吞吐 / 日志路径时延」证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query`（且 `Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
+与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：查询按 `user_id` 走 `idx_orders_user_created` 且带 `LIMIT`，执行计划毫无问题。真正的成本是「把日志写盘放在请求热路径上，且写入持全局锁同步刷盘」。理想情况下可由「并发梯度下的吞吐 / 日志路径时延」证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query` / `n_plus_one` / `deep_pagination`（且 `Finding.verified_requires_structural_evidence` 要求 `kind ∈ {slow_query, n_plus_one, deep_pagination}`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
 
 用例用于在 Agent 扩展问题类型之前，先检验其是否能：
 
@@ -95,4 +95,4 @@ curl "http://localhost:8080/api/orders/audit-report?userId=123&size=500"
 
 - 与 `case-12-excessive-logging-sync-debug`（`excessive_logging`）同属「日志拖慢接口」谱系：`case-12` 用 `logback-spring.xml` 的同步 `FileAppender`（`immediateFlush=true`）逐行 `DEBUG` 打印；本用例为真实项目改编（自建 `AuditLogger` 的**全局锁 + 同步 flush**，对应上游 logrus `sync_logging_lock`），二者共享统一骨架便于对照。
 - 与 `case-09-connection-pool-leak` / `case-14-config-regression-pool-size` 的区别：后两者的耗时来自连接池等待；本用例的耗时来自**日志写入的锁竞争与同步刷盘**，与连接池无关。
-- 与 `case-07-n-plus-one-order-user`、`case-18` / `case-19` / `case-20` 同属「问题类型待 Agent 支持」的预置用例，均为 `boundary / lead`。
+- 与 `case-07-n-plus-one-order-user`、`case-18` / `case-19` / `case-20` 同属 `boundary` 预置用例；其中 `case-07`（`n_plus_one`）与 `case-18`（`deep_pagination`）的类型现已由 Agent 支持（`case-07` 期望 `verified`、`case-18` 因证据不足仍取 `lead`），本用例（`excessive_logging`）与 `case-19` / `case-20` 的类型当前仍**待 Agent 支持**，均为 `boundary / lead`。

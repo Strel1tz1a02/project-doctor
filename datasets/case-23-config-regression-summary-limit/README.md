@@ -20,7 +20,7 @@
 
 两条路径行为不一致：回退值绕过了硬上限约束，下游 `OrderService.summary()` 以该值作为 `LIMIT`，导致 `GET /api/orders/summary` 返回行数由约 100 暴涨到约 5000。该查询本身是 `ORDER BY id DESC LIMIT n`、走主键、执行计划正常；接口不报错、HTTP 200；同库的 `/api/orders/by-user` 一切正常。
 
-与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：真正的问题是「配置回退值未被重新校验、绕过了上限约束」。理想情况下可由「对照显式配置 + 修正回退路径后重测行数」证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query`（且 `Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
+与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：真正的问题是「配置回退值未被重新校验、绕过了上限约束」。理想情况下可由「对照显式配置 + 修正回退路径后重测行数」证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query` / `n_plus_one` / `deep_pagination`（且 `Finding.verified_requires_structural_evidence` 要求 `kind ∈ {slow_query, n_plus_one, deep_pagination}`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
 
 用例用于在 Agent 扩展问题类型之前，先检验其是否能：
 
@@ -94,4 +94,4 @@ curl "http://localhost:8080/api/orders/summary"
 
 - 与 `case-14-config-regression-pool-size`（`config_regression`）对位：二者均为 `boundary / lead`。区别在**缺陷落点**——`case-14` 是「连接池上限被调小」（配置值本身生效、导致连接等待），本用例是「配置/回退值的**校验缺失**」（回退值绕过上限、导致返回行数暴涨），同属 `config_regression` 但机制不同，便于对照 Agent 的归因粒度。
 - 与 `case-09-connection-pool-leak` 的区别：`case-09` 是**连接不归还**导致的池泄漏；本用例与连接池无关，`connection_pool` 不在本用例的排除集合内（本用例排除的是 `missing_index` / `slow_query` / `n_plus_one` / `jvm_gc_pause`）。
-- 与 `case-07-n-plus-one-order-user`、`case-18` / `case-19` / `case-20` / `case-21` / `case-22` 同属「问题类型待 Agent 支持」的预置用例，均为 `boundary / lead`。
+- 与 `case-07-n-plus-one-order-user`、`case-18` / `case-19` / `case-20` / `case-21` / `case-22` 同属 `boundary` 预置用例；其中 `case-07`（`n_plus_one`）与 `case-18`（`deep_pagination`）的类型现已由 Agent 支持（`case-07` 期望 `verified`、`case-18` 因证据不足仍取 `lead`），本用例（`config_regression`）与 `case-19` / `case-20` / `case-21` / `case-22` 的类型当前仍**待 Agent 支持**，均为 `boundary / lead`。

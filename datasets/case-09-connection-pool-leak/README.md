@@ -15,7 +15,7 @@
 
 设计意图：项目存在**一个真实、机制明确的结构性缺陷**——`GET /api/orders/export` 在正常路径下从连接池取出连接后**从不归还**（`ReportService.exportRecentOrders` 内无 `try-with-resources`、无 `finally`、也不调用 `close()`）。数据源连接池上限被设为 `10`（`application.yml` 中 `spring.datasource.hikari.maximum-pool-size`），每调用一次便消耗一条连接，累计调用达到池上限后连接池被耗尽，后续请求在**获取连接处阻塞**直至 `connection-timeout`（3 秒）而失败/超时，表现为 P95 随累计调用次数逐步升高。
 
-与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：导出查询按主键 `id` 倒序 `LIMIT ?`，执行计划毫无问题；真正的开销是**连接这一有限资源随调用次数被单向消耗且不回收**。理想情况下可由「连接池活跃连接数随时间单调增长」「获取连接超时计数上升」等指标证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query`（且 `Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
+与 `slow_query` 系用例不同，本用例的缺陷**不是靠执行计划**体现的：导出查询按主键 `id` 倒序 `LIMIT ?`，执行计划毫无问题；真正的开销是**连接这一有限资源随调用次数被单向消耗且不回收**。理想情况下可由「连接池活跃连接数随时间单调增长」「获取连接超时计数上升」等指标证实，但当前 Agent 的 `ProblemKind` 仅支持 `slow_query` / `n_plus_one` / `deep_pagination`（且 `Finding.verified_requires_structural_evidence` 要求 `kind ∈ {slow_query, n_plus_one, deep_pagination}`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
 
 用例用于在 Agent 扩展问题类型之前，先检验其是否能：
 
@@ -75,4 +75,4 @@ curl "http://localhost:8080/api/orders/export?size=1000"
 
 - 与 `case-11-connection-setup-per-request` 互为对照：`case-11` 的接口**每次新建连接且正常关闭**（固定建连开销，非泄漏）；本用例接口**复用池连接但从不归还**（渐进式耗尽）。两者同属 `problem_kind=connection_pool` 相关话题，但机制相反，用于检验 Agent 能否区分「固定开销」与「累积泄漏」。
 - 与 `case-14-config-regression-pool-size` 的区别：`case-14` 中代码未改动、仅池上限被回退为极小值（配置问题）；本用例池上限正常（10）但**代码取连接不归还**（代码问题），`code_locations` 指向 Java 代码而非配置。
-- 与 `case-07-n-plus-one-order-user`、`case-08-deep-pagination-large-offset` 同属「问题类型待 Agent 支持」的预置用例，均为 `boundary / lead`。
+- 与 `case-07-n-plus-one-order-user`、`case-08-deep-pagination-large-offset` 同属 `boundary` 预置用例；其中 `case-07`（`n_plus_one`）、`case-08`（`deep_pagination`）的类型现已由 Agent 支持（`case-07` 证据闭环期望 `verified`、`case-08` 因证据不足仍取 `lead`），本用例（`connection_pool`）的类型当前仍**待 Agent 支持**，故为 `boundary / lead`。
