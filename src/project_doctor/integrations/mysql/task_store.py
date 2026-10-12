@@ -12,7 +12,7 @@ import hashlib
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import Connection, Engine, select, update
+from sqlalchemy import Connection, Engine, insert, select, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -23,6 +23,7 @@ from project_doctor.integrations.mysql.migrations.schema import (
     findings,
     hypotheses,
     operations,
+    repairs,
     scenarios,
     tasks,
 )
@@ -32,6 +33,7 @@ from project_doctor.models.environment import EnvironmentHandle, RestoreResult
 from project_doctor.models.experiment import ExperimentResult
 from project_doctor.models.finding import Finding, ReportResult
 from project_doctor.models.hypothesis import Hypothesis
+from project_doctor.models.repair import RepairRecord
 from project_doctor.models.scenario import Scenario
 from project_doctor.models.task import OperationResult, Reservation, TaskBundle, TaskRecord
 
@@ -56,6 +58,20 @@ class MySQLTaskStore:
 
     async def save_findings(self, task_id: str, items: list[Finding]) -> None:
         await asyncio.to_thread(self._save_findings_sync, task_id, items)
+
+    async def create_repair(self, item: RepairRecord) -> RepairRecord:
+        return await asyncio.to_thread(self._create_repair_sync, item)
+
+    async def load_repair(self, task_id: str, repair_id: str) -> RepairRecord | None:
+        return await asyncio.to_thread(self._load_repair_sync, task_id, repair_id)
+
+    async def update_repair(self, item: RepairRecord, expected_status: str) -> bool:
+        return await asyncio.to_thread(self._update_repair_sync, item, expected_status)
+
+    async def complete_repair(
+        self, item: RepairRecord, finding: Finding, expected_status: str
+    ) -> bool:
+        return await asyncio.to_thread(self._complete_repair_sync, item, finding, expected_status)
 
     async def transition(self, task_id: str, expected: TaskStatus, target: TaskStatus) -> bool:
         return await asyncio.to_thread(self._transition_sync, task_id, expected, target)
@@ -159,6 +175,166 @@ class MySQLTaskStore:
                 )
                 self._add_id(conn, task_id, "finding_ids", item.id)
 
+    @staticmethod
+    def _repair_row(conn: Connection, task_id: str, repair_id: str) -> RepairRecord | None:
+        row = conn.execute(
+            select(repairs.c.record_json).where(
+                repairs.c.task_id == task_id, repairs.c.repair_id == repair_id
+            )
+        ).scalar_one_or_none()
+        return RepairRecord.model_validate(row) if row is not None else None
+
+    def _create_repair_sync(self, item: RepairRecord) -> RepairRecord:
+        if item.status != "preparing":
+            raise ValueError("new repair must start in preparing")
+        with self._engine.begin() as conn:
+            self._load_task(conn, item.task_id)
+            persisted = conn.execute(
+                select(findings.c.finding_id).where(
+                    findings.c.task_id == item.task_id,
+                    findings.c.finding_id == item.finding_id,
+                )
+            ).scalar_one_or_none()
+            if persisted is None:
+                raise ValueError("repair finding is not persisted")
+            try:
+                conn.execute(
+                    insert(repairs).values(
+                        task_id=item.task_id,
+                        repair_id=item.id,
+                        status=item.status,
+                        record_json=item.model_dump(mode="json"),
+                    )
+                )
+            except IntegrityError:
+                prior = self._repair_row(conn, item.task_id, item.id)
+                if prior is None or (
+                    prior.finding_id != item.finding_id
+                    or prior.patch_sha256 != item.patch_sha256
+                    or prior.source_commit != item.source_commit
+                    or prior.parent_key_column != item.parent_key_column
+                ):
+                    raise ValueError(
+                        "operation_conflict: repair identity has different input"
+                    ) from None
+                return prior
+        return item
+
+    def _load_repair_sync(self, task_id: str, repair_id: str) -> RepairRecord | None:
+        with self._engine.connect() as conn:
+            return self._repair_row(conn, task_id, repair_id)
+
+    def _update_repair_sync(self, item: RepairRecord, expected_status: str) -> bool:
+        with self._engine.begin() as conn:
+            current = self._repair_row(conn, item.task_id, item.id)
+            if current is None:
+                raise KeyError(item.id)
+            self._check_repair_identity(current, item)
+            if current == item:
+                return True
+            if current.status != expected_status:
+                return False
+            allowed = {
+                "preparing": {"built", "failed", "needs_reconcile"},
+                "built": {"retesting", "failed", "needs_reconcile"},
+                "retesting": {"failed", "needs_reconcile"},
+            }
+            if item.status not in allowed.get(current.status, set()):
+                raise ValueError("invalid repair state transition")
+            result = conn.execute(
+                update(repairs)
+                .where(
+                    repairs.c.task_id == item.task_id,
+                    repairs.c.repair_id == item.id,
+                    repairs.c.status == expected_status,
+                )
+                .values(status=item.status, record_json=item.model_dump(mode="json"))
+            )
+            return result.rowcount == 1
+
+    def _complete_repair_sync(
+        self, item: RepairRecord, finding: Finding, expected_status: str
+    ) -> bool:
+        if item.status != "retested" or item.comparison is None or expected_status != "retesting":
+            raise ValueError("only a verified retest can complete a repair")
+        if finding.task_id != item.task_id or finding.id != item.finding_id:
+            raise ValueError("repair completion finding identity differs")
+        with self._engine.begin() as conn:
+            current = self._repair_row(conn, item.task_id, item.id)
+            if current is None:
+                raise KeyError(item.id)
+            self._check_repair_identity(current, item)
+            if current == item:
+                stored = conn.execute(
+                    select(findings.c.record_json).where(
+                        findings.c.task_id == item.task_id,
+                        findings.c.finding_id == item.finding_id,
+                    )
+                ).scalar_one_or_none()
+                return stored == finding.model_dump(mode="json")
+            if current.status != expected_status:
+                return False
+            original_json = conn.execute(
+                select(findings.c.record_json)
+                .where(
+                    findings.c.task_id == item.task_id,
+                    findings.c.finding_id == item.finding_id,
+                )
+                .with_for_update()
+            ).scalar_one_or_none()
+            if original_json is None:
+                raise ValueError("repair finding disappeared")
+            original = Finding.model_validate(original_json)
+            if original.recommendation is None or finding.recommendation is None:
+                raise ValueError("repair finding has no recommendation")
+            if (
+                finding.recommendation.validation_status != "retested"
+                or finding.recommendation.measured_gain_percent
+                != item.comparison.measured_gain_percent
+                or finding.recommendation.retest_experiment_ids
+                != item.comparison.retest_experiment_ids
+            ):
+                raise ValueError("repair completion differs from verified comparison")
+            before = original.model_dump(mode="json")
+            after = finding.model_dump(mode="json")
+            for key in ("validation_status", "measured_gain_percent", "retest_experiment_ids"):
+                before["recommendation"].pop(key)
+                after["recommendation"].pop(key)
+            if before != after:
+                raise ValueError("repair completion changed diagnostic evidence")
+            if original.recommendation.validation_status != "expected_mechanism":
+                raise ValueError("repair finding was already retested")
+            result = conn.execute(
+                update(repairs)
+                .where(
+                    repairs.c.task_id == item.task_id,
+                    repairs.c.repair_id == item.id,
+                    repairs.c.status == expected_status,
+                )
+                .values(status=item.status, record_json=item.model_dump(mode="json"))
+            )
+            if result.rowcount != 1:
+                return False
+            conn.execute(
+                update(findings)
+                .where(findings.c.task_id == item.task_id, findings.c.finding_id == item.finding_id)
+                .values(record_json=finding.model_dump(mode="json"))
+            )
+            return True
+
+    @staticmethod
+    def _check_repair_identity(current: RepairRecord, item: RepairRecord) -> None:
+        if (
+            current.task_id != item.task_id
+            or current.finding_id != item.finding_id
+            or current.operation_id != item.operation_id
+            or current.attempt_id != item.attempt_id
+            or current.source_commit != item.source_commit
+            or current.patch_sha256 != item.patch_sha256
+            or current.parent_key_column != item.parent_key_column
+        ):
+            raise ValueError("operation_conflict: repair identity changed")
+
     def _transition_sync(self, task_id: str, expected: TaskStatus, target: TaskStatus) -> bool:
         with self._engine.begin() as conn:
             result = conn.execute(
@@ -236,6 +412,11 @@ class MySQLTaskStore:
                 .scalars()
                 .all()
             )
+            repair_records: Sequence[Any] = (
+                conn.execute(select(repairs.c.record_json).where(repairs.c.task_id == task_id))
+                .scalars()
+                .all()
+            )
             experiment_records: Sequence[Any] = (
                 conn.execute(
                     select(experiments.c.record_json).where(experiments.c.task_id == task_id)
@@ -249,6 +430,7 @@ class MySQLTaskStore:
                 scenarios=[Scenario.model_validate(row) for row in scenario_records],
                 hypotheses=[Hypothesis.model_validate(row) for row in hypothesis_records],
                 findings=[Finding.model_validate(row) for row in finding_records],
+                repairs=[RepairRecord.model_validate(row) for row in repair_records],
                 experiments=experiment_models,
                 evidence_refs=self._gather_refs(experiment_models),
             )

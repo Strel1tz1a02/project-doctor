@@ -1,0 +1,90 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "request_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "business_valid": {
+      "title": "Business Valid",
+      "type": "boolean"
+    },
+    "result_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Result Digest",
+      "type": "string"
+    },
+    "latency_ms": {
+      "minimum": 0,
+      "title": "Latency Ms",
+      "type": "number"
+    },
+    "sql_count": {
+      "minimum": 0,
+      "title": "Sql Count",
+      "type": "integer"
+    },
+    "child_count": {
+      "minimum": 0,
+      "title": "Child Count",
+      "type": "integer"
+    },
+    "parent_rows_examined": {
+      "minimum": 0,
+      "title": "Parent Rows Examined",
+      "type": "integer"
+    },
+    "parent_keys": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Parent Keys",
+      "type": "array"
+    },
+    "child_parameters": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Child Parameters",
+      "type": "array"
+    },
+    "batch_parameters": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Batch Parameters",
+      "type": "array"
+    },
+    "lock_covered": {
+      "title": "Lock Covered",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "request_id",
+    "business_valid",
+    "result_digest",
+    "latency_ms",
+    "sql_count",
+    "child_count",
+    "parent_rows_examined",
+    "parent_keys",
+    "lock_covered"
+  ],
+  "title": "RepairSample",
+  "type": "object"
+}

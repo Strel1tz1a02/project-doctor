@@ -1,0 +1,107 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "finding_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Finding Id",
+      "type": "string"
+    },
+    "source_commit": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Source Commit",
+      "type": "string"
+    },
+    "target_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Target Sha256",
+      "type": "string"
+    },
+    "mapper_path": {
+      "title": "Mapper Path",
+      "type": "string"
+    },
+    "mapper_line": {
+      "exclusiveMinimum": 0,
+      "title": "Mapper Line",
+      "type": "integer"
+    },
+    "mapper_method": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Mapper Method",
+      "type": "string"
+    },
+    "child_table": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Child Table",
+      "type": "string"
+    },
+    "key_column": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Key Column",
+      "type": "string"
+    },
+    "mapper_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Mapper Sha256",
+      "type": "string"
+    },
+    "mapper_context": {
+      "title": "Mapper Context",
+      "type": "string"
+    },
+    "caller_path": {
+      "title": "Caller Path",
+      "type": "string"
+    },
+    "caller_line": {
+      "exclusiveMinimum": 0,
+      "title": "Caller Line",
+      "type": "integer"
+    },
+    "parent_key_column": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Parent Key Column",
+      "type": "string"
+    },
+    "caller_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Caller Sha256",
+      "type": "string"
+    },
+    "caller_context": {
+      "title": "Caller Context",
+      "type": "string"
+    }
+  },
+  "required": [
+    "finding_id",
+    "source_commit",
+    "target_sha256",
+    "mapper_path",
+    "mapper_line",
+    "mapper_method",
+    "child_table",
+    "key_column",
+    "mapper_sha256",
+    "mapper_context",
+    "caller_path",
+    "caller_line",
+    "parent_key_column",
+    "caller_sha256",
+    "caller_context"
+  ],
+  "title": "RepairTargetView",
+  "type": "object"
+}

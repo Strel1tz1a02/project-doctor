@@ -1,0 +1,578 @@
+{
+  "$defs": {
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "artifact_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "relative_path": {
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "media_type": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "format_version": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Format Version",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "relative_path",
+        "media_type",
+        "format_version",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
+    "RepairComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_task_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Source Task Id",
+          "type": "string"
+        },
+        "finding_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "baseline_task_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Baseline Task Id",
+          "type": "string"
+        },
+        "patched_task_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Patched Task Id",
+          "type": "string"
+        },
+        "retest_experiment_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Retest Experiment Ids",
+          "type": "array"
+        },
+        "measured_gain_percent": {
+          "minimum": 0,
+          "title": "Measured Gain Percent",
+          "type": "number"
+        },
+        "baseline_median_ms": {
+          "minimum": 0,
+          "title": "Baseline Median Ms",
+          "type": "number"
+        },
+        "patched_median_ms": {
+          "minimum": 0,
+          "title": "Patched Median Ms",
+          "type": "number"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source_task_id",
+        "finding_id",
+        "baseline_task_id",
+        "patched_task_id",
+        "retest_experiment_ids",
+        "measured_gain_percent",
+        "baseline_median_ms",
+        "patched_median_ms",
+        "evidence_ids"
+      ],
+      "title": "RepairComparison",
+      "type": "object"
+    },
+    "RepairRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "task_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "experiment_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Experiment Id",
+          "type": "string"
+        },
+        "source_commit": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Source Commit",
+          "type": "string"
+        },
+        "image_digest": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Image Digest",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "scenario_version": {
+          "exclusiveMinimum": 0,
+          "title": "Scenario Version",
+          "type": "integer"
+        },
+        "observation_config_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Observation Config Id",
+          "type": "string"
+        },
+        "cache_state": {
+          "enum": [
+            "cold",
+            "warm",
+            "unknown"
+          ],
+          "title": "Cache State",
+          "type": "string"
+        },
+        "samples": {
+          "items": {
+            "$ref": "#/$defs/RepairSample"
+          },
+          "minItems": 3,
+          "title": "Samples",
+          "type": "array"
+        },
+        "restored": {
+          "title": "Restored",
+          "type": "boolean"
+        },
+        "artifacts_verified": {
+          "title": "Artifacts Verified",
+          "type": "boolean"
+        },
+        "evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "experiment_id",
+        "source_commit",
+        "image_digest",
+        "snapshot_id",
+        "scenario_id",
+        "scenario_version",
+        "observation_config_id",
+        "cache_state",
+        "samples",
+        "restored",
+        "artifacts_verified",
+        "evidence_ids"
+      ],
+      "title": "RepairRun",
+      "type": "object"
+    },
+    "RepairSample": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "request_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "business_valid": {
+          "title": "Business Valid",
+          "type": "boolean"
+        },
+        "result_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Result Digest",
+          "type": "string"
+        },
+        "latency_ms": {
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "number"
+        },
+        "sql_count": {
+          "minimum": 0,
+          "title": "Sql Count",
+          "type": "integer"
+        },
+        "child_count": {
+          "minimum": 0,
+          "title": "Child Count",
+          "type": "integer"
+        },
+        "parent_rows_examined": {
+          "minimum": 0,
+          "title": "Parent Rows Examined",
+          "type": "integer"
+        },
+        "parent_keys": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Parent Keys",
+          "type": "array"
+        },
+        "child_parameters": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Child Parameters",
+          "type": "array"
+        },
+        "batch_parameters": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Batch Parameters",
+          "type": "array"
+        },
+        "lock_covered": {
+          "title": "Lock Covered",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "request_id",
+        "business_valid",
+        "result_digest",
+        "latency_ms",
+        "sql_count",
+        "child_count",
+        "parent_rows_examined",
+        "parent_keys",
+        "lock_covered"
+      ],
+      "title": "RepairSample",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Durable state for one proposed patch against one persisted finding.",
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "result_type": {
+      "const": "repair",
+      "default": "repair",
+      "title": "Result Type",
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Id",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "finding_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Finding Id",
+      "type": "string"
+    },
+    "operation_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "attempt_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "preparing",
+        "built",
+        "retesting",
+        "retested",
+        "failed",
+        "needs_reconcile"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "source_commit": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Source Commit",
+      "type": "string"
+    },
+    "patch_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Patch Sha256",
+      "type": "string"
+    },
+    "parent_key_column": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Key Column"
+    },
+    "source_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Sha256"
+    },
+    "baseline_source_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Baseline Source Sha256"
+    },
+    "workspace_name": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Workspace Name"
+    },
+    "baseline_image_digest": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Baseline Image Digest"
+    },
+    "patched_image_digest": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Patched Image Digest"
+    },
+    "patch_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvidenceRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "build_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvidenceRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "retest_refs": {
+      "items": {
+        "$ref": "#/$defs/EvidenceRef"
+      },
+      "title": "Retest Refs",
+      "type": "array"
+    },
+    "baseline_run": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RepairRun"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "patched_run": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RepairRun"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "comparison": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RepairComparison"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "failure_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Reason"
+    }
+  },
+  "required": [
+    "id",
+    "task_id",
+    "finding_id",
+    "operation_id",
+    "attempt_id",
+    "status",
+    "source_commit",
+    "patch_sha256"
+  ],
+  "title": "RepairRecord",
+  "type": "object"
+}

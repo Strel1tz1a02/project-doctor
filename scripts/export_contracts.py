@@ -20,6 +20,7 @@ MODULES = (
     "lock",
     "n_plus_one",
     "observation",
+    "repair",
     "scenario",
     "task",
 )

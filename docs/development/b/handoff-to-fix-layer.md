@@ -12,9 +12,10 @@
 | 方向 | 内容 | 载体 |
 |---|---|---|
 | 诊断 → 修复层 | 可复现的结构化修复目标（永久代码改写） | `Finding` + `Recommendation` + `fix_spec`（`BatchQuerySpec`） |
-| 修复层 → 诊断层 | 复测回填验证结果 | 回填 `Recommendation.validation_status` / `measured_gain_percent` / `retest_experiment_ids` |
+| 修复层 → 诊断层 | 已隔离应用的补丁、源码与镜像身份 | `RepairRecord` 与基线/补丁镜像 |
+| 诊断层 → 修复工作流 | 正确性和性能复测结论 | `RepairComparison`；通过后原子回填 `Recommendation` 三字段 |
 
-核心原则：诊断层**不靠自由文本**交接，修复层**确定性消费**结构化字段；反过来，修复层**不回写诊断判据**，只回填复测结果。
+核心原则：诊断层**不靠自由文本**交接，修复层依据结构化目标判断并改写；改后效果由诊断层复测，修复工作流只回填诊断结论。
 
 ## 2. 交接体 = `Finding` + `Recommendation` + `fix_spec`
 
@@ -32,12 +33,13 @@
 ```python
 FixStrategy = Literal["batch_in", "joinedload", "selectinload"]
 
+
 class BatchQuerySpec(Contract):
     kind: Literal["n_plus_one"] = "n_plus_one"
     strategy: FixStrategy
-    child_template: Identifier          # 参数化子查询模板，如 "SELECT * FROM users WHERE id = ?"
-    key_column: Identifier              # 子查询关联键（来自父结果集），如 "id"
-    child_code_location: CodeLocation   # 子查询的 SQL 定义位置（mapper 方法）
+    child_template: Identifier  # 参数化子查询模板，如 "SELECT * FROM users WHERE id = ?"
+    key_column: Identifier  # 子查询关联键（来自父结果集），如 "id"
+    child_code_location: CodeLocation  # 子查询的 SQL 定义位置（mapper 方法）
     observed_child_count: NonNegativeInt
     parent_sql_call_ids: list[Identifier] = Field(default_factory=list)
 ```
@@ -133,9 +135,11 @@ class BatchQuerySpec(Contract):
 二者字段同名（`strategy` / `child_template` / `key_column`），但**不是**同一对象：
 配方用运行时开关（`flag` + 两个取值）翻转，`fix_spec` 描述最终要改写的代码目标。
 
-## 7. 修复层 → 诊断层（复测回填）
+## 7. 修复层提交补丁 → 诊断层复测 → 结果回填
 
-修复层按 `fix_spec` 改写 → 重跑正确性 + 基准负载 → 只回填 `Recommendation` 的复测字段：
+修复层按 `fix_spec` 改写 → 诊断层重跑正确性 + 基准负载 → 只回填 `Recommendation` 的复测字段：
+
+职责边界：修复层判断目标是否可改、提出并隔离应用补丁、构建可追溯镜像；**诊断层**使用原场景与快照重跑正确性和性能，核验 SQL、锁、父键来源及环境恢复，并返回复测结论。修复工作流只消费该结论并原子回填三字段，不自行判断收益。实现入口分别是 [修复工作流](../../../src/project_doctor/workflows/repair.py)、[诊断复测服务](../../../src/project_doctor/workflows/diagnose_retest.py) 和 [复测判定](../../../src/project_doctor/features/diagnosis/retest.py)。
 
 ```json
 {
@@ -150,15 +154,17 @@ class BatchQuerySpec(Contract):
 
 - `Recommendation.validation_status` 由 `expected_mechanism`（未复测）→ `retested`；
 - `measured_gain_percent` 与 `retest_experiment_ids` 只在复测后允许非空（模型校验器强制）；
-- 逐值子集证明（子参数确实来自父结果集键）在复测时由修复层重跑父查询补齐——诊断层只证明
-  **计数相关**，不声称逐值子集（见设计 §2.2(3) 的诚实边界）。
+- 逐值子集证明（子参数确实来自父结果集键）由诊断层在复测时重跑父查询，并与请求中的子查询参数比较；证据不足时拒绝标记 `retested`。
+- 若两组真实样本和制品均已核验，但诊断门槛拒绝收益结论，修复记录保留两组 `RepairRun`、证据引用和失败原因；原 `Finding` 不回填复测字段。未完成采集或制品校验失败时，不把不完整样本写成可信复测。
 
 ## 8. 交接不变量
 
 - 诊断层**只产出** `validation_status="expected_mechanism"` 且 `measured_gain_percent=null` 的交接体，不声称已测收益。
-- 修复层**不能改写**诊断判据、测试数据或通过标准；只能回填复测三字段。
-- 交接体与 `Finding.evidence_refs` / `sql_call_ids` 可追溯：修复层复测对照必须引用同一场景、数据快照与提交。
+- 修复层**不能改写**诊断判据、测试数据或通过标准；复测结论由诊断层给出，修复工作流只能原子回填三字段。
+- 交接体与 `Finding.evidence_refs` / `sql_call_ids` 可追溯：诊断层复测对照必须引用同一场景、数据快照与提交。
 - `fix_spec` 为 `None` 时（`key_column` 无法提取或结论为 `unclassified`）不构成结构化交接，修复层不得凭自由文本改写。
+- 修复层读取交接体时，必须确认 mapper 位置的关联证据属于原 `Finding.evidence_refs`，并实际核验原诊断制品的文件、大小和摘要；缺失或损坏时不得定位源码或提交补丁。
+- 修复构建和诊断复测各持有同一修复记录的进程租约；并发重试被拒绝。进程退出而数据库仍记录 `preparing`／`retesting` 时，状态核对先确认持久身份与补丁摘要，再标记为 `needs_reconcile` 并清理隔离复测环境；不得假定成功或自动重放副作用。不同补丁使用同一操作 ID 必须报冲突。
 
 ## 9. 深分页（问题四）交接
 

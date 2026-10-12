@@ -1,5 +1,6 @@
 """Model-visible orchestration. Runtime owns side effects; this layer never runs SQL or Docker."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from project_doctor.features.diagnosis.compare import MeasurementPolicy
@@ -13,9 +14,11 @@ from project_doctor.models.environment import EnvironmentHandle, ProjectInput
 from project_doctor.models.experiment import ExperimentResult, ExperimentSpec, ReconcileResult
 from project_doctor.models.finding import Finding, ReportResult
 from project_doctor.models.hypothesis import Hypothesis, HypothesisBatch
+from project_doctor.models.repair import RepairRecord, RepairTargetView
 from project_doctor.models.scenario import Scenario
 from project_doctor.models.task import CallContext, TaskRecord
 from project_doctor.workflows.diagnose import evaluate
+from project_doctor.workflows.repair import RepairWorkflow
 from project_doctor.workflows.task_ports import TaskStore
 from project_doctor.workflows.tasks import create_task
 
@@ -27,6 +30,34 @@ class ToolWorkflows:
     reader: EvidenceReader
     repository_manifest: dict[str, object]
     policy: MeasurementPolicy = field(default_factory=MeasurementPolicy)
+    repair: RepairWorkflow | None = None
+
+    async def inspect_fix_target(self, context: CallContext, finding_id: str) -> RepairTargetView:
+        if self.repair is None:
+            raise ValueError("repair workflow is not configured")
+        return await self.repair.inspect_fix_target(context, finding_id)
+
+    async def submit_fix_patch(
+        self, context: CallContext, finding_id: str, diff: str
+    ) -> RepairRecord:
+        if self.repair is None:
+            raise ValueError("repair workflow is not configured")
+        return await self.repair.submit_fix_patch(context, finding_id, diff)
+
+    async def verify_fix(
+        self,
+        context: CallContext,
+        repair_id: str,
+        on_started: Callable[[RepairRecord], None] | None = None,
+    ) -> RepairRecord:
+        if self.repair is None:
+            raise ValueError("repair workflow is not configured")
+        return await self.repair.verify_fix(context, repair_id, on_started)
+
+    async def get_fix_status(self, context: CallContext, repair_id: str) -> RepairRecord:
+        if self.repair is None:
+            raise ValueError("repair workflow is not configured")
+        return await self.repair.get_fix_status(context, repair_id)
 
     async def create_task(
         self, project: ProjectInput, limits: Limits, operation_id: str
@@ -144,13 +175,18 @@ class ToolWorkflows:
         await self.store.save_findings(context.task_id, previous + findings)
         updated_hypotheses = []
         for hypothesis in selected.hypotheses:
-            supported = bool(findings) and all(
-                finding.status == "verified" for finding in findings
-            ) and (
-                (hypothesis.kind == "slow_query" and hypothesis.explanation == "index_access_cost")
-                or (
-                    hypothesis.kind == "n_plus_one"
-                    and hypothesis.explanation == "n_plus_one_batch"
+            supported = (
+                bool(findings)
+                and all(finding.status == "verified" for finding in findings)
+                and (
+                    (
+                        hypothesis.kind == "slow_query"
+                        and hypothesis.explanation == "index_access_cost"
+                    )
+                    or (
+                        hypothesis.kind == "n_plus_one"
+                        and hypothesis.explanation == "n_plus_one_batch"
+                    )
                 )
                 or (
                     hypothesis.kind == "deep_pagination"

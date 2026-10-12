@@ -39,11 +39,10 @@ class Recommendation(Contract):
 
     @model_validator(mode="after")
     def no_unmeasured_gain(self) -> Recommendation:
-        if (
-            self.validation_status == "expected_mechanism"
-            and self.measured_gain_percent is not None
+        if self.validation_status == "expected_mechanism" and (
+            self.measured_gain_percent is not None or self.retest_experiment_ids
         ):
-            raise ValueError("unretested recommendation cannot claim measured gain")
+            raise ValueError("unretested recommendation cannot claim a retest or measured gain")
         if self.validation_status == "retested" and not self.retest_experiment_ids:
             raise ValueError("retested recommendation requires experiment references")
         return self

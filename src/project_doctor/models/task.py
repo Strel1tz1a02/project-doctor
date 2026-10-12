@@ -18,6 +18,7 @@ from project_doctor.models.errors import Failure
 from project_doctor.models.experiment import ExperimentResult
 from project_doctor.models.finding import Finding, ReportResult
 from project_doctor.models.hypothesis import Hypothesis
+from project_doctor.models.repair import RepairRecord
 from project_doctor.models.scenario import Scenario
 
 OperationState = Literal["reserved", "running", "completed", "failed", "needs_reconcile"]
@@ -103,4 +104,5 @@ class TaskBundle(Contract):
     hypotheses: list[Hypothesis] = Field(default_factory=list)
     experiments: list[ExperimentResult] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
+    repairs: list[RepairRecord] = Field(default_factory=list)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)

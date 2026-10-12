@@ -510,7 +510,7 @@ class RuntimeService:
                 for repetition in range(1, spec.repetitions + 1):
                     requests_made += 1
                     observations.append(
-                        await self._measure(
+                        await self.measure_request(
                             step=step,
                             spec=spec,
                             level=level,
@@ -681,7 +681,7 @@ class RuntimeService:
                 attempts[0] += 1
                 try:
                     observation = await asyncio.wait_for(
-                        self._measure(
+                        self.measure_request(
                             step=step,
                             spec=spec,
                             level=level,
@@ -721,7 +721,7 @@ class RuntimeService:
                 raise ValueError("group environment changed during measurement")
             check_budget()
 
-    async def _measure(
+    async def measure_request(
         self,
         *,
         step: RequestStep,

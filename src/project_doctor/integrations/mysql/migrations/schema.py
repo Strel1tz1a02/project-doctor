@@ -39,6 +39,15 @@ findings = Table(
     Column("record_json", JSON, nullable=False),
 )
 
+repairs = Table(
+    "repairs",
+    metadata,
+    Column("task_id", String(64), primary_key=True),
+    Column("repair_id", String(64), primary_key=True),
+    Column("status", String(24), nullable=False),
+    Column("record_json", JSON, nullable=False),
+)
+
 experiments = Table(
     "experiments",
     metadata,

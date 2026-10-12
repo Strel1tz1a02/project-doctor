@@ -1,0 +1,202 @@
+{
+  "$defs": {
+    "RepairSample": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "request_id": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "business_valid": {
+          "title": "Business Valid",
+          "type": "boolean"
+        },
+        "result_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Result Digest",
+          "type": "string"
+        },
+        "latency_ms": {
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "number"
+        },
+        "sql_count": {
+          "minimum": 0,
+          "title": "Sql Count",
+          "type": "integer"
+        },
+        "child_count": {
+          "minimum": 0,
+          "title": "Child Count",
+          "type": "integer"
+        },
+        "parent_rows_examined": {
+          "minimum": 0,
+          "title": "Parent Rows Examined",
+          "type": "integer"
+        },
+        "parent_keys": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Parent Keys",
+          "type": "array"
+        },
+        "child_parameters": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Child Parameters",
+          "type": "array"
+        },
+        "batch_parameters": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "title": "Batch Parameters",
+          "type": "array"
+        },
+        "lock_covered": {
+          "title": "Lock Covered",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "request_id",
+        "business_valid",
+        "result_digest",
+        "latency_ms",
+        "sql_count",
+        "child_count",
+        "parent_rows_examined",
+        "parent_keys",
+        "lock_covered"
+      ],
+      "title": "RepairSample",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Task Id",
+      "type": "string"
+    },
+    "experiment_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "source_commit": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Source Commit",
+      "type": "string"
+    },
+    "image_digest": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Image Digest",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "scenario_version": {
+      "exclusiveMinimum": 0,
+      "title": "Scenario Version",
+      "type": "integer"
+    },
+    "observation_config_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Observation Config Id",
+      "type": "string"
+    },
+    "cache_state": {
+      "enum": [
+        "cold",
+        "warm",
+        "unknown"
+      ],
+      "title": "Cache State",
+      "type": "string"
+    },
+    "samples": {
+      "items": {
+        "$ref": "#/$defs/RepairSample"
+      },
+      "minItems": 3,
+      "title": "Samples",
+      "type": "array"
+    },
+    "restored": {
+      "title": "Restored",
+      "type": "boolean"
+    },
+    "artifacts_verified": {
+      "title": "Artifacts Verified",
+      "type": "boolean"
+    },
+    "evidence_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "task_id",
+    "experiment_id",
+    "source_commit",
+    "image_digest",
+    "snapshot_id",
+    "scenario_id",
+    "scenario_version",
+    "observation_config_id",
+    "cache_state",
+    "samples",
+    "restored",
+    "artifacts_verified",
+    "evidence_ids"
+  ],
+  "title": "RepairRun",
+  "type": "object"
+}

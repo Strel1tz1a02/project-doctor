@@ -201,8 +201,8 @@ def test_target_probe_collects_tagged_correlated_sql(real_target: tuple[Path, Pa
 
     This is the durable regression for the three 2026-10-02 gaps: the demo's MyBatis
     interceptor must tag every SQL with a ``pd`` marker + request id, and the probe
-    must correlate SqlCalls while keeping total ``lock_wait_ms`` unknown
-    until interval coverage is proved.
+    must correlate SqlCalls and retain measured per-statement ``LOCK_TIME``.
+    A separate lock probe establishes interval coverage.
     """
     tmp_path, target_repo = real_target
     settings = _make_settings(tmp_path, target_repo)
@@ -278,9 +278,11 @@ def test_target_probe_collects_tagged_correlated_sql(real_target: tuple[Path, Pa
                 and call.code_location.line == 14
                 for call in collection.calls
             )
-            # Snapshot-only evidence cannot establish complete zero-wait coverage.
-            assert all(call.lock_wait_ms is None for call in collection.calls)
-            assert all("lock_wait_ms" not in call.metric_sources for call in collection.calls)
+            # Performance Schema LOCK_TIME is a measured statement metric.
+            # This SQL collection alone does not establish MDL interval coverage.
+            assert all(call.lock_wait_ms is not None for call in collection.calls)
+            assert all("lock_wait_ms" in call.metric_sources for call in collection.calls)
+            assert all(call.lock_evidence is None for call in collection.calls)
         finally:
             await gateway.teardown(prepared.environment_id, context)
 

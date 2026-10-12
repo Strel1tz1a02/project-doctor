@@ -1,0 +1,84 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_task_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Source Task Id",
+      "type": "string"
+    },
+    "finding_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Finding Id",
+      "type": "string"
+    },
+    "baseline_task_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Baseline Task Id",
+      "type": "string"
+    },
+    "patched_task_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Patched Task Id",
+      "type": "string"
+    },
+    "retest_experiment_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "title": "Retest Experiment Ids",
+      "type": "array"
+    },
+    "measured_gain_percent": {
+      "minimum": 0,
+      "title": "Measured Gain Percent",
+      "type": "number"
+    },
+    "baseline_median_ms": {
+      "minimum": 0,
+      "title": "Baseline Median Ms",
+      "type": "number"
+    },
+    "patched_median_ms": {
+      "minimum": 0,
+      "title": "Patched Median Ms",
+      "type": "number"
+    },
+    "evidence_ids": {
+      "items": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source_task_id",
+    "finding_id",
+    "baseline_task_id",
+    "patched_task_id",
+    "retest_experiment_ids",
+    "measured_gain_percent",
+    "baseline_median_ms",
+    "patched_median_ms",
+    "evidence_ids"
+  ],
+  "title": "RepairComparison",
+  "type": "object"
+}

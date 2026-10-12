@@ -47,6 +47,7 @@ class DockerEnvironmentGateway:
         db_image: str,
         service_image: str,
         service_port: int,
+        source_root: Path | None = None,
     ) -> None:
         self._settings = settings
         self._db_service = db_service
@@ -56,6 +57,7 @@ class DockerEnvironmentGateway:
         self._db_image = db_image
         self._service_image = service_image
         self._service_port = service_port
+        self._source_root = source_root or settings.target_repo_root
 
     def _runner(self, project_dir: Path, project_name: str) -> ComposeRunner:
         return ComposeRunner(project_dir, project_name)
@@ -85,7 +87,7 @@ class DockerEnvironmentGateway:
 
             shutil.rmtree(isolated_dir, onexc=writable_remove)
         shutil.copytree(
-            self._settings.target_repo_root,
+            self._source_root,
             isolated_dir,
             ignore=shutil.ignore_patterns(".git", ".hg", ".svn"),
         )

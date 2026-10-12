@@ -126,6 +126,7 @@ class ComposeRunner:
         return subprocess.run(
             ["docker", "compose", "-p", self._project_name, *args],
             cwd=self._project_dir,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             encoding="utf-8",
