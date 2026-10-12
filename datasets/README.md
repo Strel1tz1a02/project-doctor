@@ -66,8 +66,10 @@
 | `case-39-connection-pool-cursor-stream-hold` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-40-connection-pool-hot-row-lock-hold` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-41-connection-pool-response-stream-hold` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-42-slow-query-unattributable-gain` | `boundary` | `slow_query` | hard | `lead` | 已归档，校验通过（克制用例：不该改） |
+| `case-43-connection-pool-config-not-root-cause` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持；克制用例：不该改） |
 
-> `problem_kind` 的取值域已在 `_schema/case.schema.json` 中预留为设计文档划定的 **9 类**性能问题；当前 **9 类均已落地对应用例（共 41 例）**：`slow_query`（13 例，`case-01`–`case-06`、`case-15`、`case-24`、`case-25`、`case-30`、`case-33`、`case-34`、`case-35`）、`n_plus_one`（8 例，`case-07`、`case-16`、`case-26`、`case-27`、`case-31`、`case-36`、`case-37`、`case-38`）、`connection_pool`（8 例，`case-09`、`case-17`、`case-28`、`case-29`、`case-32`、`case-39`、`case-40`、`case-41`）、`deep_pagination`（`case-08`、`case-18`）、`large_response`（`case-10`、`case-19`）、`connection_setup`（`case-11`、`case-20`）、`excessive_logging`（`case-12`、`case-21`）、`thread_pool`（`case-13`、`case-22`）、`config_regression`（`case-14`、`case-23`）。详见《[数据集结构规范](docs/数据集结构规范.md)》「problem_kind 取值与覆盖现状」。
+> `problem_kind` 的取值域已在 `_schema/case.schema.json` 中预留为设计文档划定的 **9 类**性能问题；当前 **9 类均已落地对应用例（共 43 例）**：`slow_query`（14 例，`case-01`–`case-06`、`case-15`、`case-24`、`case-25`、`case-30`、`case-33`、`case-34`、`case-35`、`case-42`）、`n_plus_one`（8 例，`case-07`、`case-16`、`case-26`、`case-27`、`case-31`、`case-36`、`case-37`、`case-38`）、`connection_pool`（9 例，`case-09`、`case-17`、`case-28`、`case-29`、`case-32`、`case-39`、`case-40`、`case-41`、`case-43`）、`deep_pagination`（`case-08`、`case-18`）、`large_response`（`case-10`、`case-19`）、`connection_setup`（`case-11`、`case-20`）、`excessive_logging`（`case-12`、`case-21`）、`thread_pool`（`case-13`、`case-22`）、`config_regression`（`case-14`、`case-23`）。详见《[数据集结构规范](docs/数据集结构规范.md)》「problem_kind 取值与覆盖现状」。
 
 全部用例共用同一套 Spring Boot + MyBatis + MySQL 技术栈，按「正常 / 边界 / 失败」三类各含 ≥2 个用例，构成一个完整的判定谱系：
 

@@ -14,7 +14,7 @@
 
 设计意图：项目在**代码未做任何改动**的前提下，数据源连接池上限被回退为极小值——`application.yml` 中 `spring.datasource.hikari.maximum-pool-size: 2`。`GET /api/orders/by-user` 的查询本身很快（`orders` 已带 `idx_orders_user_created`，执行计划正常），但在并发下所有请求要竞争仅 2 条可用连接，需排队等待，P99 由约 120ms 阶跃式升高到约 800ms。
 
-与 `slow_query` 系用例不同，本用例的缺陷**不体现在执行计划**上，也不在 Java 代码里：单条 SQL 无计划问题，真正的瓶颈是**连接池容量随并发不足导致的排队**。理想情况下可由「对照配置基线 + 放开 `maximum-pool-size` 后重测」证实（`expected.improvement` 要求放开后 `duration_ms` 至少改善 60%），但当前 Agent 的 `ProblemKind` 仅支持 `slow_query`（且 `Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
+与 `slow_query` 系用例不同，本用例的缺陷**不体现在执行计划**上，也不在 Java 代码里：单条 SQL 无计划问题，真正的瓶颈是**连接池容量随并发不足导致的排队**。理想情况下可由「对照配置基线 + 放开 `maximum-pool-size` 后重测」证实（`expected.improvement` 要求放开后 `duration_ms` 至少改善 60%），但当前 Agent 的 `ProblemKind` 仅支持 `slow_query` / `n_plus_one` / `deep_pagination`（且 `Finding.verified_requires_structural_evidence` 要求 `kind` 属于这三者之一），因此**在本用例上不可能产出 `verified`**，期望结论只能是 **`lead`**，并必须显式声明限制。
 
 用例用于在 Agent 扩展问题类型之前，先检验其是否能：
 
@@ -72,4 +72,4 @@ for i in $(seq 1 8); do curl -s "http://localhost:8080/api/orders/by-user?userId
 
 - 与 `slow_query` 系用例（`case-01`/`case-04` 等）的区别：本用例的耗时**不体现在执行计划**上，SQL 已走索引，不能用单变量索引实验证实，正是其被定为 `boundary` 的原因。
 - 与 `case-13-thread-pool-no-verifiable-defect` 的区别：`case-13` 在当前代码与数据下**无**可证实缺陷（`failure / unclassified`）；本用例存在**真实且在配置层明确**的缺陷，只是在当前 Agent 能力下无法产出 `verified`，故为 `boundary / lead`。
-- 与 `case-07-n-plus-one-order-user` 同属「问题类型待 Agent 支持」的预置用例，均为 `boundary / lead`；`case-14` 的缺陷位于配置层，`case-07` 位于代码调用结构层。
+- 与 `case-07-n-plus-one-order-user` 的区别：`case-07` 的问题类型 `n_plus_one` 已被 Agent 支持、可由「随列表条数线性增长的额外数据库往返次数」这一结构化证据闭环，故期望 `verified`；本用例的 `config_regression` 类型当前仍**待 Agent 支持**，故为 `boundary / lead`。二者缺陷层级不同：`case-14` 位于配置层，`case-07` 位于代码调用结构层。
