@@ -77,7 +77,7 @@
     },
     "limitations_required": [
       "连接池扩容失效属并发窗口下的资源占用问题，需在并发 borrow 集中发生（并发请求数 × 单请求 workers 超过真实连接数）时多轮观测才稳定显现，单请求低并发不可见，结论依赖足够的并发度与压测窗口。",
-      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
       "必须声明每个入库任务内部的 COUNT(*) 均为可走索引（idx_task_events_shard）的单条查询，根因不是任一条 SQL 变慢、缺索引或 N+1 往返次数，而是『扩容任务被 DiscardPolicy 静默丢弃导致池计数虚高、无法真正扩容』；量化需结合连接池 allocated/idle 与实际连接数、获取连接超时计数，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
     ]
   },
@@ -92,7 +92,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "改编自 brettwooldridge/HikariCP（Apache-2.0）中『连接池在补充/扩容连接时，把补建任务提交到带丢弃策略的执行器，队列满时任务被静默丢弃，导致池无法达到预期容量而饥饿』的场景（参考 Issue #2378：HikariPool 中 new CustomDiscardPolicy() 与 addBagItem 路径），按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架。保留的原汁原味：连接池在 borrow 路径上按需异步扩容，扩容任务进入有界队列并由丢弃策略处理；任务被丢弃后 allocated 计数已加、真实连接数却未达上限，池不再扩容。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口，且当前 Agent 的问题类型仅支持 slow_query（Finding.verified_requires_structural_evidence 要求 kind==slow_query），无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。application.yml 中的 app.pool.* 参数（max-size=12、queue-capacity=2、queue-threads=1、borrow-timeout-ms=3000）为让占用可观测的环境参数，不是缺陷本身。"
+    "notes": "改编自 brettwooldridge/HikariCP（Apache-2.0）中『连接池在补充/扩容连接时，把补建任务提交到带丢弃策略的执行器，队列满时任务被静默丢弃，导致池无法达到预期容量而饥饿』的场景（参考 Issue #2378：HikariPool 中 new CustomDiscardPolicy() 与 addBagItem 路径），按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架。保留的原汁原味：连接池在 borrow 路径上按需异步扩容，扩容任务进入有界队列并由丢弃策略处理；任务被丢弃后 allocated 计数已加、真实连接数却未达上限，池不再扩容。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口，且当前 Agent 的问题类型仅支持 slow_query / n_plus_one / deep_pagination（Finding.verified_requires_structural_evidence 要求 kind ∈ {slow_query, n_plus_one, deep_pagination}），无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。application.yml 中的 app.pool.* 参数（max-size=12、queue-capacity=2、queue-threads=1、borrow-timeout-ms=3000）为让占用可观测的环境参数，不是缺陷本身。"
   },
   "provenance": {
     "author": "dataset-team",

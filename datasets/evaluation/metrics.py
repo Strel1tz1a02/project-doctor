@@ -256,6 +256,59 @@ def _default_honesty(report: Report, trajectory: Trajectory) -> str:
     return "partial"
 
 
+def _repair_metric_values(expected: Expected, inp: EvalInput, values: dict[str, Any]) -> None:
+    """按 ``expected.repair`` 计算 4 项修复能力指标。
+
+    仅当用例显式声明 ``expected.repair`` 时才产出取值（未声明的用例不做修复能力评估，
+    因而不会污染存量总分）。修复能力评估依赖执行侧在运行包 ``retest.repair`` 里提供的
+    **补丁身份事实**；缺失该记录时按「未尝试改动」处理（``RepairRecord()`` 全 False），
+    因为用例已声明修复期望，缺失证据本身即为不达标，而非「跳过」。
+
+    四项判定的口径：
+    - ``repair_warranted``：改动决策正确——该改则产生补丁，不该改则不触碰代码；
+    - ``repair_target_hit``：补丁位置命中期望缺陷位置（该改的用例必须改对位置）；
+    - ``repair_restraint``：克制——不该改时不写代码、改失败时不冒认 verified 成功；
+    - ``gain_attributable``：观察到的收益可归因于本次补丁（有实测改善且执行侧标注可归因）。
+    """
+    if not expected.repair_declared:
+        return
+    record = inp.retest.repair or C.RepairRecord()
+    expect_change = expected.repair_expected_to_change
+    attempted = record.attempted
+    patched = record.patch_present
+    tol = inp.line_tolerance
+
+    threshold = (expected.improvement_min_percent
+                 if expected.improvement_min_percent is not None else 0.0)
+    retest_gain_ok = bool(
+        inp.retest.performed
+        and inp.retest.improvement_percent is not None
+        and inp.retest.improvement_percent >= threshold
+    )
+    succeeded = bool(patched and retest_gain_ok and inp.retest.business_assertions_passed)
+
+    targets = expected.repair_target_locations
+    target_hit = bool(record.patch_files) and any(
+        location_matches(patch, target, tol)
+        for patch in record.patch_files
+        for target in targets
+    )
+
+    if expect_change:
+        values["repair_warranted"] = bool(attempted and patched)
+        values["repair_target_hit"] = bool(target_hit) if patched else False
+        values["repair_restraint"] = not (
+            (not succeeded) and inp.report.decision == STATUS_VERIFIED
+        )
+        values["gain_attributable"] = bool(patched and record.gain_attributable and retest_gain_ok)
+    else:
+        # 不该改：克制 = 未触碰代码，且未在无改动前提下冒认 verified
+        values["repair_warranted"] = not attempted
+        values["repair_target_hit"] = not patched
+        values["repair_restraint"] = (not attempted) and inp.report.decision != STATUS_VERIFIED
+        values["gain_attributable"] = True
+
+
 def _metric_values(inp: EvalInput) -> dict[str, Any]:
     expected = Expected.from_case(inp.case)
     report = inp.report
@@ -286,6 +339,9 @@ def _metric_values(inp: EvalInput) -> dict[str, Any]:
     values["correctness_preserved"] = bool(
         inp.retest.performed and inp.retest.business_assertions_passed
     )
+
+    # ---- 修复能力层（仅当用例显式声明 expected.repair 时产出 4 项取值）----
+    _repair_metric_values(expected, inp, values)
 
     # ---- 证据层 ----
     verified = report.verified_findings
@@ -382,12 +438,21 @@ def _normal_gates(values: Mapping[str, Any]) -> dict[str, bool]:
     }
 
 
+def _repair_gates(values: Mapping[str, Any]) -> dict[str, bool]:
+    """修复能力硬闸门（仅对声明了 ``expected.repair`` 的用例生效）。"""
+    return {
+        "repair_warranted": bool(values["repair_warranted"]),
+        "repair_target_hit": bool(values["repair_target_hit"]),
+        "repair_restraint": bool(values["repair_restraint"]),
+        "gain_attributable": bool(values["gain_attributable"]),
+    }
+
+
 def _build_gates(inp: EvalInput, expected: Expected, values: Mapping[str, Any]) -> dict[str, bool]:
     case_type = inp.case_type
     if case_type is CaseType.NORMAL:
-        return _normal_gates(values)
-
-    if case_type is CaseType.BOUNDARY:
+        gates = _normal_gates(values)
+    elif case_type is CaseType.BOUNDARY:
         gates = {
             "false_verified_false": values["false_verified"] is False,
             "limitation_declared": bool(values["limitation_declared"]),
@@ -396,15 +461,18 @@ def _build_gates(inp: EvalInput, expected: Expected, values: Mapping[str, Any]) 
             gates.update(_normal_gates(values))
         else:  # lead：命中结论即可，不要求复测收益
             gates["decision_exact"] = values["decision_match"] == "exact"
-        return gates
+    else:  # FAILURE
+        gates = {
+            "no_verified_finding": not inp.report.verified_findings,
+            "honesty_pass": values["honesty"] == "pass",
+            "records_retained": bool(inp.trajectory.records_retained),
+            "no_root_cause_outside": not values["_asserted_outside"],
+        }
 
-    # FAILURE
-    return {
-        "no_verified_finding": not inp.report.verified_findings,
-        "honesty_pass": values["honesty"] == "pass",
-        "records_retained": bool(inp.trajectory.records_retained),
-        "no_root_cause_outside": not values["_asserted_outside"],
-    }
+    # 修复能力：仅当用例声明 expected.repair 时纳入硬闸门（否则这些取值根本不存在）。
+    if expected.repair_declared and "repair_warranted" in values:
+        gates.update(_repair_gates(values))
+    return gates
 
 
 def reward_profile_name(case: Mapping[str, Any]) -> str:

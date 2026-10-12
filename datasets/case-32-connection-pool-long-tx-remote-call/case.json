@@ -67,7 +67,7 @@
     },
     "limitations_required": [
       "连接池饥饿属并发窗口下的资源占用问题，需在并发请求数达到或超过池上限（4）时多轮观测才稳定显现，单个冷请求不可见，结论依赖足够的并发度与压测窗口。",
-      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
       "必须声明根因不是任一条 SQL 变慢、缺索引或 N+1：findPendingTasks 可走 idx_reconcile_status_id、markSettled 走主键，只是单请求的数据库往返；真正被拉长的是『连接持有范围覆盖了远程支付网关调用』。量化需结合连接池活跃连接数与获取连接超时计数，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
     ]
   },
@@ -82,7 +82,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "改编自常见的『对账 / 结算批处理在数据库事务内同步调用第三方支付网关，事务把远程调用耗时也算进连接持有时长，并发下耗尽连接池』的 connection_pool 场景（上游许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『声明式事务在整个方法期间持有连接，而方法内串行执行慢速远程 I/O』的调用链结构；paymentGatewayClient.authorize 用固定 250ms 阻塞调用模拟远程往返。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口，且当前 Agent 的问题类型仅支持 slow_query（Finding.verified_requires_structural_evidence 要求 kind==slow_query），无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。application.yml 中的 hikari.maximum-pool-size=4 与 connection-timeout=3000 为让占用可观测的环境参数，不是缺陷本身。上游许可证尚未核验，provenance.license 标注为「待核验」，不臆断。"
+    "notes": "改编自常见的『对账 / 结算批处理在数据库事务内同步调用第三方支付网关，事务把远程调用耗时也算进连接持有时长，并发下耗尽连接池』的 connection_pool 场景（上游许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『声明式事务在整个方法期间持有连接，而方法内串行执行慢速远程 I/O』的调用链结构；paymentGatewayClient.authorize 用固定 250ms 阻塞调用模拟远程往返。单 primary 缺陷 boundary 用例：缺陷机制明确且可定位，但其可观测性依赖并发窗口，且当前 Agent 的问题类型仅支持 slow_query / n_plus_one / deep_pagination（Finding.verified_requires_structural_evidence 要求 kind ∈ {slow_query, n_plus_one, deep_pagination}），无法产出 verified，故期望 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 connection_pool 问题类型。application.yml 中的 hikari.maximum-pool-size=4 与 connection-timeout=3000 为让占用可观测的环境参数，不是缺陷本身。上游许可证尚未核验，provenance.license 标注为「待核验」，不臆断。"
   },
   "provenance": {
     "author": "dataset-team",

@@ -16,7 +16,7 @@
 设计意图：任务运行器需要为某个 run 的最近 job 列表附带每个 job 的**步骤数**与**日志数**。项目先查询一次 job 列表，再在 `for` 循环中**逐 job 分别查询 `job_steps` 与 `job_logs`**（N+1，合计 `2N+1` 次数据库往返）。单条查询按 `idx_job_steps_job_id` / `idx_job_logs_job_id` 走索引、执行计划本身无问题，缺陷在于**调用次数随 job 条数线性增长**。用例考察 Agent 是否能：
 
 1. 把根因定位到「循环中的逐条查询」（N+1），而非任何单条 SQL 的执行计划；
-2. 认识到当前 Agent 的 `ProblemKind` 仅支持 `slow_query`，`n_plus_one` 在问题类型扩展前**不可能产出 `verified`**，只能给出 `lead`（等待 Agent 支持）；
+2. 认识到 `n_plus_one` 现虽由 Agent 的 `ProblemKind` 支持，但本用例未纳入「逐条 vs 批量」判别实验与批量改造后复测增益等结构化证据，故维持 `lead`；
 3. 不虚构不存在的索引类根因（避免 `false_verified`）。
 
 ## 上游来源与原汁原味的保留
@@ -65,13 +65,13 @@ curl "http://localhost:8080/api/runner/run-details?runId=run-001&limit=200"
 
 ## 评估要点
 
-- `decision_match = under`（期望 `lead`，Agent 不得给出 `verified`）。
+- `decision_match = exact`（期望 `lead`，Agent 不得给出 `verified`）。
 - `root_cause_recall`：命中 `d1` 即视为召回主根因；`d2` 属同源次要。
 - `false_verified = false`：Agent 若宣称 `verified`（例如声称「已加索引证实」）即判失败。
-- `limitation_declared`：须命中 `case.json` 中 `expected.limitations_required` 的 3 条声明（含「等待 Agent 支持 N+1」）。
+- `limitation_declared`：须命中 `case.json` 中 `expected.limitations_required` 的 3 条声明（判定依据、`n_plus_one` 已支持但证据不足维持 `lead`、依赖列表页大小）。
 - `reward_profile = boundary_composite`，`timeout_seconds = 2400`。
-- 该缺陷**无法**由平台单变量索引实验证实，故整体期望 `lead`。
-- **待支持标注**：等待 Agent 支持 `n_plus_one` 问题类型；届时本用例可升级为 `normal`。
+- 该缺陷**不能**由平台单变量索引实验证实；本用例亦未纳入「逐条 vs 批量」判别实验与改造复测增益证据，故整体期望 `lead`。
+- **边界设定说明**：`n_plus_one` 现已由 Agent 的 `ProblemKind` 支持，本用例维持 `lead` 是数据集刻意的边界设定（未纳入足以闭环的判别实验与改造增益证据）；具备完整证据链的同类用例（如 `case-07`）可产出 `verified`。
 
 ## 与其它用例的关系
 

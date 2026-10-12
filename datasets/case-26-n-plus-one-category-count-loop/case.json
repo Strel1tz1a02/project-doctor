@@ -82,7 +82,7 @@
     },
     "limitations_required": [
       "必须声明 N+1 的判定依据是『随分类数线性增长的额外数据库往返次数』，而非任何单条 SQL 的执行计划（单条 COUNT/SUM 均可走 idx_orders_category 索引）",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，n_plus_one 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明 n_plus_one 现已由 Agent 的 ProblemKind 支持，本用例期望结论为 lead 属数据集设定的边界（并非因问题类型不受支持）：本用例未纳入『循环逐条 vs 批量合并』判别实验与批量改造后复测增益等结构化证据，不足以支撑整体 verified",
       "必须声明结论依赖分类数量与数据规模：分类数较小时逐条查询开销可忽略，本用例以约 100 个分类触发"
     ]
   },
@@ -97,7 +97,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "改编自 tailwind8/portfolio-reserve Issue #68（main@b3bfbf5228c276ba696dd78ff84fed5741a80d33；上游 Next.js 在 src/app/api/admin/stats/route.ts 的 for 循环内逐分类调用 Prisma count，查询数由 100 增至 101；许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『先取分类列表，再在循环中逐分类聚合』的 N+1 语义：primary 唯一（d1=buildStats@OrderStatsService.java:26 的 countByCategory 循环），第二个 for 循环（sumAmountByCategory）列为 d2 secondary。边界用例（问题类型 n_plus_one，等待 Agent 支持）：无法由单变量索引实验证实（单条聚合按 idx_orders_category 执行计划无问题），且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 N+1 问题类型。"
+    "notes": "改编自 tailwind8/portfolio-reserve Issue #68（main@b3bfbf5228c276ba696dd78ff84fed5741a80d33；上游 Next.js 在 src/app/api/admin/stats/route.ts 的 for 循环内逐分类调用 Prisma count，查询数由 100 增至 101；许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『先取分类列表，再在循环中逐分类聚合』的 N+1 语义：primary 唯一（d1=buildStats@OrderStatsService.java:26 的 countByCategory 循环），第二个 for 循环（sumAmountByCategory）列为 d2 secondary。边界用例（问题类型 n_plus_one，Agent 现已支持该类型）：无法由单变量索引实验证实（单条聚合按 idx_orders_category 执行计划无问题），且本用例未纳入『循环逐分类 vs GROUP BY 合并』判别实验与批量改造后复测增益等结构化证据；具备完整证据链的同类用例（如 case-07）可产出 verified，本用例受证据链所限仍取 lead，期望整体 decision=lead 并显式声明限制。"
   },
   "provenance": {
     "author": "dataset-team",

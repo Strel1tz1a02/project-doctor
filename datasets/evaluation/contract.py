@@ -52,6 +52,7 @@ __all__ = [
     "TraceStep",
     "StepTrace",
     "Trajectory",
+    "RepairRecord",
     "Retest",
     "Artifact",
     "Restore",
@@ -571,12 +572,56 @@ class Trajectory:
 
 
 @dataclass(frozen=True)
+class RepairRecord:
+    """一次修复尝试的可核查记录（来源：运行包 ``retest.repair``）。
+
+    这是「判卷机」一侧判定修复能力所需的**事实字段**，由执行侧采集/标注提供，评测方
+    只消费、不产生：
+
+    - ``attempted``：本次运行是否尝试了代码改动；
+    - ``patch_present``：是否真的产出了补丁（区别于「只是提了建议」）；
+    - ``patch_files``：补丁实际触及的代码位置（``path``/``line``），用于与期望缺陷位置比对；
+    - ``gain_attributable``：执行侧标注的「观察到的收益可否归因于本次补丁」。
+
+    「该不该改」「改对没改对」「失败是否克制」等**判定**不在这里，而由 ``metrics.py``
+    结合用例期望（``Expected.repair_*``）计算，避免把评测结论混入采集事实。
+
+    缺省 ``None``（即运行包未提供 ``retest.repair``）表示「本用例不做修复能力评估」，
+    与「尝试了但失败」严格区分。
+    """
+
+    attempted: bool = False
+    patch_present: bool = False
+    patch_files: tuple["Location", ...] = ()
+    gain_attributable: bool = False
+
+    @classmethod
+    def from_obj(cls, obj: Any) -> "RepairRecord | None":
+        if obj is None:
+            return None
+        if isinstance(obj, cls):
+            return obj
+        if not isinstance(obj, Mapping):
+            return None
+        files = obj.get("patch_files") or ()
+        if isinstance(files, Mapping):  # 允许 {"files": [...]} 形式
+            files = files.get("files") or ()
+        return cls(
+            attempted=bool(obj.get("attempted", False)),
+            patch_present=bool(obj.get("patch_present", False)),
+            patch_files=tuple(Location.from_obj(x) for x in files),
+            gain_attributable=bool(obj.get("gain_attributable", False)),
+        )
+
+
+@dataclass(frozen=True)
 class Retest:
     """评测方独立复测的结果。"""
 
     performed: bool = False
     improvement_percent: float | None = None
     business_assertions_passed: bool = False
+    repair: "RepairRecord | None" = None
 
     @classmethod
     def from_obj(cls, obj: Any) -> "Retest":
@@ -587,6 +632,7 @@ class Retest:
             performed=bool(obj.get("performed", False)),
             improvement_percent=(None if gain is None else float(gain)),
             business_assertions_passed=bool(obj.get("business_assertions_passed", False)),
+            repair=RepairRecord.from_obj(obj.get("repair")),
         )
 
 
@@ -664,12 +710,27 @@ class Expected:
     excluded_explanations: tuple[str, ...] = ()
     improvement_min_percent: float | None = None
     limitations_required: tuple[str, ...] = ()
+    #: 是否在 ``expected.repair`` 显式声明修复能力期望（声明后才评估 4 项修复指标）。
+    repair_declared: bool = False
+    #: 正确行为是否应当改动代码：``True`` 该改、``False`` 不该改（克制）。
+    repair_expected_to_change: bool = True
+    #: 补丁应当触及的缺陷 id；留空则回退到 ``root_cause_ids``。
+    repair_target_ids: tuple[str, ...] = ()
 
     @property
     def root_cause_locations(self) -> tuple[Location, ...]:
         """仅 ``root_cause_ids`` 对应的缺陷位置，用于 recall / precision 的配对。"""
         out: list[Location] = []
         for defect_id in self.root_cause_ids:
+            out.extend(self.defect_locations.get(defect_id, ()))
+        return tuple(out)
+
+    @property
+    def repair_target_locations(self) -> tuple[Location, ...]:
+        """补丁应当触及的缺陷位置（``repair_target_ids`` 缺省回退到根因），用于改对位置判定。"""
+        ids = self.repair_target_ids or self.root_cause_ids
+        out: list[Location] = []
+        for defect_id in ids:
             out.extend(self.defect_locations.get(defect_id, ()))
         return tuple(out)
 
@@ -698,6 +759,8 @@ class Expected:
 
         improvement = expected.get("improvement") or {}
         min_pct = improvement.get("min_improvement_percent")
+        repair = expected.get("repair")
+        repair_map = repair if isinstance(repair, Mapping) else {}
         return cls(
             decision=str(expected.get("decision", STATUS_UNCLASSIFIED)),
             root_cause_ids=tuple(str(x) for x in (expected.get("root_cause_ids") or ())),
@@ -708,4 +771,7 @@ class Expected:
             excluded_explanations=_as_str_tuple(expected.get("excluded_explanations")),
             improvement_min_percent=(None if min_pct is None else float(min_pct)),
             limitations_required=_as_str_tuple(expected.get("limitations_required")),
+            repair_declared=bool(repair_map),
+            repair_expected_to_change=bool(repair_map.get("expected_to_change", True)),
+            repair_target_ids=_as_str_tuple(repair_map.get("target_defect_ids")),
         )

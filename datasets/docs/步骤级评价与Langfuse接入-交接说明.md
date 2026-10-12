@@ -64,7 +64,7 @@
 | `evaluation/scores.py` | 新增 `ScoreScope.STEP` 与 7 项步骤指标定义；新增 `STEP_METRICS`；归一化排除步骤项 |
 | `evaluation/metrics.py` | `CaseResult` 增 `steps` / `phases` / `step_summary`；`_metric_values`/`evaluate_case` 消费步骤轨迹 |
 | `evaluation/run_eval.py` | `FROZEN_RELATIVE` 扩充；`aggregate` 增 `step` 块；`render_markdown` 增「步骤级归因」小节 |
-| `evaluation/test_metrics.py` | 指标数由 17 → 24，适用数 22/23/15，新增步骤指标子集断言 |
+| `evaluation/test_metrics.py` | 指标数由 17 → 28（步骤层 +7、修复能力层 +4），适用数 26/27/15，新增步骤指标子集断言 |
 | `docs/Agent评估方法.md` | 新增「步骤层」章节；三层粒度落地说明；分数模型补 STEP 作用域 |
 | `docs/步骤级评价与Langfuse接入方案.md` | 顶部状态由「草案」更新为「阶段一/二已落地」，指向本文 |
 
@@ -119,7 +119,7 @@ reconcile_task, finish_task             → verification
 ### 3.2 `evaluation/scores.py`（分数模型，进 FROZEN）
 
 - `ScoreScope` 增第三级 `STEP = "STEP"`（对应 Langfuse observation 级）。
-- `METRIC_DEFINITIONS` 由 **17 → 24**，新增 7 项步骤指标（`group="step"`、`scope=STEP`、`applies_to=ALL_CASE_TYPES`）：
+- `METRIC_DEFINITIONS` 由 **17 → 28**：本轮步骤层新增 7 项（`group="step"`、`scope=STEP`、`applies_to=ALL_CASE_TYPES`）；后续「修复能力」一轮再增 4 项 `repair_*`（`group="conclusion"`、`applies_to` 为 normal/boundary，仅在用例声明 `expected.repair` 时产出，详见《Agent评估方法》）。以下为本轮新增的 7 项步骤指标：
 
   | 指标 | 类型 | 含义 |
   | --- | --- | --- |
@@ -134,7 +134,7 @@ reconcile_task, finish_task             → verification
 - 新增 `STEP_METRICS`（`group == "step"` 的指标名元组），供 `steps.py` / `run_eval.py` 过滤。
 - `metric_score`：由仅排除 `group == "cost"` 改为排除 `group in ("cost", "step")` → 步骤分**不进入** `group_scores` / `total_score`（D4）。
 - `definitions_for` 的 `group_order` 增加 `"step": 4`。
-- 自检更新：`len(METRIC_DEFINITIONS) == 24`、`len(STEP_METRICS) == 7`；适用数 normal/boundary/failure = 22/23/15；断言步骤指标 scope 为 STEP、且归一化返回 `None`。
+- 自检更新：`len(METRIC_DEFINITIONS) == 28`、`len(STEP_METRICS) == 7`；适用数 normal/boundary/failure = 26/27/15；断言步骤指标 scope 为 STEP、且归一化返回 `None`。
 
 ### 3.3 `evaluation/steps.py`（**新**，进 FROZEN）
 
@@ -212,8 +212,8 @@ reconcile_task, finish_task             → verification
 - `evaluation/test_steps.py`（**新**，43 项）：`StepRegistryTest`、`EvaluateStepTest`、`StepRulesTest`、
   `EvaluateTraceTest`（含两个 fixture 的精确聚合断言）、`StepScoresTest`、`StepScoringBoundaryTest`（D4 边界）、
   `TraceAdapterIntegrationTest`、`BackwardCompatTest`。
-- `evaluation/test_metrics.py`（改）：`test_registry_has_24_metrics`（24 + 7）；`test_applicability_invariants`
-  适用数改 22/23/15，并新增 `STEP_METRICS ⊆ normal/boundary/failure` 断言。
+- `evaluation/test_metrics.py`（改）：`test_registry_has_28_metrics`（28 = 17 原有 + 7 步骤 + 4 修复）；`test_applicability_invariants`
+  适用数改 26/27/15，并新增 `STEP_METRICS ⊆ normal/boundary/failure` 断言。
 - `evaluation/fixtures/steps/case-01-slow-query-fullscan.json`：8 步全绿的干净轨迹
   （延迟合计 9520.0、token 3500、阶段全覆盖、无重试、`evaluate_evidence` 证据充足、`finish_task` 结论 `verified`）。
 - `evaluation/fixtures/steps/case-02-slow-query-composite.json`：8 步复合轨迹——含 1 次重试（相邻同工具同参）、
@@ -296,7 +296,7 @@ reconcile_task, finish_task             → verification
 
 ```powershell
 python evaluation/contract.py            # 契约自检
-python evaluation/scores.py              # 分数模型自检（24 项指标 / 步骤层 7 项）
+python evaluation/scores.py              # 分数模型自检（28 项指标 / 步骤层 7 项 / 修复能力层 4 项）
 python evaluation/steps.py               # 步骤评估器自检
 python evaluation/trace_adapter.py       # 轨迹适配器自检
 python evaluation/metrics.py             # 指标自检（含步骤层归因）
@@ -445,7 +445,7 @@ _schema/case.schema.json
 | `n_plus_one` | `case-36-n-plus-one-product-category-brand` / `case-37-n-plus-one-section-course-resource` / `case-38-n-plus-one-repository-nested-commits` | `2N+1` / `2N+1` / `1+N+N×M` |
 | `connection_pool` | `case-39-connection-pool-cursor-stream-hold` / `case-40-connection-pool-hot-row-lock-hold` / `case-41-connection-pool-response-stream-hold` | 游标流式读 / 热点行 `FOR UPDATE` / 响应分块流式写 |
 
-9 例全部为 `boundary` / `medium` / `lead`（`n_plus_one` 与 `connection_pool` 在当前 Agent 契约下不含 `verified`），`evaluation.notes` 统一写「等待 Agent 支持 `problem_kind`」。
+9 例全部为 `boundary` / `medium` / `lead`：`connection_pool` 在当前 Agent 契约下不含 `verified`（`ProblemKind` 尚未支持该类型），`evaluation.notes` 写「等待 Agent 支持 `problem_kind`」；`n_plus_one` 现已被 Agent 支持，但本批 `n_plus_one` 用例证据链未闭环仍取 `lead`，`evaluation.notes` 写「属数据集边界设定，非因问题类型不受支持」。
 
 ### 12.2 索引与测试同步
 

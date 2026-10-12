@@ -67,7 +67,7 @@
     },
     "limitations_required": [
       "必须声明本用例的瓶颈在『把日志写盘放在请求热路径上、且写入持全局锁同步刷盘』，由并发下的锁竞争与同步刷盘叠加造成，用 duration_ms 只能间接体现，需结合并发梯度下的吞吐（如 throughput_rps）或日志路径时延才能定量归因。",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，excessive_logging 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，excessive_logging 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
       "必须声明该现象强度随 size 与并发度放大，单请求小 size 时几乎不可观测，结论依赖当前 size=500 × concurrency=4 的负载。"
     ]
   },
@@ -82,7 +82,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "单 primary 缺陷 boundary 用例：同步日志 + 全局锁型 excessive_logging，改编自 sirupsen/logrus（机制标签 sync_logging_lock，库固有设计：Entry.log() 持 Logger.mu 全局互斥锁并同步 Out.Write）。统一骨架下按数据集约定自建最小调用方：AuditLogger（static final ReentrantLock MU 全局锁 + 持锁同步 out.flush()）被 OrderService.auditReport 逐行调用，把上游『同步日志 + 全局锁串行化』的机制原汁原味地迁移到请求热路径。耗时来自锁竞争与同步刷盘，而非 SQL 计划：查询按 user_id 走 idx_orders_user_created 且 LIMIT，执行计划无问题，无法由单变量索引实验证实；且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。排除项：查询走索引且带 LIMIT，非 missing_index / slow_query；单条 SQL 非循环查库，非 n_plus_one；未占用连接池等待，非 connection_pool。溯源注意：sirupsen/logrus 为 Go 日志库而非服务，须自建最小调用方（属加工成分）；该机制证据偏弱（依赖库源码与文档/社区讨论，未定位到单一 issue/PR），已在 README 如实标注。待支持标注：等待 Agent 支持 excessive_logging 问题类型。"
+    "notes": "单 primary 缺陷 boundary 用例：同步日志 + 全局锁型 excessive_logging，改编自 sirupsen/logrus（机制标签 sync_logging_lock，库固有设计：Entry.log() 持 Logger.mu 全局互斥锁并同步 Out.Write）。统一骨架下按数据集约定自建最小调用方：AuditLogger（static final ReentrantLock MU 全局锁 + 持锁同步 out.flush()）被 OrderService.auditReport 逐行调用，把上游『同步日志 + 全局锁串行化』的机制原汁原味地迁移到请求热路径。耗时来自锁竞争与同步刷盘，而非 SQL 计划：查询按 user_id 走 idx_orders_user_created 且 LIMIT，执行计划无问题，无法由单变量索引实验证实；且当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination、Finding.verified_requires_structural_evidence 要求 kind ∈ {slow_query, n_plus_one, deep_pagination}，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。排除项：查询走索引且带 LIMIT，非 missing_index / slow_query；单条 SQL 非循环查库，非 n_plus_one；未占用连接池等待，非 connection_pool。溯源注意：sirupsen/logrus 为 Go 日志库而非服务，须自建最小调用方（属加工成分）；该机制证据偏弱（依赖库源码与文档/社区讨论，未定位到单一 issue/PR），已在 README 如实标注。待支持标注：等待 Agent 支持 excessive_logging 问题类型。"
   },
   "provenance": {
     "author": "dataset-team",

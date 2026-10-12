@@ -42,7 +42,7 @@ GOLDEN_TOTALS = {
     "case-04-slow-query-user-index": 1.0,
     "case-05-slow-query-skewed-status": 0.7964,
     "case-06-slow-query-undersized": 0.965,
-    "case-07-n-plus-one-order-user": 0.7964,
+    "case-07-n-plus-one-order-user": 1.0,
     "case-08-deep-pagination-large-offset": 0.7964,
     "case-09-connection-pool-leak": 0.7964,
     "case-10-large-response-unbounded": 0.7964,
@@ -51,7 +51,7 @@ GOLDEN_TOTALS = {
     "case-13-thread-pool-no-verifiable-defect": 0.965,
     "case-14-config-regression-pool-size": 0.7964,
 }
-GOLDEN_MEAN_TOTAL = 0.8616
+GOLDEN_MEAN_TOTAL = 0.8762
 
 GOLDEN_PROFILES = {
     "case-01-slow-query-fullscan": "normal_single",
@@ -91,7 +91,7 @@ GOLDEN_GROUP_SCORES = {
         "conclusion": 1.0, "evidence": 1.0, "process": 0.9, "cost": 1.0,
     },
     "case-07-n-plus-one-order-user": {
-        "conclusion": 0.7143, "evidence": 1.0, "process": 0.5, "cost": 1.0,
+        "conclusion": 1.0, "evidence": 1.0, "process": 1.0, "cost": 1.0,
     },
     "case-08-deep-pagination-large-offset": {
         "conclusion": 0.7143, "evidence": 1.0, "process": 0.5, "cost": 1.0,

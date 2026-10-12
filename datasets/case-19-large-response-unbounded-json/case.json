@@ -67,7 +67,7 @@
     },
     "limitations_required": [
       "必须声明本用例的瓶颈在响应体序列化与网络传输，用 duration_ms 只能间接体现，需结合响应字节数/返回行数等指标才能定量归因。",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，large_response 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，large_response 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
       "必须声明该现象随数据量增长而放大，在小数据集上不可观测，结论依赖当前 5000 行 × 约 6 KB payload 的规模。"
     ]
   },
@@ -82,7 +82,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "单 primary 缺陷 boundary 用例：无界响应体型 large_response，改编自 openclaw/openclaw PR #97536（机制标签 unbounded_response_body，为 release 信息 JSON 引入 16 MiB 上限）。统一骨架下保留上游『无上限读取 release 信息 JSON』的原汁原味：provider_releases 全表 SELECT * + 逐行序列化约 6 KB 的 payload，耗时来自序列化/传输而非缺索引；无法用单变量索引实验证实，且当前 Agent 问题类型仅支持 slow_query，期望 lead 并声明限制。用于检验 Agent 是否能把『响应体过大』从 SQL 计划层区分出来。等待 Agent 支持 large_response。"
+    "notes": "单 primary 缺陷 boundary 用例：无界响应体型 large_response，改编自 openclaw/openclaw PR #97536（机制标签 unbounded_response_body，为 release 信息 JSON 引入 16 MiB 上限）。统一骨架下保留上游『无上限读取 release 信息 JSON』的原汁原味：provider_releases 全表 SELECT * + 逐行序列化约 6 KB 的 payload，耗时来自序列化/传输而非缺索引；无法用单变量索引实验证实，且当前 Agent 问题类型仅支持 slow_query / n_plus_one / deep_pagination，期望 lead 并声明限制。用于检验 Agent 是否能把『响应体过大』从 SQL 计划层区分出来。等待 Agent 支持 large_response。"
   },
   "provenance": {
     "author": "dataset-team",

@@ -67,7 +67,7 @@
     },
     "limitations_required": [
       "连接池耗尽属渐进式资源泄漏，需在持续并发下多轮观测才显现，单次冷调用不可见，结论依赖足够长的压测窗口。",
-      "当前 Agent 的 ProblemKind 仅支持 slow_query，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，connection_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
       "连接泄漏的量化需结合连接池活跃连接数随时间增长或获取连接超时计数等指标，仅凭 duration_ms 无法与其它阻塞型缺陷完全区分。"
     ]
   },
@@ -82,7 +82,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "单 primary 缺陷 boundary 用例：连接泄漏型 connection_pool。缺陷机制明确且可定位，但其可观测性依赖持续并发窗口，且当前 Agent 的问题类型仅支持 slow_query，无法产出 verified，故期望 decision=lead 并显式声明限制。用于检验 Agent 是否能识别『冷启动正常、随调用累积恶化』的泄漏特征并如实声明证据边界。"
+    "notes": "单 primary 缺陷 boundary 用例：连接泄漏型 connection_pool。缺陷机制明确且可定位，但其可观测性依赖持续并发窗口，且当前 Agent 的问题类型仅支持 slow_query / n_plus_one / deep_pagination，无法产出 verified，故期望 decision=lead 并显式声明限制。用于检验 Agent 是否能识别『冷启动正常、随调用累积恶化』的泄漏特征并如实声明证据边界。"
   },
   "provenance": {
     "author": "dataset-team",

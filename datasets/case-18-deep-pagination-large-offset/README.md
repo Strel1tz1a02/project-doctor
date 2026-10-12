@@ -7,7 +7,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| `case_type` | `boundary`（边界用例：问题类型尚未被 Agent 支持，只能给 `lead`） |
+| `case_type` | `boundary`（边界用例：证据链未闭环，取 `lead`） |
 | `problem_kind` | `deep_pagination` |
 | `difficulty` | `medium` |
 | 期望结论 | `lead` |
@@ -16,7 +16,7 @@
 设计意图：`GET /api/items/page` 以 `LIMIT #{limit} OFFSET #{offset}` 分页，偏移越大越慢。用例考察 Agent 是否能：
 
 1. 识别「查询代价随位移深度（OFFSET）线性增长」——而非任何缺索引或单条 SQL 执行计划问题；
-2. 在问题类型尚未被 Agent 支持时，给出 `lead` 结论并**显式声明限制**（不得为了拿分伪造 `verified`）；
+2. 在证据链未闭环（未纳入「深浅页耗时随 offset 变化」判别实验与键集分页改造后复测增益）时，给出 `lead` 结论并**显式声明限制**（不得为了拿分伪造 `verified`）；
 3. 不把恒定成本的干扰项（d2：每次请求 `SELECT COUNT(*)` 求总数）误判为根因。
 
 ## 上游来源与原汁原味的保留
@@ -68,12 +68,12 @@ curl "http://localhost:8080/api/items/page?offset=170000&limit=20"
 
 ## 评估要点
 
-- 边界用例（问题类型 `deep_pagination`，等待 Agent 支持）：本用例**不可由单变量实验证实**——`items` 已具备 `idx_items_created_at`，缺索引不是根因，耗时来自「扫描并丢弃 offset 行」；且当前 Agent 的 `ProblemKind` 仅支持 `slow_query`、`Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`，故在本用例上不可能产出 `verified`。
+- 边界用例（问题类型 `deep_pagination`，Agent 现已支持该类型）：本用例**不可由单变量实验证实**——`items` 已具备 `idx_items_created_at`，缺索引不是根因，耗时来自「扫描并丢弃 offset 行」；`deep_pagination` 现已由 Agent 的 `ProblemKind` 支持（`kind ∈ {slow_query, n_plus_one, deep_pagination}`），但本用例未纳入「深浅页耗时随 offset 变化」判别实验与键集分页改造后复测增益等结构化证据，故维持 `lead`。
 - 使用 `evaluation.checks` 中的检查项判定，`reward_profile = boundary_composite`。
 - `decision_match`：期望 `lead`（Agent 若给出 `verified` 即触发 `false_verified` 硬闸门）。
-- `limitation_declared`：必须声明三条 `expected.limitations_required`（判定依据、问题类型未支持、依赖位移深度）。
+- `limitation_declared`：必须声明三条 `expected.limitations_required`（判定依据、`deep_pagination` 已支持但证据不足维持 `lead`、依赖位移深度）。
 - `false_verified` 硬闸门：任何为大 OFFSET 深分页伪造 `verified` 的输出直接判负。
-- **待支持标注**：等待 Agent 支持 `deep_pagination` 问题类型；届时本用例可升级为 `normal`。
+- **边界设定说明**：`deep_pagination` 现已由 Agent 的 `ProblemKind` 支持，本用例维持 `lead` 是数据集刻意的边界设定（未纳入足以闭环的判别实验与改造增益证据），并非因问题类型不受支持。
 
 ## 与其它用例的关系
 

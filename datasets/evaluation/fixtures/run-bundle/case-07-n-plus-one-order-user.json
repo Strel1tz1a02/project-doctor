@@ -12,7 +12,7 @@
     "task": { "status": "completed" },
     "findings": [
       {
-        "status": "lead",
+        "status": "verified",
         "code_locations": [
           {
             "commit": "local",
@@ -22,20 +22,35 @@
             "association_evidence_ids": ["ev-sql-1", "ev-exp-1"]
           }
         ],
+        "evidence_refs": [
+          "artifact://case-07/sql_calls.json",
+          "artifact://case-07/explain_plan.json"
+        ],
         "excluded_explanations": [
           { "explanation": "lock_contention", "evidence_ids": ["ev-obs-1"] },
           { "explanation": "network_latency", "evidence_ids": ["ev-obs-2"] },
           { "explanation": "jvm_gc_pause", "evidence_ids": ["ev-obs-3"] }
         ],
+        "recommendation": {
+          "validation_status": "retested",
+          "measured_gain_percent": 71.5
+        },
         "limitations": [
           "必须声明 N+1 的判定依据是『随列表条数线性增长的额外数据库往返次数』，而非任何单条 SQL 的执行计划",
-          "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，N+1 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
           "必须声明结论依赖列表页大小 size：逐条查询的开销在 size 较小时可忽略，本用例以 size=200 触发"
         ],
-        "evidence_flags": {}
+        "evidence_flags": {
+          "scan_rows_decreased": true,
+          "duration_distinguishable": true,
+          "business_result_consistent": true,
+          "no_lock_wait": true,
+          "cache_known": true,
+          "linked_to_code": true
+        }
       }
     ],
-    "reason": "主缺陷 d1（OrderService.recentOrdersWithUser 在 for 循环内逐条 findUserById，形成 1+size 次数据库往返）机制明确，但单条查询走主键、无法由单变量索引实验证实；且当前 ProblemKind 仅支持 slow_query，故整体维持 lead"
+    "observations": [{ "business_valid": true }],
+    "reason": "主缺陷 d1（OrderService.recentOrdersWithUser 在 for 循环内逐条 findUserById）经『统计一次请求的 SQL 调用次数随 size 线性增长（size=200 → 1+size≈201 次往返）』的结构化证据证实，单条 findUserById 走主键、执行计划无问题，开销来自调用次数；改为去重收集后批量 findUsersByIds 一次返回、内存 Map 回填，往返降为 2 次，复测 duration_ms 改善 71.5%，业务断言全部通过，故整体 verified"
   },
   "trajectory": {
     "required_steps_done": [
@@ -50,5 +65,26 @@
     "records_retained": true,
     "tool_calls": 28
   },
+  "retest": {
+    "performed": true,
+    "improvement_percent": 71.5,
+    "business_assertions_passed": true,
+    "repair": {
+      "attempted": true,
+      "patch_present": true,
+      "patch_files": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/OrderService.java",
+          "line": 33
+        }
+      ],
+      "gain_attributable": true
+    }
+  },
+  "artifacts": [
+    { "ref": "artifact://case-07/sql_calls.json", "sha256_verified": true, "readable": true },
+    { "ref": "artifact://case-07/explain_plan.json", "sha256_verified": true, "readable": true }
+  ],
+  "restore": { "rolled_back": true, "verified": true },
   "cost": { "wall_seconds": 84.0, "tool_calls": 28, "artifact_bytes": 4096 }
 }

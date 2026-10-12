@@ -40,7 +40,7 @@ case-02-slow-query-composite/
 | --- | --- | --- | --- | --- | --- |
 | `d1` | primary | `missing_composite_index` | `.../mapper/OrderMapper.java:21` | `verified` | `orders` 缺 `(status, created_at)` 复合索引 → `Using filesort`；加索引即可由单变量实验证实 |
 | `d2` | secondary | `full_table_scan` | `.../mapper/OrderMapper.java:19` | `lead` | `users.email` 前导通配符 `LIKE '%x%'`，索引失效；修复需改写查询而非加索引 |
-| `d3` | secondary | `n_plus_one` | `.../service/OrderService.java:29` | `lead` | 每条订单各查一次用户；`ProblemKind` 暂不支持 `n_plus_one` |
+| `d3` | secondary | `n_plus_one` | `.../service/OrderService.java:29` | `lead` | 每条订单各查一次用户；`n_plus_one` 现已由 Agent 支持，但属组合缺陷的次要分量（未能在单变量索引实验下证实），非本用例 primary |
 | `d4` | secondary | `redundant_count` | `.../mapper/OrderMapper.java:30` | `lead` | 每次请求执行同构 `COUNT(*)` |
 | `d5` | secondary | `deep_offset` | `.../mapper/OrderMapper.java:22` | `lead` | `LIMIT offset, size` 大偏移量低效 |
 | `d6` | decoy | `select_star` | `.../mapper/OrderMapper.java:15` | `unclassified` | `SELECT o.*`，影响轻微，**不应被判为根因** |

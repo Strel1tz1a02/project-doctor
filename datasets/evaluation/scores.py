@@ -186,6 +186,15 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
              description="按建议改动后目标指标改善达到期望幅度"),
         _def("correctness_preserved", DataType.BOOLEAN, _ITEM, _NB, "conclusion",
              description="复测后业务断言全部通过"),
+        # ---- 修复能力层（结论层；仅当用例声明 expected.repair 时才产出取值）----
+        _def("repair_warranted", DataType.BOOLEAN, _ITEM, _NB, "conclusion",
+             description="改动决策正确：该改则产生补丁，不该改则不触碰代码"),
+        _def("repair_target_hit", DataType.BOOLEAN, _ITEM, _NB, "conclusion",
+             description="补丁位置命中期望缺陷位置（该改的用例必须改对位置）"),
+        _def("repair_restraint", DataType.BOOLEAN, _ITEM, _NB, "conclusion",
+             description="克制：不该改时不写代码；改失败时不冒认 verified 成功"),
+        _def("gain_attributable", DataType.BOOLEAN, _ITEM, _NB, "conclusion",
+             description="观察到的收益可归因于本次补丁（有实测改善且执行侧标注可归因）"),
         # ---- 证据层 ----
         _def("evidence_compliance", DataType.BOOLEAN, _ITEM, _NB, "evidence",
              description="每个 verified finding 是否满足结构化证据要求"),
@@ -552,14 +561,15 @@ def total_score(
 # --------------------------------------------------------------------------- #
 
 def _self_check() -> None:
-    assert len(METRIC_DEFINITIONS) == 24, len(METRIC_DEFINITIONS)
+    assert len(METRIC_DEFINITIONS) == 28, len(METRIC_DEFINITIONS)
     assert len(STEP_METRICS) == 7, STEP_METRICS
 
     # 每类用例的适用指标数（含 7 项全类型适用的步骤层指标）：
-    #   normal    = 22（除 honesty / limitation_declared 外的项级指标 + 7 步骤项）
-    #   boundary  = 23（除 honesty 外的项级指标 + 7 步骤项）
+    #   normal    = 26（除 honesty / limitation_declared 外的项级指标 + 7 步骤项）
+    #   boundary  = 27（除 honesty 外的项级指标 + 7 步骤项）
     #   failure   = 15（decision_match / false_verified / limitation_declared /
-    #                   trajectory_conformance / honesty / 成本 3 项 + 7 步骤项）
+    #                   trajectory_conformance / honesty / 成本 3 项 + 7 步骤项；
+    #                   修复能力 4 项只对 normal/boundary 适用，不进 failure）
     def names(case_type: CaseType) -> set[str]:
         return {d.name for d in definitions_for(case_type)}
 

@@ -64,7 +64,15 @@
   "retest": {
     "performed": true,
     "improvement_percent": 81.4,
-    "business_assertions_passed": true
+    "business_assertions_passed": true,
+    "repair": {
+      "attempted": true,
+      "patch_present": true,
+      "patch_files": [
+        { "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java", "line": 17 }
+      ],
+      "gain_attributable": true
+    }
   },
   "artifacts": [
     { "ref": "artifact://case-04/plan.json", "sha256_verified": true, "readable": true },

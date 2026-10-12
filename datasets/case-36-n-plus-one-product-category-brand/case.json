@@ -84,7 +84,7 @@
     },
     "limitations_required": [
       "必须声明 N+1 的判定依据是『随列表页大小线性增长的额外数据库往返次数』，而非任何单条 SQL 的执行计划（单条 findCategoryNameById 走 categories 主键、findBrandNameById 走 brands 主键）",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，n_plus_one 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明 n_plus_one 现已由 Agent 的 ProblemKind 支持，本用例期望结论为 lead 属数据集设定的边界（并非因问题类型不受支持）：本用例未纳入『循环逐条 vs 批量合并』判别实验与批量改造后复测增益等结构化证据，不足以支撑整体 verified",
       "必须声明结论依赖列表页大小 size：逐条查询的开销在 size 较小时可忽略，本用例以 size=100 触发，且为分类名与品牌名两趟循环（2N+1）"
     ]
   },
@@ -99,7 +99,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "改编自常见的『商品列表 / 目录页逐条回查分类与品牌等字典名称』的 N+1 场景（上游许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『先取商品列表，再在循环中逐条回查关联字典实体』的 N+1 语义：primary 唯一（d1=buildProducts@ProductService.java:27 的分类名回查循环），第二个 for 循环（品牌名回查）列为 d2 secondary，合计 2N+1。边界用例（问题类型 n_plus_one，等待 Agent 支持）：无法由单变量索引实验证实（单条查询均走主键、执行计划无问题），且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。待支持标注：等待 Agent 支持 N+1 问题类型。上游许可证尚未核验，provenance.license 标注为「待核验」，不臆断。"
+    "notes": "改编自常见的『商品列表 / 目录页逐条回查分类与品牌等字典名称』的 N+1 场景（上游许可证待核验）。按数据集约定迁移到统一 Spring Boot + MyBatis + MySQL 骨架，保留『先取商品列表，再在循环中逐条回查关联字典实体』的 N+1 语义：primary 唯一（d1=buildProducts@ProductService.java:27 的分类名回查循环），第二个 for 循环（品牌名回查）列为 d2 secondary，合计 2N+1。边界用例（问题类型 n_plus_one，Agent 现已支持该类型）：无法由单变量索引实验证实（单条查询均走主键、执行计划无问题），且本用例未纳入『循环逐条 vs 批量合并』判别实验与批量改造后复测增益等结构化证据；具备完整证据链的同类用例（如 case-07）可产出 verified，本用例受证据链所限仍取 lead，期望整体 decision=lead 并显式声明限制。上游许可证尚未核验，provenance.license 标注为「待核验」，不臆断。"
   },
   "provenance": {
     "author": "dataset-team",

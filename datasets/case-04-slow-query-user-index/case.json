@@ -65,7 +65,11 @@
       "min_improvement_percent": 70,
       "tolerance": 10
     },
-    "limitations_required": []
+    "limitations_required": [],
+    "repair": {
+      "expected_to_change": true,
+      "target_defect_ids": ["d1"]
+    }
   },
   "evaluation": {
     "checks": [
@@ -78,7 +82,11 @@
       "recommendation_effective",
       "correctness_preserved",
       "artifact_integrity",
-      "restore_verified"
+      "restore_verified",
+      "repair_warranted",
+      "repair_target_hit",
+      "repair_restraint",
+      "gain_attributable"
     ],
     "reward_profile": "normal_single",
     "timeout_seconds": 1800,

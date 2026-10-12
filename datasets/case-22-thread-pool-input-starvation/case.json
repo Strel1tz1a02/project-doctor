@@ -67,7 +67,7 @@
     },
     "limitations_required": [
       "必须声明本用例的瓶颈在『阻塞式分析任务与交互式请求共用同一有限调度器、交互式请求被排队饿死』，用 duration_ms 只能间接体现，需结合『分析运行中 vs 分析空闲』两种负载的对比（或输入延迟/吞吐）才能定量归因。",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，thread_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，thread_pool 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
       "必须声明该现象依赖『分析任务与交互式请求并发』这一条件：空闲或只打 async-recent 时基线很快（个位数毫秒），结论依赖 analyze 正在运行的负载。"
     ]
   },
@@ -82,7 +82,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "单 primary 缺陷 boundary 用例：调度器饥饿型 thread_pool，改编自 socket-link/ampere Issue #182（机制标签 dispatcher_starvation，P0，由 PR #187 关闭）。上游现象：Jazz Test 执行期间 CLI 交互愈发无响应（'h' 帮助不触发、面板切换缓慢、逐键延迟递增、Backspace 异常），根因是认知处理（llmClient.complete）与渲染/输入处理共用同一个协程调度器、把调度器占满饿死输入；修复方向是把阻塞式认知处理移到 Dispatchers.IO、并让输入处理独立。统一骨架下按数据集约定同构迁移：AsyncOrderService 用同一个固定 4 线程的共享 dispatcher 承载交互式快照（asyncRecent）与阻塞式分析（analyze，池内 sleepQuietly 模拟推理），一次 analyze(rounds=8) 即占满全部线程，从而饿死并发提交的交互式请求。耗时来自排队等待而非 SQL 计划：查询按 user_id 走 idx_orders_user_created 且 LIMIT，执行计划无问题，无法由单变量索引实验证实；且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。排除项：查询走索引且带 LIMIT，非 missing_index / slow_query；单条 SQL 非循环查库，非 n_plus_one；瓶颈是应用内调度器排队而非数据库连接池等待，排除 connection_pool。待支持标注：等待 Agent 支持 thread_pool 问题类型。"
+    "notes": "单 primary 缺陷 boundary 用例：调度器饥饿型 thread_pool，改编自 socket-link/ampere Issue #182（机制标签 dispatcher_starvation，P0，由 PR #187 关闭）。上游现象：Jazz Test 执行期间 CLI 交互愈发无响应（'h' 帮助不触发、面板切换缓慢、逐键延迟递增、Backspace 异常），根因是认知处理（llmClient.complete）与渲染/输入处理共用同一个协程调度器、把调度器占满饿死输入；修复方向是把阻塞式认知处理移到 Dispatchers.IO、并让输入处理独立。统一骨架下按数据集约定同构迁移：AsyncOrderService 用同一个固定 4 线程的共享 dispatcher 承载交互式快照（asyncRecent）与阻塞式分析（analyze，池内 sleepQuietly 模拟推理），一次 analyze(rounds=8) 即占满全部线程，从而饿死并发提交的交互式请求。耗时来自排队等待而非 SQL 计划：查询按 user_id 走 idx_orders_user_created 且 LIMIT，执行计划无问题，无法由单变量索引实验证实；且当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination、Finding.verified_requires_structural_evidence 要求 kind ∈ {slow_query, n_plus_one, deep_pagination}，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。排除项：查询走索引且带 LIMIT，非 missing_index / slow_query；单条 SQL 非循环查库，非 n_plus_one；瓶颈是应用内调度器排队而非数据库连接池等待，排除 connection_pool。待支持标注：等待 Agent 支持 thread_pool 问题类型。"
   },
   "provenance": {
     "author": "dataset-team",

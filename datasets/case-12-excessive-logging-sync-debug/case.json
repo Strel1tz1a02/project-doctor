@@ -67,7 +67,7 @@
     },
     "limitations_required": [
       "必须声明 excessive_logging 的判定依据是『热路径逐行同步日志写盘、耗时随返回行数线性增长』，而非任何单条 SQL 的执行计划问题（orders 已具备 idx_orders_user_created，查询本身走索引、很快）",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，excessive_logging 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，excessive_logging 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
       "必须声明结论依赖请求参数 size：逐行日志的开销在 size 较小时可忽略，本用例以 size=500 触发"
     ]
   },
@@ -82,7 +82,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "边界用例（问题类型 excessive_logging，等待 Agent 支持）。设计意图：检验 Agent 能否识别『代码结构导致的日志 IOC/写盘放大』——primary d1 在 recentByUser 的 for 循环内对每条订单打印 DEBUG 日志，配合 logback-spring.xml 的同步 FileAppender（immediateFlush=true），单请求产生数百条同步写，耗时随返回行数线性增长；schema.sql 已为 orders 增加 idx_orders_user_created(user_id, created_at)，by-user 查询本身走索引很快，唯一瓶颈只剩日志。可证实性判定：可尝试『降级日志级别/改异步 appender 后 QPS 提升』以佐证，但当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：因 schema 已补索引，missing_index / slow_query 假设被排除；无 N+1、无连接池相关代码。待支持标注：等待 Agent 支持 excessive_logging 问题类型。"
+    "notes": "边界用例（问题类型 excessive_logging，等待 Agent 支持）。设计意图：检验 Agent 能否识别『代码结构导致的日志 IOC/写盘放大』——primary d1 在 recentByUser 的 for 循环内对每条订单打印 DEBUG 日志，配合 logback-spring.xml 的同步 FileAppender（immediateFlush=true），单请求产生数百条同步写，耗时随返回行数线性增长；schema.sql 已为 orders 增加 idx_orders_user_created(user_id, created_at)，by-user 查询本身走索引很快，唯一瓶颈只剩日志。可证实性判定：可尝试『降级日志级别/改异步 appender 后 QPS 提升』以佐证，但当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination、Finding.verified_requires_structural_evidence 要求 kind ∈ {slow_query, n_plus_one, deep_pagination}，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：因 schema 已补索引，missing_index / slow_query 假设被排除；无 N+1、无连接池相关代码。待支持标注：等待 Agent 支持 excessive_logging 问题类型。"
   },
   "provenance": {
     "author": "dataset-team",

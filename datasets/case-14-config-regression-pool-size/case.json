@@ -67,7 +67,7 @@
     },
     "limitations_required": [
       "必须声明本用例的耗时来自配置层（数据源连接池上限被回退为极小值），而非任何单条 SQL 的执行计划：/api/orders/by-user 查询已有 idx_orders_user_created 可用、计划正常。",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，config_regression 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，config_regression 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
       "必须声明本用例结论依赖并发度：低并发下小连接池不产生排队、症状不可观测，且『回退』只能通过与配置基线对照来判定，本用例以 concurrency=8 触发。"
     ]
   },
@@ -82,7 +82,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "边界用例（问题类型 config_regression，当前无对应用例，等待 Agent 支持）。设计意图：检验 Agent 能否把『随并发阶跃式升高、而单条 SQL 并不慢、代码未改动』的现象归因到配置层回归——primary d1 是数据源连接池上限被回退为 2，属真实且机制明确的配置缺陷，理想情况下可由『对照配置基线 + 放开连接池后重测』证实。可证实性判定：当前 Agent 的 ProblemKind 仅支持 slow_query，且 Finding 的 verified 判定要求结构性证据对应 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：/api/orders/by-user 已走 idx_orders_user_created、执行计划正常，missing_index 与 slow_query 假设均被证伪，不应被判为根因；n_plus_one、jvm_gc_pause 亦无证据。待支持标注：等待 Agent 支持 config_regression 问题类型。"
+    "notes": "边界用例（问题类型 config_regression，当前无对应用例，等待 Agent 支持）。设计意图：检验 Agent 能否把『随并发阶跃式升高、而单条 SQL 并不慢、代码未改动』的现象归因到配置层回归——primary d1 是数据源连接池上限被回退为 2，属真实且机制明确的配置缺陷，理想情况下可由『对照配置基线 + 放开连接池后重测』证实。可证实性判定：当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，且 Finding 的 verified 判定要求结构性证据对应 kind ∈ {slow_query, n_plus_one, deep_pagination}，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：/api/orders/by-user 已走 idx_orders_user_created、执行计划正常，missing_index 与 slow_query 假设均被证伪，不应被判为根因；n_plus_one、jvm_gc_pause 亦无证据。待支持标注：等待 Agent 支持 config_regression 问题类型。"
   },
   "provenance": {
     "author": "dataset-team",

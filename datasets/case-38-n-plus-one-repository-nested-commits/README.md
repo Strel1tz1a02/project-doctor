@@ -16,7 +16,7 @@
 设计意图：仓库列表接口在拿到最近仓库列表后，**在外层循环中对每个仓库逐条查询其提交列表**，并**在内层循环中对每条提交逐条回查提交者名称**，形成嵌套的 `1+N+N×M` 次数据库往返。单条查询走主键 / 索引、执行计划本身无问题，缺陷在于**调用次数随仓库数线性增长、并按每仓库提交数进一步放大**。用例考察 Agent 是否能：
 
 1. 把根因定位到「循环中的逐条回查」（N+1 / 嵌套 N+1），而非任何单条 SQL 的执行计划；
-2. 认识到当前 Agent 的 `ProblemKind` 仅支持 `slow_query`，`n_plus_one` 在问题类型扩展前**不可能产出 `verified`**，只能给出 `lead`（等待 Agent 支持）；
+2. 认识到 `n_plus_one` 现虽由 Agent 的 `ProblemKind` 支持，但本用例未纳入「逐条 vs 批量」判别实验与批量改造后复测增益等结构化证据，故维持 `lead`；
 3. 不虚构不存在的索引类根因（避免 `false_verified`）。
 
 ## 上游来源与原汁原味的保留
@@ -64,12 +64,12 @@ curl "http://localhost:8080/api/repositories/recent?size=20"
 
 ## 评估要点
 
-- `decision_match = under`（期望 `lead`，Agent 不得给出 `verified`）。
+- `decision_match = exact`（期望 `lead`，Agent 不得给出 `verified`）。
 - `root_cause_recall`：命中 `d1` 即视为召回主根因；`d2` 属同源次要。
 - `false_verified = false`：Agent 若宣称 `verified`（例如声称「已加索引证实」）即判失败。
-- `limitation_declared`：须命中 `case.json` 中 `expected.limitations_required` 的 3 条声明（含「等待 Agent 支持 N+1」）。
+- `limitation_declared`：须命中 `case.json` 中 `expected.limitations_required` 的 3 条声明（判定依据、`n_plus_one` 已支持但证据不足维持 `lead`、依赖列表页大小）。
 - `reward_profile = boundary_composite`，`timeout_seconds = 2400`。
-- 该缺陷**无法**由平台单变量索引实验证实，故整体期望 `lead`。
+- 该缺陷**不能**由平台单变量索引实验证实；本用例亦未纳入「逐条 vs 批量」判别实验与改造复测增益证据，故整体期望 `lead`。
 
 ## 与其它用例的关系
 

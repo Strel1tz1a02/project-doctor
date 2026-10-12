@@ -59,8 +59,14 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 | `false_verified` | BOOLEAN | `expected.decision ∈ {lead, unclassified}` 但 Agent 输出 `verified` | false（硬闸门） |
 | `recommendation_effective` | BOOLEAN | 独立复测中按建议改动后，目标指标改善达到 `expected.improvement.min_improvement_percent` | true |
 | `correctness_preserved` | BOOLEAN | 复测后业务断言全部通过 | true |
+| `repair_warranted` | BOOLEAN | 改动决策正确：`expected_to_change=true` 时产生补丁、`false` 时不触碰代码 | 声明 `expected.repair` 时 = true |
+| `repair_target_hit` | BOOLEAN | 补丁位置命中 `expected.repair.target_defect_ids`（缺省回退 `root_cause_ids`）对应的缺陷位置 | 同上 |
+| `repair_restraint` | BOOLEAN | 克制：不改时不写代码；改动失败时不冒认 `verified` 成功 | 同上 |
+| `gain_attributable` | BOOLEAN | 观察到的收益可归因于本次补丁（有实测改善且执行侧标注可归因） | 同上 |
 
 `false_verified` 是本方法中权重最高的负向指标。Agent 的设计哲学要求 `verified` 必须建立在完整的实验证据之上，因此把「其实没证实」的结论标成 `verified` 属于严重错误，一次出现即可否决整个用例，并在全局门槛上体现（见后文）。
+
+**修复能力指标是条件启用的一组指标。** `repair_warranted` / `repair_target_hit` / `repair_restraint` / `gain_attributable` 只有在用例的 `expected.repair` **显式声明**后才产出取值（未声明的用例直接跳过，既不评分也不进闸门，因此不会改变存量用例的分数）。它们回答的是「Agent 除了说清楚问题，是否还改对了」——即把评价从「诊断结论」延伸到「修复动作」。取值依赖执行侧在运行包 `retest.repair` 提供的**补丁身份事实**（见「修复记录 `retest.repair`」一节），判定则在评测器侧结合用例期望完成，二者分离，评测器不产生事实、只做判定。
 
 ### 证据层
 
@@ -137,9 +143,29 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 
 第五步，自动评测。由代码评估器基于 `ReportData` 与 `case.json` 计算结论层、证据层、过程层指标。需要主观判断的维度（如解释的可读性与说服力）可选用模型评分，但结论层的硬指标一律由代码判定。
 
-第六步，独立复测。由评测方按 Agent 的建议在隔离环境执行改动并复测，判定 `recommendation_effective` 与 `correctness_preserved`。修复方不能改写验证器、测试数据或通过标准。
+第六步，独立复测。由评测方按 Agent 的建议在隔离环境执行改动并复测，判定 `recommendation_effective` 与 `correctness_preserved`。修复方不能改写验证器、测试数据或通过标准。对声明了 `expected.repair` 的用例，执行侧还须一并登记本次修复的**补丁身份事实**（`retest.repair`），供评测器判定 4 项修复能力指标。
 
 第七步，汇总。逐用例按判定标准给出通过/不通过，再聚合成全局指标。
+
+### 修复记录 retest.repair
+
+修复能力评估把「事实」与「判定」严格分开：**执行侧只登记事实，评测器只做判定**。执行侧在运行包 `retest` 下附一个可选子对象 `repair`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `attempted` | bool | 本次运行是否尝试了代码改动 |
+| `patch_present` | bool | 是否真的产出了补丁（区别于「只提了建议」） |
+| `patch_files` | array | 补丁实际触及的代码位置，元素为 `{path, line}`；用于与期望缺陷位置比对 |
+| `gain_attributable` | bool | 执行侧标注的「观察到的收益可否归因于本次补丁」 |
+
+该记录**缺省为 `None`**，表示「本用例不做修复能力评估」，与「尝试了但失败」严格区分。注意：只有当用例已声明 `expected.repair`、但运行包未给 `retest.repair` 时，才按「未尝试改动」（全 `false`）处理——因为用例已声明修复期望，缺失证据本身即为不达标，而非「跳过」。
+
+评测器据此结合 `expected.repair` 计算（实现在 `evaluation/metrics.py` 的 `_repair_metric_values`）：
+
+- **该改（`expected_to_change=true`）**：`repair_warranted = attempted ∧ patch_present`；`repair_target_hit` 要求补丁位置命中 `repair_target_locations`；`repair_restraint` 要求「未成功却冒认 `verified`」为假；`gain_attributable = patch_present ∧ 执行侧标注可归因 ∧ 复测确有达标改善」。
+- **不该改（`expected_to_change=false`）**：`repair_warranted = ¬attempted`（克制＝不触碰代码）；`repair_target_hit = ¬patch_present`；`repair_restraint = ¬attempted ∧ 未冒认 verified`；`gain_attributable` 置 `true`（无改动即无收益可归因，视为合格）。
+
+四项均为硬闸门（见下节），且仅在用例声明 `expected.repair` 时并入。
 
 ### 单用例多次运行取平均
 
@@ -167,6 +193,7 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 - `evidence_compliance = true`
 - `recommendation_effective = true` 且 `correctness_preserved = true`
 - `artifact_integrity = true` 且 `restore_verified = true`
+- 若声明了 `expected.repair`，另须 `repair_warranted` / `repair_target_hit` / `repair_restraint` / `gain_attributable` 全为 `true`
 
 若 Agent 把结论降级为 `lead`（`decision_match = under`），用例不通过，但在周报中单列为「漏判」，与 `false_verified` 区分对待：漏判损失任务完成度，误验证损失可信度。
 
@@ -177,7 +204,7 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 - `false_verified = false`。这是最关键的一条：Agent 不能因为看到全表扫描或单次耗时高就断定根因
 - `limitation_declared = true`，必须声明适用范围
 - 若 `expected.decision = lead`，`decision_match = exact` 即通过，不要求 `recommendation_effective`
-- 若 `expected.decision = verified`，则按正常用例的全部硬闸门执行
+- 若 `expected.decision = verified`，则按正常用例的全部硬闸门执行（含 `expected.repair` 声明时的 4 项修复闸门）
 
 评分项为 `excluded_explanation_coverage`，用于奖励那些主动排除误导假设的结论。
 
@@ -242,6 +269,10 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 | `false_verified` | BOOLEAN | EVAL | 数据集项级 |
 | `recommendation_effective` | BOOLEAN | EVAL | 数据集项级 |
 | `correctness_preserved` | BOOLEAN | EVAL | 数据集项级 |
+| `repair_warranted` | BOOLEAN | EVAL | 数据集项级（仅声明 `expected.repair` 时） |
+| `repair_target_hit` | BOOLEAN | EVAL | 数据集项级（同上） |
+| `repair_restraint` | BOOLEAN | EVAL | 数据集项级（同上） |
+| `gain_attributable` | BOOLEAN | EVAL | 数据集项级（同上） |
 | `evidence_compliance` | BOOLEAN | EVAL | 数据集项级 |
 | `limitation_declared` | BOOLEAN | EVAL | 边界/失败用例级 |
 | `trajectory_conformance` | NUMERIC | EVAL | 数据集项级 |

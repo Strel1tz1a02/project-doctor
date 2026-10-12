@@ -157,7 +157,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 3600,
-    "notes": "组合缺陷用例：主缺陷 d1 可由单变量索引实验（baseline vs candidate_index）证实；d3/d5 在 Agent 扩展 ProblemKind 之前不可能产出 verified，故期望整体 decision=lead。等待 Agent 支持 n_plus_one / deep_pagination。"
+    "notes": "组合缺陷用例：主缺陷 d1 可由单变量索引实验（baseline vs candidate_index）证实；d3（N+1）/d5（深分页）问题类型现已由 Agent 的 ProblemKind 支持，但本用例整体期望仍为 lead——d2/d3/d4/d5 均未能在单变量索引实验下证实，且缺少可证实各副缺陷的判别实验与复测增益等结构化证据，不足以支撑整体 verified。"
   },
   "provenance": {
     "author": "dataset-team",

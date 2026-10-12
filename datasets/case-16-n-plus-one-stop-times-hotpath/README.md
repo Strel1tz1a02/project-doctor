@@ -7,7 +7,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| `case_type` | `boundary`（边界用例：问题类型尚未被 Agent 支持，只能给 `lead`） |
+| `case_type` | `boundary`（边界用例：证据链未闭环，取 `lead`） |
 | `problem_kind` | `n_plus_one` |
 | `difficulty` | `medium` |
 | 期望结论 | `lead` |
@@ -16,7 +16,7 @@
 设计意图：`GET /api/trips/block-details` 需要为最近行程列表附带每个行程的停靠点数量。项目在**热路径循环内逐条查询 StopTimes**（N+1）：先用一次查询取回 size 条行程，再在 `for` 循环中为每个 trip 单独查询 `stop_times`，形成 1+size 次数据库往返。用例考察 Agent 是否能：
 
 1. 识别「代码结构导致的查询次数放大」——耗时随列表条数线性增长，而非任何单条 SQL 的执行计划问题；
-2. 在问题类型尚未被 Agent 支持时，给出 `lead` 结论并**显式声明限制**（不得为了拿分伪造 `verified`）；
+2. 在证据链未闭环（未纳入「循环逐条 vs 批量合并」判别实验与批量改造后复测增益）时，给出 `lead` 结论并**显式声明限制**（不得为了拿分伪造 `verified`）；
 3. 不把同源但非 primary 的相邻热路径（d2）或索引问题误判为「缺索引慢查询」根因。
 
 ## 上游来源与原汁原味的保留
@@ -69,12 +69,12 @@ curl "http://localhost:8080/api/trips/block-details?size=200"
 
 ## 评估要点
 
-- 边界用例（问题类型 `n_plus_one`，等待 Agent 支持）：本用例**不可由单变量实验证实**——单条 `findStopTimesByTripId` 按主键 `(trip_id, stop_sequence)` 走索引、执行计划无问题，耗时来自调用次数随 `size` 线性增长；且当前 Agent 的 `ProblemKind` 仅支持 `slow_query`、`Finding.verified_requires_structural_evidence` 要求 `kind == "slow_query"`，故在本用例上不可能产出 `verified`。
+- 边界用例（问题类型 `n_plus_one`，Agent 现已支持该类型）：本用例**不可由单变量实验证实**——单条 `findStopTimesByTripId` 按主键 `(trip_id, stop_sequence)` 走索引、执行计划无问题，耗时来自调用次数随 `size` 线性增长；`n_plus_one` 现已由 Agent 的 `ProblemKind` 支持（`kind ∈ {slow_query, n_plus_one, deep_pagination}`），但本用例未纳入「循环逐条 vs 批量合并」判别实验与批量改造后复测增益等结构化证据，故维持 `lead`。
 - 使用 `evaluation.checks` 中的检查项判定，`reward_profile = boundary_composite`。
 - `decision_match`：期望 `lead`（Agent 若给出 `verified` 即触发 `false_verified` 硬闸门）。
-- `limitation_declared`：必须声明三条 `expected.limitations_required`（判定依据、问题类型未支持、依赖 `size`）。
+- `limitation_declared`：必须声明三条 `expected.limitations_required`（判定依据、`n_plus_one` 已支持但证据不足维持 `lead`、依赖 `size`）。
 - `false_verified` 硬闸门：任何为 N+1 伪造 `verified` 的输出直接判负。
-- **待支持标注**：等待 Agent 支持 `n_plus_one` 问题类型；届时本用例可升级为 `normal`。
+- **边界设定说明**：`n_plus_one` 现已由 Agent 的 `ProblemKind` 支持，本用例维持 `lead` 是数据集刻意的边界设定（未纳入足以闭环的判别实验与改造增益证据）；具备完整证据链的同类用例（如 `case-07`）可产出 `verified`。
 
 ## 与其它用例的关系
 

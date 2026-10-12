@@ -29,7 +29,7 @@
         ],
         "limitations": [
           "必须声明深分页的判定依据是『LIMIT offset, size 需顺序扫描并丢弃 offset 行』，而非缺索引（orders 已具备 idx_orders_created_at）",
-          "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，深分页在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+          "必须声明 deep_pagination 现已由 Agent 的 ProblemKind 支持，本用例期望结论为 lead 属数据集设定的边界（并非因问题类型不受支持）：本用例未纳入『深浅页耗时随 offset 变化』判别实验与键集分页改造后复测增益等结构化证据，不足以支撑整体 verified",
           "必须声明结论依赖翻页深度与数据规模：offset 较小时深分页代价可忽略，本用例以 page=10000、size=20（offset=199980）触发"
         ],
         "evidence_flags": {}

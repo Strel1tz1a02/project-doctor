@@ -120,9 +120,11 @@ HONEST_REPORT = {
 # --------------------------------------------------------------------------- #
 
 class ScoresTest(unittest.TestCase):
-    def test_registry_has_24_metrics(self):
-        # 17 项用例级指标 + 7 项步骤级指标（group="step"，D4 只作归因不进总分）。
-        self.assertEqual(len(S.METRIC_DEFINITIONS), 24)
+    def test_registry_has_28_metrics(self):
+        # 21 项用例级指标 + 7 项步骤级指标（group="step"，D4 只作归因不进总分）。
+        # 用例级含 4 项修复能力指标（repair_warranted / repair_target_hit /
+        # repair_restraint / gain_attributable），仅当用例声明 expected.repair 时才产出取值。
+        self.assertEqual(len(S.METRIC_DEFINITIONS), 28)
         self.assertEqual(len(S.STEP_METRICS), 7)
 
     def test_applicability_invariants(self):
@@ -133,9 +135,10 @@ class ScoresTest(unittest.TestCase):
         self.assertNotIn("honesty", normal)
         self.assertNotIn("honesty", boundary)
         self.assertIn("honesty", failure)
-        # 三类用例都追加了 7 项步骤级指标：15+7 / 16+7 / 8+7。
-        self.assertEqual(len(normal), 22)
-        self.assertEqual(len(boundary), 23)
+        # 三类用例都追加了 7 项步骤级指标：19+7 / 20+7 / 8+7；
+        # normal/boundary 另含 4 项修复能力指标（不进 failure）。
+        self.assertEqual(len(normal), 26)
+        self.assertEqual(len(boundary), 27)
         self.assertEqual(len(failure), 15)
         self.assertIn("limitation_declared", boundary)
         self.assertNotIn("limitation_declared", normal)
@@ -539,6 +542,114 @@ class EvaluatorBranchTest(unittest.TestCase):
     def test_non_mapping_report_raises(self):
         with self.assertRaises(TypeError):
             Report.from_obj("not-a-report")
+
+
+# --------------------------------------------------------------------------- #
+# 修复能力层：4 项 repair_* 指标的判定矩阵（仅声明 expected.repair 时生效）
+# --------------------------------------------------------------------------- #
+
+def repair_case(expected_to_change: bool = True, decision: str = "verified",
+                case_type: str = "normal") -> dict:
+    """构造声明了 ``expected.repair`` 的用例（补丁应落在 d1 位置即 MAPPER:18）。"""
+    case = normal_case()
+    case["case_id"] = "case-xx-repair"
+    case["case_type"] = case_type
+    case["expected"] = dict(
+        case["expected"], decision=decision,
+        repair={"expected_to_change": expected_to_change, "target_defect_ids": ["d1"]})
+    return case
+
+
+def repair_retest(attempted=True, patch_line=18, gain=True,
+                  improvement=82.0, business=True) -> dict:
+    return {
+        "performed": True,
+        "improvement_percent": improvement,
+        "business_assertions_passed": business,
+        "repair": {
+            "attempted": attempted,
+            "patch_present": attempted,
+            "patch_files": [{"path": MAPPER, "line": patch_line}],
+            "gain_attributable": gain,
+        },
+    }
+
+
+class RepairCapabilityTest(unittest.TestCase):
+    """修复能力判定：该改改对 / 改错位置 / 不该改却改 / 功能退化 / 收益不可归因 / 失败不冒认。"""
+
+    def test_repair_metrics_only_when_declared(self):
+        without = {s.name for s in compute_scores(good_input())}
+        self.assertNotIn("repair_warranted", without)
+        with_decl = {s.name for s in compute_scores(good_input(repair_case()))}
+        self.assertIn("repair_warranted", with_decl)
+        self.assertIn("gain_attributable", with_decl)
+
+    def test_should_change_and_hit_target_passes(self):
+        case = repair_case(True)
+        result = evaluate_case(good_input(case, retest=repair_retest()))
+        m = result.score_map()
+        self.assertTrue(m["repair_warranted"])
+        self.assertTrue(m["repair_target_hit"])
+        self.assertTrue(m["repair_restraint"])
+        self.assertTrue(m["gain_attributable"])
+        self.assertTrue(result.passed, result.failed_gates())
+
+    def test_target_miss_fails(self):
+        case = repair_case(True)
+        result = evaluate_case(good_input(case, retest=repair_retest(patch_line=60)))
+        self.assertFalse(result.score_map()["repair_target_hit"])
+        self.assertIn("repair_target_hit", result.failed_gates())
+
+    def test_unexpected_patch_when_should_not_change_fails(self):
+        case = repair_case(expected_to_change=False, decision="lead", case_type="boundary")
+        result = evaluate_case(good_input(
+            case,
+            report={"task": {"status": "completed"},
+                    "findings": [good_finding(status="lead")]},
+            retest=repair_retest(attempted=True, patch_line=18)))
+        m = result.score_map()
+        self.assertFalse(m["repair_warranted"])
+        self.assertFalse(m["repair_target_hit"])
+        self.assertFalse(m["repair_restraint"])
+        self.assertIn("repair_warranted", result.failed_gates())
+
+    def test_restraint_pass_when_should_not_change(self):
+        case = repair_case(expected_to_change=False, decision="lead", case_type="boundary")
+        result = evaluate_case(good_input(
+            case,
+            report={"task": {"status": "completed"},
+                    "findings": [good_finding(status="lead")]},
+            retest=None))
+        m = result.score_map()
+        self.assertTrue(m["repair_warranted"])
+        self.assertTrue(m["repair_target_hit"])
+        self.assertTrue(m["repair_restraint"])
+        self.assertTrue(m["gain_attributable"])
+        self.assertTrue(result.passed, result.failed_gates())
+
+    def test_business_regression_is_not_restrained(self):
+        case = repair_case(True)
+        result = evaluate_case(good_input(case, retest=repair_retest(business=False)))
+        m = result.score_map()
+        self.assertFalse(m["correctness_preserved"])
+        self.assertFalse(m["repair_restraint"])  # 复测失败却仍标 verified → 不克制
+        self.assertIn("correctness_preserved", result.failed_gates())
+        self.assertIn("repair_restraint", result.failed_gates())
+
+    def test_gain_not_attributable_fails(self):
+        case = repair_case(True)
+        result = evaluate_case(good_input(case, retest=repair_retest(gain=False)))
+        self.assertFalse(result.score_map()["gain_attributable"])
+        self.assertIn("gain_attributable", result.failed_gates())
+
+    def test_overclaim_verified_without_gain_is_not_restrained(self):
+        case = repair_case(True)  # 期望 verified
+        result = evaluate_case(good_input(case, retest=repair_retest(improvement=5.0)))
+        m = result.score_map()
+        self.assertFalse(m["repair_restraint"])
+        self.assertFalse(m["gain_attributable"])
+        self.assertIn("repair_restraint", result.failed_gates())
 
 
 if __name__ == "__main__":

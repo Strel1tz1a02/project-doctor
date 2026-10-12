@@ -9,6 +9,7 @@
 | `使用说明.md` | 面向组员与 Agent 的入口文档：数据集构成、快速开始、评分要点 |
 | `docs/数据集结构规范.md` | 数据单元的目录组织与问题卡字段约定 |
 | `docs/Agent评估方法.md` | 评估指标、打分流程与三类样例判定标准 |
+| `docs/对接执行测-协作简报.md` | 与执行测侧 AI 的概要交互载体：双方在同一份文件追加条目、登记契约变更与开放事项 |
 | `_schema/case.schema.json` | 问题卡的机器可读 JSON Schema |
 | `tools/validate_cases.py` | 问题卡校验脚本（纯标准库），CI 对全部用例执行 |
 | `tools/isolation_guard.py` | 答案隔离守卫：断言 `project/` 内不含任何评测方资产，CI 强制执行 |
@@ -30,8 +31,8 @@
 | `case-04-slow-query-user-index` | `normal` | `slow_query` | easy | `verified` | 已归档，校验通过 |
 | `case-05-slow-query-skewed-status` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过 |
 | `case-06-slow-query-undersized` | `failure` | `slow_query` | medium | `unclassified` | 已归档，校验通过 |
-| `case-07-n-plus-one-order-user` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-08-deep-pagination-large-offset` | `boundary` | `deep_pagination` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-07-n-plus-one-order-user` | `boundary` | `n_plus_one` | medium | `verified` | 已归档，校验通过 |
+| `case-08-deep-pagination-large-offset` | `boundary` | `deep_pagination` | medium | `lead` | 已归档，校验通过 |
 | `case-09-connection-pool-leak` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-10-large-response-unbounded` | `boundary` | `large_response` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-11-connection-setup-per-request` | `boundary` | `connection_setup` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
@@ -39,29 +40,29 @@
 | `case-13-thread-pool-no-verifiable-defect` | `failure` | `thread_pool` | medium | `unclassified` | 已归档，校验通过（等待 Agent 支持） |
 | `case-14-config-regression-pool-size` | `boundary` | `config_regression` | `medium` | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-15-slow-query-threads-fullscan` | `normal` | `slow_query` | easy | `verified` | 已归档，校验通过 |
-| `case-16-n-plus-one-stop-times-hotpath` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-16-n-plus-one-stop-times-hotpath` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过 |
 | `case-17-connection-pool-background-hold` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-18-deep-pagination-large-offset` | `boundary` | `deep_pagination` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-18-deep-pagination-large-offset` | `boundary` | `deep_pagination` | medium | `lead` | 已归档，校验通过 |
 | `case-19-large-response-unbounded-json` | `boundary` | `large_response` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-20-connection-setup-client-per-request` | `boundary` | `connection_setup` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-21-excessive-logging-sync-global-lock` | `boundary` | `excessive_logging` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-22-thread-pool-input-starvation` | `boundary` | `thread_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-23-config-regression-summary-limit` | `boundary` | `config_regression` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-24-slow-query-audit-log-scan-sort` | `normal` | `slow_query` | easy | `verified` | 已归档，校验通过 |
-| `case-25-slow-query-leading-wildcard` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-26-n-plus-one-category-count-loop` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-27-n-plus-one-runner-step-log` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-25-slow-query-leading-wildcard` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过 |
+| `case-26-n-plus-one-category-count-loop` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过 |
+| `case-27-n-plus-one-runner-step-log` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过 |
 | `case-28-connection-pool-nested-acquire` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-29-connection-pool-growth-task-discard` | `boundary` | `connection_pool` | hard | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-30-slow-query-date-function-column` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-31-n-plus-one-feed-author-like` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-30-slow-query-date-function-column` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过 |
+| `case-31-n-plus-one-feed-author-like` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过 |
 | `case-32-connection-pool-long-tx-remote-call` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-33-slow-query-or-cross-column` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-34-slow-query-implicit-type-conversion` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-35-slow-query-charset-mismatch-join` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-36-n-plus-one-product-category-brand` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-37-n-plus-one-section-course-resource` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
-| `case-38-n-plus-one-repository-nested-commits` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
+| `case-33-slow-query-or-cross-column` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过 |
+| `case-34-slow-query-implicit-type-conversion` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过 |
+| `case-35-slow-query-charset-mismatch-join` | `boundary` | `slow_query` | medium | `lead` | 已归档，校验通过 |
+| `case-36-n-plus-one-product-category-brand` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过 |
+| `case-37-n-plus-one-section-course-resource` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过 |
+| `case-38-n-plus-one-repository-nested-commits` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过 |
 | `case-39-connection-pool-cursor-stream-hold` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-40-connection-pool-hot-row-lock-hold` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-41-connection-pool-response-stream-hold` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
@@ -70,14 +71,14 @@
 
 全部用例共用同一套 Spring Boot + MyBatis + MySQL 技术栈，按「正常 / 边界 / 失败」三类各含 ≥2 个用例，构成一个完整的判定谱系：
 
-- **正常（`verified`）**：
+- **期望 `verified`（能证实唯一根因）**：
   - `case-01` 只保留单一主缺陷（缺 `(status, created_at)` 复合索引），用于验证 Agent「能证实唯一根因」；
-  - `case-04` 为同类的第二个变体（`orders` 除主键外无任何索引），覆盖「表无可用索引 + 按 `user_id` 过滤」的入口。
-- **边界（`lead`）**：
+  - `case-04` 为同类的第二个变体（`orders` 除主键外无任何索引），覆盖「表无可用索引 + 按 `user_id` 过滤」的入口；
+  - `case-07`（`case_type=boundary`，问题类型 `n_plus_one`）列表接口在 `for` 循环中逐条查询用户信息，形成 `1+size` 次数据库往返；Agent 现已支持 `n_plus_one`，该用例据此期望 `verified`（须以批量查询规格这一结构化证据证实改善）。
+- **期望 `lead`（只能给线索、不越级下结论）**：
   - `case-02` 在同一项目内叠加前导通配符、N+1、深分页等组合缺陷，主缺陷可证实、其余不可证实，用于验证 Agent「只给 lead 而不强行 verified」；
   - `case-05` 为「缺索引」的第二个变体，通过 `status` 分布倾斜使索引收益随取值波动、难以稳定证实，用于验证 Agent 在「缺陷真实但收益依赖数据分布」时不过度下结论；
-  - `case-07` 为 `n_plus_one` 问题类型的**预置用例**：列表接口在 `for` 循环中逐条查询用户信息，形成 `1+size` 次数据库往返，开销随列表条数线性增长、单条 SQL 无计划问题，故不可能产出 `verified`，用于在问题类型扩展前检验 Agent「识别调用次数放大并如实声明限制」（等待 Agent 支持）；
-  - `case-08` 为 `deep_pagination` 问题类型的**预置用例**：分页接口使用大偏移 `LIMIT offset, size`，深页须扫描并丢弃近 20 万行，开销随翻页深度线性增长、且索引已存在无需补索引，故同样不可能产出 `verified`，用于检验 Agent 不把「有慢查询症状」误判为「缺索引」（等待 Agent 支持）；
+  - `case-08`（问题类型 `deep_pagination`，现已由 Agent 支持）分页接口使用大偏移 `LIMIT offset, size`，深页须扫描并丢弃近 20 万行，开销随翻页深度线性增长、且索引已存在无需补索引；本用例未纳入「深浅页耗时随 offset 变化」判别实验与键集分页改造后的复测增益，故期望整体结论为 `lead`（属数据集边界设定），用于检验 Agent 不把「有慢查询症状」误判为「缺索引」；
   - `case-09` 为 `connection_pool` 问题类型的**预置用例**：高并发导出接口持续占用连接、连接池被耗尽，表现为获取连接等待时间陡增，缺陷真实但收益随并发波动、难以稳定证实（等待 Agent 支持）；
   - `case-10` 为 `large_response` 问题类型的**预置用例**：`GET /api/orders/all` 一次性返回全表、响应体无上限，序列化与网络开销随数据量放大，而单条 SQL 无计划问题（等待 Agent 支持）；
   - `case-11` 为 `connection_setup` 问题类型的**预置用例**：每次请求都新建并关闭数据库连接，失去连接复用收益，开销随请求数线性增长（等待 Agent 支持）；
@@ -88,7 +89,7 @@
   - `case-06` 保留与 `case-04` 相同的真实缺陷（缺索引），但数据规模仅 300 条、缺陷「真实但不可证实」，用于验证 Agent 不对不可证实的缺陷强行下结论；
   - `case-13` 为 `thread_pool` 问题类型的**预置用例**：线程池队列在压力下排队，但环境波动使该现象不可稳定复现，且项目内另有一个 `select_star` 诱饵缺陷，用于验证 Agent 在「诱饵干扰 + 现象不可稳定复现」时拒绝编造根因（等待 Agent 支持）。
 
-三类期望结论分别为 `verified` / `lead` / `unclassified`，与《Agent 评估方法》中正常、边界、失败三类样例一一对应。新增数据单元请遵循 `case-<两位序号>-<问题类型>-<变体>` 命名，从 `_template/` 复制样板起手，按其中自检清单确认后在本表中登记。
+三类期望结论分别为 `verified` / `lead` / `unclassified`，大体对应《Agent 评估方法》中正常、边界、失败三类样例：`normal` 用例均取 `verified`、`failure` 用例均取 `unclassified`，`boundary` 用例通常取 `lead`，但当问题类型已被 Agent 支持且证据链可闭环时亦可取 `verified`（当前仅 `case-07`）。新增数据单元请遵循 `case-<两位序号>-<问题类型>-<变体>` 命名，从 `_template/` 复制样板起手，按其中自检清单确认后在本表中登记。
 
 ## 答案隔离
 

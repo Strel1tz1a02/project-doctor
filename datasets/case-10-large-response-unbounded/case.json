@@ -67,7 +67,7 @@
     },
     "limitations_required": [
       "大响应体瓶颈在序列化与网络传输，用 duration_ms 只能间接体现，需结合响应字节数/返回行数等指标才能定量归因。",
-      "当前 Agent 的 ProblemKind 仅支持 slow_query，large_response 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，large_response 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
       "该现象随数据量增长而放大，在小数据集上不可观测，结论依赖当前 20 万行规模。"
     ]
   },
@@ -82,7 +82,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "单 primary 缺陷 boundary 用例：无界响应体型 large_response。全表 SELECT * 且逐行序列化大字段，耗时来自序列化/传输而非缺索引；无法用单变量索引实验证实，且当前 Agent 问题类型仅支持 slow_query，期望 lead 并声明限制。用于检验 Agent 是否能把『响应体过大』从 SQL 计划层区分出来。"
+    "notes": "单 primary 缺陷 boundary 用例：无界响应体型 large_response。全表 SELECT * 且逐行序列化大字段，耗时来自序列化/传输而非缺索引；无法用单变量索引实验证实，且当前 Agent 问题类型仅支持 slow_query / n_plus_one / deep_pagination，期望 lead 并声明限制。用于检验 Agent 是否能把『响应体过大』从 SQL 计划层区分出来。"
   },
   "provenance": {
     "author": "dataset-team",

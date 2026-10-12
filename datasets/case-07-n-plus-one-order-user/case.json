@@ -47,7 +47,7 @@
         }
       ],
       "expected_fix": "改为批量查询：对 order.getUserId() 去重收集后一次 findUsersByIds(List)，在内存中用 Map 回填订单的 userEmail/userName，使数据库往返降为 2 次",
-      "expected_status": "lead"
+      "expected_status": "verified"
     },
     {
       "defect_id": "d2",
@@ -66,7 +66,7 @@
     }
   ],
   "expected": {
-    "decision": "lead",
+    "decision": "verified",
     "root_cause_ids": ["d1"],
     "code_locations": [
       {
@@ -83,9 +83,12 @@
     },
     "limitations_required": [
       "必须声明 N+1 的判定依据是『随列表条数线性增长的额外数据库往返次数』，而非任何单条 SQL 的执行计划",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，N+1 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
       "必须声明结论依赖列表页大小 size：逐条查询的开销在 size 较小时可忽略，本用例以 size=200 触发"
-    ]
+    ],
+    "repair": {
+      "expected_to_change": true,
+      "target_defect_ids": ["d1"]
+    }
   },
   "evaluation": {
     "checks": [
@@ -94,11 +97,20 @@
       "code_location_hit",
       "excluded_explanation_coverage",
       "limitation_declared",
-      "false_verified"
+      "evidence_compliance",
+      "false_verified",
+      "recommendation_effective",
+      "correctness_preserved",
+      "repair_warranted",
+      "repair_target_hit",
+      "repair_restraint",
+      "gain_attributable",
+      "artifact_integrity",
+      "restore_verified"
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "边界用例（问题类型 n_plus_one，等待 Agent 支持）。设计意图：检验 Agent 能否识别『代码结构导致的查询次数放大』——primary d1 在 for 循环中对每条订单单独查询用户信息，真实且机制明确，理想情况下可由『统计一次请求的 SQL 调用次数』证实。可证实性判定：无法由单变量索引实验证实（单条 findUserById 本就走主键、执行计划无问题），且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：d2（SELECT *）是列表 mapper 上的代码异味，列表查询走 idx_orders_created_at，耗时贡献很小，不应被判为根因。待支持标注：等待 Agent 支持 N+1 问题类型。"
+    "notes": "边界用例（问题类型 n_plus_one，Agent 现已支持该类型）。设计意图：检验 Agent 能否识别『代码结构导致的查询次数放大』——primary d1 在 for 循环中对每条订单单独查询用户信息，真实且机制明确，可由『统计一次请求的 SQL 调用次数』证实，故期望整体 decision=verified。可证实性判定：与 slow_query 的单变量索引实验不同，N+1 以「随列表条数线性增长的额外数据库往返次数」为结构化证据，ProblemKind 扩展后该机制可被独立复测证实。修复能力：显式声明 expected.repair（该改、且应改对位置 OrderService.java:33），用于评估补丁是否落在期望缺陷位置、收益能否归因于本次改动。干扰项处理：d2（SELECT *）是列表 mapper 上的代码异味，列表查询走 idx_orders_created_at，耗时贡献很小，不应被判为根因（expected_status=unclassified）。"
   },
   "provenance": {
     "author": "dataset-team",

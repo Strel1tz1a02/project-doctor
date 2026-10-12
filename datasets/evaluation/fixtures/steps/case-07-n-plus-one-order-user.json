@@ -87,8 +87,8 @@
       },
       "latency_ms": 700.0,
       "output": {
-        "insufficient_evidence": true,
-        "decision": "lead"
+        "insufficient_evidence": false,
+        "decision": "verified"
       }
     },
     {
@@ -99,7 +99,7 @@
       "input": {
         "findings": [
           {
-            "status": "lead"
+            "status": "verified"
           }
         ]
       },
@@ -112,12 +112,12 @@
       "status": "ok",
       "input": {
         "report": {
-          "decision": "lead"
+          "decision": "verified"
         }
       },
       "latency_ms": 110.0,
       "output": {
-        "decision": "lead"
+        "decision": "verified"
       }
     }
   ]

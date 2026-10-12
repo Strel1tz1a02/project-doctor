@@ -82,7 +82,7 @@
     },
     "limitations_required": [
       "必须声明深分页的判定依据是『LIMIT offset, size 需顺序扫描并丢弃 offset 行』，而非缺索引（orders 已具备 idx_orders_created_at）",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，深分页在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明 deep_pagination 现已由 Agent 的 ProblemKind 支持，本用例期望结论为 lead 属数据集设定的边界（并非因问题类型不受支持）：本用例未纳入『深浅页耗时随 offset 变化』判别实验与键集分页改造后复测增益等结构化证据，不足以支撑整体 verified",
       "必须声明结论依赖翻页深度与数据规模：offset 较小时深分页代价可忽略，本用例以 page=10000、size=20（offset=199980）触发"
     ]
   },
@@ -97,7 +97,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "边界用例（问题类型 deep_pagination，等待 Agent 支持）。设计意图：检验 Agent 能否识别『查询代价随翻页深度线性增长』——primary d1 使用 LIMIT #{offset}, #{size}，深页时 offset 接近全表行数，MySQL 须沿 idx_orders_created_at 扫描并丢弃 offset 行，真实且机制明确，理想情况下可由『对比深浅页耗时随 offset 的变化』佐证。可证实性判定：orders 已具备 idx_orders_created_at，缺索引不是根因，故无法用常规『补索引单变量实验』证实；且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，本用例不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：d2（SELECT COUNT(*) 求总数）对所有页成本恒定，无法解释深页显著慢于首页，不应被判为根因。待支持标注：等待 Agent 支持深分页问题类型。"
+    "notes": "边界用例（问题类型 deep_pagination，Agent 现已支持该类型）。设计意图：检验 Agent 能否识别『查询代价随翻页深度线性增长』——primary d1 使用 LIMIT #{offset}, #{size}，深页时 offset 接近全表行数，MySQL 须沿 idx_orders_created_at 扫描并丢弃 offset 行，真实且机制明确，理想情况下可由『对比深浅页耗时随 offset 的变化』佐证。可证实性判定：orders 已具备 idx_orders_created_at，缺索引不是根因，故无法用常规『补索引单变量实验』证实；本用例亦未纳入『深浅页耗时随 offset 变化』判别实验与键集分页改造后复测增益等结构化证据，故期望整体 decision=lead 并显式声明限制。干扰项处理：d2（SELECT COUNT(*) 求总数）对所有页成本恒定，无法解释深页显著慢于首页，不应被判为根因。"
   },
   "provenance": {
     "author": "dataset-team",

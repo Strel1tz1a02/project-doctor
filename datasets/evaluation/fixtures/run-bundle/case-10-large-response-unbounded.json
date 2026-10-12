@@ -30,13 +30,13 @@
         ],
         "limitations": [
           "大响应体瓶颈在序列化与网络传输，用 duration_ms 只能间接体现，需结合响应字节数/返回行数等指标才能定量归因。",
-          "当前 Agent 的 ProblemKind 仅支持 slow_query，large_response 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+          "当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，large_response 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
           "该现象随数据量增长而放大，在小数据集上不可观测，结论依赖当前 20 万行规模。"
         ],
         "evidence_flags": {}
       }
     ],
-    "reason": "主缺陷 d1（OrderMapper.findAllOrders 无分页地 SELECT * 返回全表约 20 万行，瓶颈在逐行序列化与网络传输而非 SQL 计划）机制明确，但无法用单变量索引实验证实；且当前 ProblemKind 仅支持 slow_query，故整体维持 lead"
+    "reason": "主缺陷 d1（OrderMapper.findAllOrders 无分页地 SELECT * 返回全表约 20 万行，瓶颈在逐行序列化与网络传输而非 SQL 计划）机制明确，但无法用单变量索引实验证实；且当前 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，故整体维持 lead"
   },
   "trajectory": {
     "required_steps_done": [

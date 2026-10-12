@@ -67,7 +67,7 @@
     },
     "limitations_required": [
       "必须声明本用例的症状『接口返回行数异常偏大』源自配置/回退层（摘要上限的回退值未被重新校验、绕过 HARD_MAX），而非任何单条 SQL 的执行计划或索引问题：/api/orders/summary 为 ORDER BY id DESC LIMIT n、走主键、计划正常。",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，config_regression 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
+      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，config_regression 在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）。",
       "必须声明结论依赖『配置缺失/被迁移』这一条件：当 report.summary.limit 显式存在时回退分支不被触发、行数恢复正常，本用例以该键缺失（迁移后未带过来）触发。"
     ]
   },
@@ -82,7 +82,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "改编自 dahlia/optique PR #777（MIT，Merged，Fixes #414，Revalidate fallback values in bindEnv() and bindConfig()）；原候选 tphakala/birdnet-go Issue #2361（配置迁移导致默认值回退、GORM Limit(0) 返回 0 行）因仓库许可证为 CC BY-NC-SA 4.0（非商用）未采用，仅作为同一 config_migration_default_regression 机制的佐证。保留的原汁原味：把 optique 的『bindEnv()/bindConfig() 回退值未重新校验、绕过内层 parser 约束（min/max/pattern/choice）』同构迁移为 SummaryLimitResolver 的回退分支 fallback() 直接返回默认值而不套用 clamp(HARD_MAX)；显式配置路径则正常校验夹取，两路径行为不一致。按数据集约定的改造：上游为 TypeScript（packages/env、packages/config、packages/core），本项目按统一骨架改写为 Java 17 + Spring Boot 3.2.5 + MyBatis 3.0.3 + MySQL 8.0；判分指标统一为可实测字段 rows_returned（约定上限 100 vs 实测约 5000）；表与初始化沿用统一 orders 骨架。边界用例（问题类型 config_regression，等待 Agent 支持）。设计意图：检验 Agent 能否把『接口不报错、SQL 计划正常、代码未改动、却返回远超上限的行数』的现象归因到配置/回退层的校验缺失——primary d1 是回退值绕过上限约束，属真实且机制明确的配置回归，理想情况下可由『对照显式配置 + 修正回退路径后重测行数』证实。可证实性判定：当前 Agent 的 ProblemKind 仅支持 slow_query，且 Finding.verified 要求结构性证据对应 kind==slow_query，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：/api/orders/summary 为 ORDER BY id DESC LIMIT n、走主键、计划正常，missing_index、slow_query、n_plus_one、jvm_gc_pause 均无证据，不应被判为根因。待支持标注：等待 Agent 支持 config_regression 问题类型。"
+    "notes": "改编自 dahlia/optique PR #777（MIT，Merged，Fixes #414，Revalidate fallback values in bindEnv() and bindConfig()）；原候选 tphakala/birdnet-go Issue #2361（配置迁移导致默认值回退、GORM Limit(0) 返回 0 行）因仓库许可证为 CC BY-NC-SA 4.0（非商用）未采用，仅作为同一 config_migration_default_regression 机制的佐证。保留的原汁原味：把 optique 的『bindEnv()/bindConfig() 回退值未重新校验、绕过内层 parser 约束（min/max/pattern/choice）』同构迁移为 SummaryLimitResolver 的回退分支 fallback() 直接返回默认值而不套用 clamp(HARD_MAX)；显式配置路径则正常校验夹取，两路径行为不一致。按数据集约定的改造：上游为 TypeScript（packages/env、packages/config、packages/core），本项目按统一骨架改写为 Java 17 + Spring Boot 3.2.5 + MyBatis 3.0.3 + MySQL 8.0；判分指标统一为可实测字段 rows_returned（约定上限 100 vs 实测约 5000）；表与初始化沿用统一 orders 骨架。边界用例（问题类型 config_regression，等待 Agent 支持）。设计意图：检验 Agent 能否把『接口不报错、SQL 计划正常、代码未改动、却返回远超上限的行数』的现象归因到配置/回退层的校验缺失——primary d1 是回退值绕过上限约束，属真实且机制明确的配置回归，理想情况下可由『对照显式配置 + 修正回退路径后重测行数』证实。可证实性判定：当前 Agent 的 ProblemKind 仅支持 slow_query / n_plus_one / deep_pagination，且 Finding.verified 要求结构性证据对应 kind ∈ {slow_query, n_plus_one, deep_pagination}，故在本用例上不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：/api/orders/summary 为 ORDER BY id DESC LIMIT n、走主键、计划正常，missing_index、slow_query、n_plus_one、jvm_gc_pause 均无证据，不应被判为根因。待支持标注：等待 Agent 支持 config_regression 问题类型。"
   },
   "provenance": {
     "author": "dataset-team",

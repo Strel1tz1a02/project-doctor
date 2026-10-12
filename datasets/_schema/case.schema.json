@@ -160,6 +160,23 @@
         "limitations_required": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "repair": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected_to_change"],
+          "description": "修复能力期望：显式声明后，评测器才对 4 项修复指标（repair_warranted / repair_target_hit / repair_restraint / gain_attributable）评分并纳入硬闸门；未声明则本用例不做修复能力评估。",
+          "properties": {
+            "expected_to_change": {
+              "type": "boolean",
+              "description": "正确行为是否应当改动代码：true=该改（且应改对位置），false=不该改（应克制、不触碰代码）。"
+            },
+            "target_defect_ids": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "补丁应当触及的缺陷 id；留空回退到 expected.root_cause_ids。"
+            }
+          }
         }
       }
     },

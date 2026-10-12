@@ -82,7 +82,7 @@
     },
     "limitations_required": [
       "必须声明深分页的判定依据是『LIMIT limit OFFSET offset 需顺序扫描并丢弃 offset 行』，而非缺索引（items 已具备 idx_items_created_at）",
-      "必须声明当前 Agent 的 ProblemKind 仅支持 slow_query，深分页在问题类型扩展前不可能产出 verified，期望结论只能为 lead（等待 Agent 支持）",
+      "必须声明 deep_pagination 现已由 Agent 的 ProblemKind 支持，本用例期望结论为 lead 属数据集设定的边界（并非因问题类型不受支持）：本用例未纳入『深浅页耗时随 offset 变化』判别实验与键集分页改造后复测增益等结构化证据，不足以支撑整体 verified",
       "必须声明结论依赖位移深度与数据规模：offset 较小时深分页代价可忽略，本用例以 offset=170000、limit=20 触发"
     ]
   },
@@ -97,7 +97,7 @@
     ],
     "reward_profile": "boundary_composite",
     "timeout_seconds": 2400,
-    "notes": "改编自 pymc-labs/decision-hub Issue #56（MIT，won't fix，database.py 1396–1399 base.limit(limit).offset(offset)，OFFSET 170000）；原候选 zbnerd/probabilistic-valuation-engine#233（P1，深分页 SELECT * FROM items ORDER BY id LIMIT 10 OFFSET 1000000，OFFSET 增大后由约 1ms 退化至约 5000ms）因仓库根目录无 LICENSE 未采用，仅作为同一 deep_offset 机制的佐证。保留的原汁原味：limit/offset 分页语义（base.limit(limit).offset(offset)）逐字迁移为 ItemMapper.findItemsByOffset 的 LIMIT #{limit} OFFSET #{offset}；表名 items 与 ORDER BY id 的排序语义保留。按数据集约定的改造：上游为 Python + SQLAlchemy，本项目按统一骨架改写为 Java 17 + Spring Boot 3.2.5 + MyBatis 3.0.3 + MySQL 8.0；判分指标统一为可实测字段 duration_ms；数据规模按数据集约定设定为 items=1200000（≥100 万行）以稳定复现深位移退化。边界用例（问题类型 deep_pagination，等待 Agent 支持）。设计意图：检验 Agent 能否识别『查询代价随位移深度线性增长』——primary d1 使用 LIMIT/OFFSET，深位移时需沿主键丢弃 offset 行；items 已具备 idx_items_created_at，缺索引不是根因，故无法用常规『补索引单变量实验』证实；且当前 Agent 的 ProblemKind 仅支持 slow_query、Finding.verified_requires_structural_evidence 要求 kind==slow_query，本用例不可能产出 verified，期望整体 decision=lead 并显式声明限制。干扰项处理：d2（SELECT COUNT(*) 求总数）对所有页成本恒定，不应被判为根因。待支持标注：等待 Agent 支持深分页问题类型。"
+    "notes": "改编自 pymc-labs/decision-hub Issue #56（MIT，won't fix，database.py 1396–1399 base.limit(limit).offset(offset)，OFFSET 170000）；原候选 zbnerd/probabilistic-valuation-engine#233（P1，深分页 SELECT * FROM items ORDER BY id LIMIT 10 OFFSET 1000000，OFFSET 增大后由约 1ms 退化至约 5000ms）因仓库根目录无 LICENSE 未采用，仅作为同一 deep_offset 机制的佐证。保留的原汁原味：limit/offset 分页语义（base.limit(limit).offset(offset)）逐字迁移为 ItemMapper.findItemsByOffset 的 LIMIT #{limit} OFFSET #{offset}；表名 items 与 ORDER BY id 的排序语义保留。按数据集约定的改造：上游为 Python + SQLAlchemy，本项目按统一骨架改写为 Java 17 + Spring Boot 3.2.5 + MyBatis 3.0.3 + MySQL 8.0；判分指标统一为可实测字段 duration_ms；数据规模按数据集约定设定为 items=1200000（≥100 万行）以稳定复现深位移退化。边界用例（问题类型 deep_pagination，Agent 现已支持该类型）。设计意图：检验 Agent 能否识别『查询代价随位移深度线性增长』——primary d1 使用 LIMIT/OFFSET，深位移时需沿主键丢弃 offset 行；items 已具备 idx_items_created_at，缺索引不是根因，故无法用常规『补索引单变量实验』证实；本用例亦未纳入『深浅页耗时随 offset 变化』判别实验与键集分页改造后复测增益等结构化证据，故期望整体 decision=lead 并显式声明限制。干扰项处理：d2（SELECT COUNT(*) 求总数）对所有页成本恒定，不应被判为根因。"
   },
   "provenance": {
     "author": "dataset-team",
