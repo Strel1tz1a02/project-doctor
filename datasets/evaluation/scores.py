@@ -195,6 +195,10 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
              description="克制：不该改时不写代码；改失败时不冒认 verified 成功"),
         _def("gain_attributable", DataType.BOOLEAN, _ITEM, _NB, "conclusion",
              description="观察到的收益可归因于本次补丁（有实测改善且执行侧标注可归因）"),
+        # ---- 交接层（结论层；仅当用例声明 expected.handoff 时才产出取值）----
+        _def("handoff_valid", DataType.BOOLEAN, _ITEM, _NB, "conclusion",
+             description="诊断→修正交接链完整（task/finding/repair/源码版本）、"
+                         "Finding 为本轮真实生成、修正会话与诊断会话独立"),
         # ---- 证据层 ----
         _def("evidence_compliance", DataType.BOOLEAN, _ITEM, _NB, "evidence",
              description="每个 verified finding 是否满足结构化证据要求"),
@@ -561,15 +565,15 @@ def total_score(
 # --------------------------------------------------------------------------- #
 
 def _self_check() -> None:
-    assert len(METRIC_DEFINITIONS) == 28, len(METRIC_DEFINITIONS)
+    assert len(METRIC_DEFINITIONS) == 29, len(METRIC_DEFINITIONS)
     assert len(STEP_METRICS) == 7, STEP_METRICS
 
     # 每类用例的适用指标数（含 7 项全类型适用的步骤层指标）：
-    #   normal    = 26（除 honesty / limitation_declared 外的项级指标 + 7 步骤项）
-    #   boundary  = 27（除 honesty 外的项级指标 + 7 步骤项）
+    #   normal    = 27（除 honesty / limitation_declared 外的项级指标 + 7 步骤项）
+    #   boundary  = 28（除 honesty 外的项级指标 + 7 步骤项）
     #   failure   = 15（decision_match / false_verified / limitation_declared /
     #                   trajectory_conformance / honesty / 成本 3 项 + 7 步骤项；
-    #                   修复能力 4 项只对 normal/boundary 适用，不进 failure）
+    #                   修复能力 4 项与交接 handoff_valid 只对 normal/boundary 适用，不进 failure）
     def names(case_type: CaseType) -> set[str]:
         return {d.name for d in definitions_for(case_type)}
 

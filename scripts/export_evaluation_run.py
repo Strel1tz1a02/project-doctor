@@ -63,6 +63,65 @@ def redact(value: Any) -> Any:
     return value
 
 
+def load_json_object(path: Path) -> dict[str, Any] | None:
+    """Read an optional registration file; ``None`` when it was never written."""
+    if not path.exists():
+        return None
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path.name} must contain a JSON object")
+    return value
+
+
+def load_handoff(home: Path) -> dict[str, Any] | None:
+    """Read the optional diagnosis→repair handoff registration (``handoff.json``).
+
+    The execution side must register these facts explicitly; the exporter never
+    infers them and never invents a preset finding. Absent file → the run bundle
+    carries no ``handoff`` layer (the evaluator reads it as an empty handoff).
+    """
+    raw = load_json_object(home / "handoff.json")
+    if raw is None:
+        return None
+    return {
+        "task_id": str(raw.get("task_id", "") or ""),
+        "finding_id": str(raw.get("finding_id", "") or ""),
+        "repair_id": str(raw.get("repair_id", "") or ""),
+        "source_commit": str(raw.get("source_commit", "") or ""),
+        "diagnosis_session_id": str(raw.get("diagnosis_session_id", "") or ""),
+        "repair_session_id": str(raw.get("repair_session_id", "") or ""),
+        "finding_from_this_run": bool(raw.get("finding_from_this_run", False)),
+        "build_result": str(raw.get("build_result", "") or ""),
+    }
+
+
+def load_repair(home: Path) -> dict[str, Any] | None:
+    """Read the optional fix-patch registration (``repair.json``).
+
+    Only a code-location fact ("did the patch touch the expected spot") has no
+    derived source, so the execution side registers the four facts explicitly.
+    Absent file → the run bundle omits ``retest.repair`` (the evaluator reads it
+    as "this case does not evaluate repair ability", not "attempted and failed").
+    """
+    raw = load_json_object(home / "repair.json")
+    if raw is None:
+        return None
+    files = raw.get("patch_files") or ()
+    if isinstance(files, dict):  # allow {"files": [...]} as well as a flat list
+        files = files.get("files") or ()
+    patch_files = []
+    for item in files:
+        if not isinstance(item, dict):
+            raise ValueError("repair.json patch_files entries must be {path, line} objects")
+        patch_files.append({"path": str(item.get("path", "")), "line": int(item.get("line", 0) or 0)})
+    return {
+        "attempted": bool(raw.get("attempted", False)),
+        "patch_present": bool(raw.get("patch_present", False)),
+        "patch_files": patch_files,
+        "gain_attributable": bool(raw.get("gain_attributable", False)),
+    }
+
+
 def evidence_flags(bundle: TaskBundle, finding: Finding) -> dict[str, bool]:
     flags = dict.fromkeys(
         (
@@ -236,7 +295,7 @@ def export_run(home: Path, case_id: str) -> dict[str, Any]:
             # A resumed task can have a longer tool span than its last model session.
             # Retain the larger measured span, rather than dropping the earlier attempt.
             wall_scope = "observed_tool_span_including_prior_attempts"
-    return {
+    payload = {
         "baseline": {
             "repeats_ms": [o.latency_ms for o in observations if o.level == "baseline"],
             "environment_fingerprint": observations[0].fingerprint if observations else None,
@@ -300,6 +359,15 @@ def export_run(home: Path, case_id: str) -> dict[str, Any]:
             },
         },
     }
+    # Explicitly registered handoff/repair facts are merged in only when present;
+    # the exporter never derives them, so an unregistered run stays unregistered.
+    handoff = load_handoff(home)
+    if handoff is not None:
+        payload["handoff"] = handoff
+    repair = load_repair(home)
+    if repair is not None:
+        payload["retest"]["repair"] = repair
+    return payload
 
 
 def attach_retest(payload: dict[str, Any], source: Path, retest: Path, case_id: str) -> None:
@@ -373,6 +441,7 @@ def attach_retest(payload: dict[str, Any], source: Path, retest: Path, case_id: 
         and None not in retest_digests
         and len(retest_digests) == 1
     )
+    repair = payload["retest"].get("repair")
     payload["retest"] = {
         "performed": bool(valid),
         "improvement_percent": gain,
@@ -389,6 +458,10 @@ def attach_retest(payload: dict[str, Any], source: Path, retest: Path, case_id: 
         "cost": exported["cost"],
         "trajectory": exported["trajectory"],
     }
+    # The retest block is rebuilt wholesale, so carry the registered repair facts
+    # (already merged by export_run from the source home) forward unchanged.
+    if repair is not None:
+        payload["retest"]["repair"] = repair
     payload["collection"]["diagnosis_cost"] = dict(payload["cost"])
     payload["collection"]["cost_scope"] = "diagnosis_plus_independent_retest"
     for name in ("wall_seconds", "tool_calls", "artifact_bytes"):

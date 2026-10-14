@@ -52,6 +52,7 @@ __all__ = [
     "TraceStep",
     "StepTrace",
     "Trajectory",
+    "Handoff",
     "RepairRecord",
     "Retest",
     "Artifact",
@@ -572,6 +573,68 @@ class Trajectory:
 
 
 @dataclass(frozen=True)
+class Handoff:
+    """诊断 Agent → 修正 Agent 的交接证据链（来源：运行包顶层 ``handoff``）。
+
+    这是判定「交接是否有效」所需的**事实字段**，由执行侧采集提供，评测方只消费：
+
+    - ``task_id`` / ``finding_id`` / ``repair_id`` / ``source_commit``：串联同一次
+      诊断 → 交接 → 修正的标识与源码版本；四者齐备才算链路完整（``chain_complete``）；
+    - ``diagnosis_session_id`` / ``repair_session_id``：诊断会话与修正会话标识；修正须在
+      **独立会话**中读取同一 Finding（``session_independent``，两者不同才算独立）；
+    - ``finding_from_this_run``：该 Finding 是否为**本轮**诊断真实产出；``False`` 表示疑似
+      预置，用于禁止「预置 Finding 冒充诊断产物」；
+    - ``build_result``：平台隔离执行补丁后的构建结果（``ok`` / ``failed`` / ``skipped``）；
+      ``failed`` 时判定补丁不可用（``build_ok=False``），避免把构建失败计成修正成功。
+
+    缺省 ``Handoff()``（全空）表示「未提供交接证据」。当用例声明 ``expected.handoff`` 时，
+    缺失即不达标（``valid=False``），与「提供了但链路不完整」同样计为不通过。
+    """
+
+    task_id: str = ""
+    finding_id: str = ""
+    repair_id: str = ""
+    source_commit: str = ""
+    diagnosis_session_id: str = ""
+    repair_session_id: str = ""
+    finding_from_this_run: bool = False
+    build_result: str = ""
+
+    @property
+    def chain_complete(self) -> bool:
+        return bool(self.task_id and self.finding_id and self.repair_id and self.source_commit)
+
+    @property
+    def session_independent(self) -> bool:
+        return bool(self.repair_session_id) and self.repair_session_id != self.diagnosis_session_id
+
+    @property
+    def build_ok(self) -> bool:
+        return str(self.build_result).strip().lower() != "failed"
+
+    @property
+    def valid(self) -> bool:
+        return self.chain_complete and self.finding_from_this_run and self.session_independent
+
+    @classmethod
+    def from_obj(cls, obj: Any) -> "Handoff":
+        if obj is None or isinstance(obj, cls):
+            return obj or cls()
+        if not isinstance(obj, Mapping):
+            return cls()
+        return cls(
+            task_id=str(obj.get("task_id", "") or ""),
+            finding_id=str(obj.get("finding_id", "") or ""),
+            repair_id=str(obj.get("repair_id", "") or ""),
+            source_commit=str(obj.get("source_commit", "") or ""),
+            diagnosis_session_id=str(obj.get("diagnosis_session_id", "") or ""),
+            repair_session_id=str(obj.get("repair_session_id", "") or ""),
+            finding_from_this_run=bool(obj.get("finding_from_this_run", False)),
+            build_result=str(obj.get("build_result", "") or ""),
+        )
+
+
+@dataclass(frozen=True)
 class RepairRecord:
     """一次修复尝试的可核查记录（来源：运行包 ``retest.repair``）。
 
@@ -716,6 +779,8 @@ class Expected:
     repair_expected_to_change: bool = True
     #: 补丁应当触及的缺陷 id；留空则回退到 ``root_cause_ids``。
     repair_target_ids: tuple[str, ...] = ()
+    #: 是否在 ``expected.handoff`` 显式声明交接证据期望（声明后才评估 ``handoff_valid``）。
+    handoff_declared: bool = False
 
     @property
     def root_cause_locations(self) -> tuple[Location, ...]:
@@ -774,4 +839,6 @@ class Expected:
             repair_declared=bool(repair_map),
             repair_expected_to_change=bool(repair_map.get("expected_to_change", True)),
             repair_target_ids=_as_str_tuple(repair_map.get("target_defect_ids")),
+            # 交接链期望：出现该键即声明本用例评估 handoff_valid（允许空对象，便于纯声明）。
+            handoff_declared=("handoff" in expected),
         )

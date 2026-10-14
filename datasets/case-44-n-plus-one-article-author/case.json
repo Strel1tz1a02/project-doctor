@@ -1,0 +1,123 @@
+{
+  "case_id": "case-44-n-plus-one-article-author",
+  "schema_version": "0.1",
+  "title": "文章列表接口在循环中逐条查询作者信息导致 N+1 查询",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "n_plus_one",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/articles/recent 在 20 万文章数据集下 P95 超过 150ms；接口需在最近文章列表上附带作者姓名与邮箱，负载升高时延迟随之上升",
+    "endpoint": "GET /api/articles/recent?size=200",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/articles/recent?size=200 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "authors": 50000,
+      "articles": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，authors=50000，articles=200000，article.author_id 均匀分布于 1..50000）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "n_plus_one",
+      "mechanism": "recentArticlesWithAuthor 先用一次查询取回 size 条文章，再在 for 循环中逐条调用 findAuthorById(article.getAuthorId())，形成 1+size 次数据库往返（N+1）；单条 findAuthorById 走主键、执行计划无问题，开销来自调用次数随 size 线性增长",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/ArticleService.java",
+          "line": 32,
+          "symbol": "recentArticlesWithAuthor"
+        }
+      ],
+      "expected_fix": "改为批量查询：对 article.getAuthorId() 去重收集后一次 findAuthorsByIds(List)，在内存中用 Map 回填文章的作者姓名/邮箱，使数据库往返降为 2 次",
+      "expected_status": "verified"
+    },
+    {
+      "defect_id": "d2",
+      "role": "decoy",
+      "kind": "select_star",
+      "mechanism": "findRecentArticles 使用 SELECT * 返回列表页不需要的 summary 等列；属代码异味，但列表查询走 idx_articles_created_at，不是本用例耗时根因（干扰项）",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/ArticleMapper.java",
+          "line": 15,
+          "symbol": "findRecentArticles"
+        }
+      ],
+      "expected_fix": "按需返回字段（仅代码整洁，非性能根因）",
+      "expected_status": "unclassified"
+    }
+  ],
+  "expected": {
+    "decision": "verified",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/ArticleService.java",
+        "line": 32,
+        "symbol": "recentArticlesWithAuthor"
+      }
+    ],
+    "excluded_explanations": ["lock_contention", "network_latency", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 30,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明 N+1 的判定依据是『随列表条数线性增长的额外数据库往返次数』，而非任何单条 SQL 的执行计划",
+      "必须声明结论依赖列表页大小 size：逐条查询的开销在 size 较小时可忽略，本用例以 size=200 触发"
+    ],
+    "repair": {
+      "expected_to_change": true,
+      "target_defect_ids": ["d1"]
+    },
+    "handoff": {}
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "evidence_compliance",
+      "false_verified",
+      "recommendation_effective",
+      "correctness_preserved",
+      "repair_warranted",
+      "repair_target_hit",
+      "repair_restraint",
+      "gain_attributable",
+      "handoff_valid",
+      "artifact_integrity",
+      "restore_verified"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "应修 N+1 用例（诊断 + 修正一体化首批）：Agent 现已支持 problem_kind=n_plus_one。设计意图：检验两 Agent 真实接力链条——诊断 Agent 在隔离项目产出『随列表条数线性增长的额外数据库往返次数』这一结构化证据，把结论推到 verified 并把 Finding 持久化；修正 Agent 在独立会话读取同一 Finding 后，把批量查询改造落在期望缺陷位置（ArticleService.java:32）。三件事一起评：可证实性（decision=verified, false_verified=false）、交接链完整性（expected.handoff 声明后评估 handoff_valid：task_id/finding_id/repair_id/source_commit 四 ID 齐备、finding_from_this_run=true、修正会话独立）、修复能力（expected.repair 声明后评估 4 项 repair_*：该改、改对位置、收益可归因、build_result 非 failed）。干扰项：d2（SELECT *）是列表 mapper 上的代码异味，列表查询走 idx_articles_created_at，耗时贡献很小，不应被判为根因（expected_status=unclassified）。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-14",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

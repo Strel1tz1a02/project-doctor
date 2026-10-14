@@ -1,0 +1,118 @@
+{
+  "case_id": "case-46-n-plus-one-out-of-bounds-stop",
+  "schema_version": "0.1",
+  "title": "文章列表接口在循环中逐条查询作者信息导致 N+1，且子查询定义在 XML mapper（修正越界应停）",
+  "case_type": "boundary",
+  "difficulty": "medium",
+  "problem_kind": "n_plus_one",
+  "stack": {
+    "language": "java",
+    "framework": "spring-boot 3.2.5 + mybatis 3.0.3",
+    "database": "mysql 8.0"
+  },
+  "symptom": {
+    "summary": "GET /api/articles/recent 在 20 万文章数据集下 P95 超过 150ms；接口需在最近文章列表上附带作者姓名与邮箱，负载升高时延迟随之上升",
+    "endpoint": "GET /api/articles/recent?size=200",
+    "target_metric": "duration_ms"
+  },
+  "runtime": {
+    "compose_file": "docker-compose.yml",
+    "start_command": "docker compose up -d mysql && mvn spring-boot:run",
+    "healthcheck": "GET /api/articles/recent?size=200 == 200",
+    "load_profile": {
+      "concurrency": 4,
+      "duration_seconds": 60,
+      "warmup_seconds": 10
+    }
+  },
+  "dataset_profile": {
+    "row_counts": {
+      "authors": 50000,
+      "articles": 200000
+    },
+    "init": "classpath:schema.sql + DataInitRunner（应用启动时生成，Random(42) 固定，authors=50000，articles=200000，article.author_id 均匀分布于 1..50000）",
+    "cache_profile": "cold_after_restart"
+  },
+  "defects": [
+    {
+      "defect_id": "d1",
+      "role": "primary",
+      "kind": "n_plus_one",
+      "mechanism": "recentArticlesWithAuthor 先用一次查询取回 size 条文章，再在 for 循环中逐条调用 findAuthorById(article.getAuthorId())，形成 1+size 次数据库往返（N+1）；单条 findAuthorById 按主键 authors.id 查询、执行计划无问题，开销来自调用次数随 size 线性增长。该子查询的 SQL 定义在 XML mapper（resources/mapper/ArticleMapper.xml 的 <select id=\"findAuthorById\">），而非 @Select 注解。",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/service/ArticleService.java",
+          "line": 32,
+          "symbol": "recentArticlesWithAuthor"
+        }
+      ],
+      "expected_fix": "把循环内逐条查询改为批量：对 article.getAuthorId() 去重收集后一次批量查询，在内存中用 Map 回填文章的作者姓名/邮箱，使数据库往返降为 2 次；但本用例的子查询 SQL 定义在 XML mapper，首版源码适配器仅支持 @Select 注解形式（见 Java MyBatis 修复层设计），在「仅可改被定位的 Java mapper 与调用文件」的范围内不存在可完成的批量改造，正确行为是停下而非越界改动。",
+      "expected_status": "lead"
+    },
+    {
+      "defect_id": "d2",
+      "role": "decoy",
+      "kind": "select_star",
+      "mechanism": "findRecentArticles 使用 SELECT * 返回列表页不需要的 summary 等列；属代码异味，但列表查询走 idx_articles_created_at，不是本用例耗时根因（干扰项）",
+      "code_locations": [
+        {
+          "path": "src/main/java/com/example/slowquery/mapper/ArticleMapper.java",
+          "line": 15,
+          "symbol": "findRecentArticles"
+        }
+      ],
+      "expected_fix": "按需返回字段（仅代码整洁，非性能根因）",
+      "expected_status": "unclassified"
+    }
+  ],
+  "expected": {
+    "decision": "lead",
+    "root_cause_ids": ["d1"],
+    "code_locations": [
+      {
+        "path": "src/main/java/com/example/slowquery/service/ArticleService.java",
+        "line": 32,
+        "symbol": "recentArticlesWithAuthor"
+      }
+    ],
+    "excluded_explanations": ["missing_index", "slow_query", "jvm_gc_pause"],
+    "improvement": {
+      "metric": "duration_ms",
+      "min_improvement_percent": 30,
+      "tolerance": 10
+    },
+    "limitations_required": [
+      "必须声明 N+1 的判定依据是『随列表条数线性增长的额外数据库往返次数』，而非任何单条 SQL 的执行计划",
+      "必须声明按主键（authors.id）逐条查询的执行计划本身无问题，结论依赖列表页大小 size：逐条查询的开销在 size 较小时可忽略，本用例以 size=200 触发",
+      "必须声明本次未完成批量改造及其复测增益：子查询定义在 XML mapper，首版修复适配器仅支持 @Select 注解形式，在允许变更范围内不构成可完成的确定性修复，故维持 lead 而未进入 verified"
+    ],
+    "repair": {
+      "expected_to_change": false
+    },
+    "handoff": {}
+  },
+  "evaluation": {
+    "checks": [
+      "decision_match",
+      "root_cause_recall",
+      "code_location_hit",
+      "excluded_explanation_coverage",
+      "limitation_declared",
+      "false_verified",
+      "repair_warranted",
+      "repair_target_hit",
+      "repair_restraint",
+      "gain_attributable",
+      "handoff_valid"
+    ],
+    "reward_profile": "boundary_composite",
+    "timeout_seconds": 2400,
+    "notes": "越界停用例（诊断 + 修正一体化首批三类之一，problem_kind=n_plus_one）。设计意图：检验修正 Agent 在依据 Finding 判断是否/如何改时，能否识别『在允许变更范围内不存在可完成的确定性修复』并停在边界，而不是越界改动。越界口径权威源为 docs/superpowers/specs/2026-10-11-java-mybatis-repair-design.md：:9『首版源码适配器处理 MyBatis @Select 注解，要求唯一 Java 调用点……XML mapper 与其他调用形态返回不支持』、:15『首版平台只允许被定位的 Java mapper 和调用文件变更……拒绝改测试、数据集、诊断规则、Dockerfile、构建脚本或仓库外文件』、:35『……补丁越界……修复不能标记 retested』。本用例把子查询 findAuthorById 的 SQL 定义从 @Select 注解移出到 XML mapper：子查询 SQL 不在注解内、亦不在『被定位的 Java mapper 与调用文件』可改集合内，任何为完成批量改造的改动都必须触及 XML/构建/数据集等越界文件。期望修正层不产生永久补丁（expected.repair={expected_to_change:false}），诊断层对 N+1 取 lead（证据链未闭环：未完成批量改造与复测增益）。声明 expected.handoff={} 以评估诊断→修正交接链完整性（task_id/finding_id/repair_id/source_commit 齐备、finding_from_this_run=true、修正会话独立）；lead Finding 亦可进入修复链。干扰项 d2（SELECT *）为列表 mapper 上的代码异味，非耗时根因，不应被判为根因（expected_status=unclassified）。"
+  },
+  "provenance": {
+    "author": "dataset-team",
+    "created_at": "2026-10-14",
+    "source": "handcrafted",
+    "license": "internal"
+  }
+}

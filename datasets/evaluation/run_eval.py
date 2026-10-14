@@ -730,6 +730,7 @@ def run(runs_dir: Path, out_dir: Path,
                 payload.get("report"),
                 trajectory=payload.get("trajectory"),
                 retest=payload.get("retest"),
+                handoff=payload.get("handoff"),
                 artifacts=payload.get("artifacts") or (),
                 restore=payload.get("restore"),
                 cost=payload.get("cost"),
@@ -1180,7 +1181,8 @@ def _self_check() -> None:
         bundle = bundles[case["case_id"]]
         result = evaluate_case(EvalInput.from_raw(
             case, bundle["report"], trajectory=bundle.get("trajectory"),
-            retest=bundle.get("retest"), artifacts=bundle.get("artifacts") or (),
+            retest=bundle.get("retest"), handoff=bundle.get("handoff"),
+            artifacts=bundle.get("artifacts") or (),
             restore=bundle.get("restore"), cost=bundle.get("cost")))
         assert result.passed, (case["case_id"], result.failed_gates())
         results.append(result)

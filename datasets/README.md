@@ -68,8 +68,10 @@
 | `case-41-connection-pool-response-stream-hold` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持） |
 | `case-42-slow-query-unattributable-gain` | `boundary` | `slow_query` | hard | `lead` | 已归档，校验通过（克制用例：不该改） |
 | `case-43-connection-pool-config-not-root-cause` | `boundary` | `connection_pool` | medium | `lead` | 已归档，校验通过（等待 Agent 支持；克制用例：不该改） |
+| `case-44-n-plus-one-article-author` | `boundary` | `n_plus_one` | medium | `verified` | 已归档，校验通过（首批「诊断→修正一体化」应修用例） |
+| `case-46-n-plus-one-out-of-bounds-stop` | `boundary` | `n_plus_one` | medium | `lead` | 已归档，校验通过（首批「诊断→修正一体化」越界停用例） |
 
-> `problem_kind` 的取值域已在 `_schema/case.schema.json` 中预留为设计文档划定的 **9 类**性能问题；当前 **9 类均已落地对应用例（共 43 例）**：`slow_query`（14 例，`case-01`–`case-06`、`case-15`、`case-24`、`case-25`、`case-30`、`case-33`、`case-34`、`case-35`、`case-42`）、`n_plus_one`（8 例，`case-07`、`case-16`、`case-26`、`case-27`、`case-31`、`case-36`、`case-37`、`case-38`）、`connection_pool`（9 例，`case-09`、`case-17`、`case-28`、`case-29`、`case-32`、`case-39`、`case-40`、`case-41`、`case-43`）、`deep_pagination`（`case-08`、`case-18`）、`large_response`（`case-10`、`case-19`）、`connection_setup`（`case-11`、`case-20`）、`excessive_logging`（`case-12`、`case-21`）、`thread_pool`（`case-13`、`case-22`）、`config_regression`（`case-14`、`case-23`）。详见《[数据集结构规范](docs/数据集结构规范.md)》「problem_kind 取值与覆盖现状」。
+> `problem_kind` 的取值域已在 `_schema/case.schema.json` 中预留为设计文档划定的 **9 类**性能问题；当前 **9 类均已落地对应用例（共 45 例）**：`slow_query`（14 例，`case-01`–`case-06`、`case-15`、`case-24`、`case-25`、`case-30`、`case-33`、`case-34`、`case-35`、`case-42`）、`n_plus_one`（10 例，`case-07`、`case-16`、`case-26`、`case-27`、`case-31`、`case-36`、`case-37`、`case-38`、`case-44`、`case-46`）、`connection_pool`（9 例，`case-09`、`case-17`、`case-28`、`case-29`、`case-32`、`case-39`、`case-40`、`case-41`、`case-43`）、`deep_pagination`（`case-08`、`case-18`）、`large_response`（`case-10`、`case-19`）、`connection_setup`（`case-11`、`case-20`）、`excessive_logging`（`case-12`、`case-21`）、`thread_pool`（`case-13`、`case-22`）、`config_regression`（`case-14`、`case-23`）。详见《[数据集结构规范](docs/数据集结构规范.md)》「problem_kind 取值与覆盖现状」。
 
 全部用例共用同一套 Spring Boot + MyBatis + MySQL 技术栈，按「正常 / 边界 / 失败」三类各含 ≥2 个用例，构成一个完整的判定谱系：
 
@@ -77,6 +79,7 @@
   - `case-01` 只保留单一主缺陷（缺 `(status, created_at)` 复合索引），用于验证 Agent「能证实唯一根因」；
   - `case-04` 为同类的第二个变体（`orders` 除主键外无任何索引），覆盖「表无可用索引 + 按 `user_id` 过滤」的入口；
   - `case-07`（`case_type=boundary`，问题类型 `n_plus_one`）列表接口在 `for` 循环中逐条查询用户信息，形成 `1+size` 次数据库往返；Agent 现已支持 `n_plus_one`，该用例据此期望 `verified`（须以批量查询规格这一结构化证据证实改善）。
+  - `case-44`（`case_type=boundary`，问题类型 `n_plus_one`）「文章 → 作者」N+1，与 `case-07` 同构；额外声明 `expected.repair` 与 `expected.handoff`，是首批「诊断 → 修正一体化」交接链的**正向样板**（应修、应改对位置、交接链完整）。
 - **期望 `lead`（只能给线索、不越级下结论）**：
   - `case-02` 在同一项目内叠加前导通配符、N+1、深分页等组合缺陷，主缺陷可证实、其余不可证实，用于验证 Agent「只给 lead 而不强行 verified」；
   - `case-05` 为「缺索引」的第二个变体，通过 `status` 分布倾斜使索引收益随取值波动、难以稳定证实，用于验证 Agent 在「缺陷真实但收益依赖数据分布」时不过度下结论；
@@ -86,12 +89,14 @@
   - `case-11` 为 `connection_setup` 问题类型的**预置用例**：每次请求都新建并关闭数据库连接，失去连接复用收益，开销随请求数线性增长（等待 Agent 支持）；
   - `case-12` 为 `excessive_logging` 问题类型的**预置用例**：同步 `FileAppender` 以 debug 级别逐行打印大结果集，日志 I/O 阻塞业务线程，属同步日志放大（等待 Agent 支持）；
   - `case-14` 为 `config_regression` 问题类型的**预置用例**：连接池最大连接数被配置回归调小，并发下形成排队等待，缺陷落在配置而非代码（等待 Agent 支持）。
+  - `case-16`（问题类型 `n_plus_one`）「行程 → 停靠点」热路径循环 N+1，与 `case-46` 同为首批「诊断 → 修正一体化」用例；本用例为其中的**证据不足停**：未纳入足以闭环的判别实验与改造增益证据，诊断层维持 `lead`，修正层应克制不改（`expected.repair={expected_to_change:false}`）。
+  - `case-46`（问题类型 `n_plus_one`）「文章 → 作者」N+1，子查询 SQL 定义在 XML mapper 而非 `@Select` 注解；本用例为首批三类中的**越界停**：在允许变更范围内不存在可完成的确定性修复，诊断层维持 `lead`，修正层应识别越界、克制不改（`expected.repair={expected_to_change:false}`）。
 - **失败（`unclassified`）**：
   - `case-03` 的数据规模与接口与 `case-01` 一致，但 `orders` 已具备复合索引且无真实缺陷，用于验证 Agent「在证据不足时拒绝下结论、不编造根因」；
   - `case-06` 保留与 `case-04` 相同的真实缺陷（缺索引），但数据规模仅 300 条、缺陷「真实但不可证实」，用于验证 Agent 不对不可证实的缺陷强行下结论；
   - `case-13` 为 `thread_pool` 问题类型的**预置用例**：线程池队列在压力下排队，但环境波动使该现象不可稳定复现，且项目内另有一个 `select_star` 诱饵缺陷，用于验证 Agent 在「诱饵干扰 + 现象不可稳定复现」时拒绝编造根因（等待 Agent 支持）。
 
-三类期望结论分别为 `verified` / `lead` / `unclassified`，大体对应《Agent 评估方法》中正常、边界、失败三类样例：`normal` 用例均取 `verified`、`failure` 用例均取 `unclassified`，`boundary` 用例通常取 `lead`，但当问题类型已被 Agent 支持且证据链可闭环时亦可取 `verified`（当前仅 `case-07`）。新增数据单元请遵循 `case-<两位序号>-<问题类型>-<变体>` 命名，从 `_template/` 复制样板起手，按其中自检清单确认后在本表中登记。
+三类期望结论分别为 `verified` / `lead` / `unclassified`，大体对应《Agent 评估方法》中正常、边界、失败三类样例：`normal` 用例均取 `verified`、`failure` 用例均取 `unclassified`，`boundary` 用例通常取 `lead`，但当问题类型已被 Agent 支持且证据链可闭环时亦可取 `verified`（如 `case-07`、`case-44`）。新增数据单元请遵循 `case-<两位序号>-<问题类型>-<变体>` 命名，从 `_template/` 复制样板起手，按其中自检清单确认后在本表中登记。
 
 ## 答案隔离
 

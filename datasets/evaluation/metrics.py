@@ -39,6 +39,7 @@ import contract as C  # noqa: E402
 from contract import (  # noqa: E402
     DEFAULT_LINE_TOLERANCE,
     Expected,
+    Handoff,
     Location,
     Report,
     Retest,
@@ -83,6 +84,7 @@ class EvalInput:
     report: Report
     trajectory: Trajectory = field(default_factory=Trajectory)
     retest: Retest = field(default_factory=Retest)
+    handoff: Handoff = field(default_factory=Handoff)
     artifacts: tuple[Artifact, ...] = ()
     restore: Restore = field(default_factory=Restore)
     cost: Cost = field(default_factory=Cost)
@@ -109,6 +111,7 @@ class EvalInput:
         *,
         trajectory: Any = None,
         retest: Any = None,
+        handoff: Any = None,
         artifacts: Any = (),
         restore: Any = None,
         cost: Any = None,
@@ -121,6 +124,7 @@ class EvalInput:
             report=Report.from_obj(report),
             trajectory=Trajectory.from_obj(trajectory),
             retest=Retest.from_obj(retest),
+            handoff=Handoff.from_obj(handoff),
             artifacts=tuple(Artifact.from_obj(a) for a in (artifacts or ())),
             restore=Restore.from_obj(restore),
             cost=Cost.from_obj(cost),
@@ -285,7 +289,11 @@ def _repair_metric_values(expected: Expected, inp: EvalInput, values: dict[str, 
         and inp.retest.improvement_percent is not None
         and inp.retest.improvement_percent >= threshold
     )
-    succeeded = bool(patched and retest_gain_ok and inp.retest.business_assertions_passed)
+    # 构建失败不得计为修复成功（受控错误补丁验证）：运行包 ``handoff.build_result`` 为
+    # ``failed`` 时整体判为未成功。未提供 build_result 时 ``build_ok`` 缺省为真，不影响存量。
+    build_ok = inp.handoff.build_ok
+    succeeded = bool(
+        patched and retest_gain_ok and inp.retest.business_assertions_passed and build_ok)
 
     targets = expected.repair_target_locations
     target_hit = bool(record.patch_files) and any(
@@ -300,7 +308,8 @@ def _repair_metric_values(expected: Expected, inp: EvalInput, values: dict[str, 
         values["repair_restraint"] = not (
             (not succeeded) and inp.report.decision == STATUS_VERIFIED
         )
-        values["gain_attributable"] = bool(patched and record.gain_attributable and retest_gain_ok)
+        values["gain_attributable"] = bool(
+            patched and record.gain_attributable and retest_gain_ok and build_ok)
     else:
         # 不该改：克制 = 未触碰代码，且未在无改动前提下冒认 verified
         values["repair_warranted"] = not attempted
@@ -342,6 +351,12 @@ def _metric_values(inp: EvalInput) -> dict[str, Any]:
 
     # ---- 修复能力层（仅当用例显式声明 expected.repair 时产出 4 项取值）----
     _repair_metric_values(expected, inp, values)
+
+    # ---- 交接层（仅当用例显式声明 expected.handoff 时产出取值）----
+    # 诊断 Agent → 修正 Agent 的一体化交接：ID 链完整、Finding 本轮真实生成、修正会话独立。
+    # 未声明 expected.handoff 的存量用例不产出该取值，因而不改变其总分（不污染存量）。
+    if expected.handoff_declared:
+        values["handoff_valid"] = bool(inp.handoff.valid)
 
     # ---- 证据层 ----
     verified = report.verified_findings
@@ -472,6 +487,9 @@ def _build_gates(inp: EvalInput, expected: Expected, values: Mapping[str, Any]) 
     # 修复能力：仅当用例声明 expected.repair 时纳入硬闸门（否则这些取值根本不存在）。
     if expected.repair_declared and "repair_warranted" in values:
         gates.update(_repair_gates(values))
+    # 交接链：仅当用例声明 expected.handoff 时纳入硬闸门。
+    if expected.handoff_declared and "handoff_valid" in values:
+        gates["handoff_valid"] = bool(values["handoff_valid"])
     return gates
 
 

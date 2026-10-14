@@ -69,7 +69,8 @@
     "repair": {
       "expected_to_change": true,
       "target_defect_ids": ["d1"]
-    }
+    },
+    "handoff": {}
   },
   "evaluation": {
     "checks": [
@@ -85,12 +86,13 @@
       "repair_target_hit",
       "repair_restraint",
       "gain_attributable",
+      "handoff_valid",
       "artifact_integrity",
       "restore_verified"
     ],
     "reward_profile": "normal_single",
     "timeout_seconds": 1800,
-    "notes": "模板：复制到 case-NN-<problem_kind>-<variant>/ 后，重写 case_id、title、defects、expected 等全部占位内容；本文件因位于保留目录（以 _ 开头）不会被 validate_cases / isolation_guard 当作数据单元。expected.repair 是**可选**的修复能力声明：仅当运行包会提供 retest.repair（补丁身份）时才保留它，否则请整体删除该字段与 evaluation.checks 里的 4 项 repair_* 检查项（未声明 repair 的用例不做修复能力评估）。"
+    "notes": "模板：复制到 case-NN-<problem_kind>-<variant>/ 后，重写 case_id、title、defects、expected 等全部占位内容；本文件因位于保留目录（以 _ 开头）不会被 validate_cases / isolation_guard 当作数据单元。expected.repair 是**可选**的修复能力声明：仅当运行包会提供 retest.repair（补丁身份）时才保留它，否则请整体删除该字段与 evaluation.checks 里的 4 项 repair_* 检查项（未声明 repair 的用例不做修复能力评估）。expected.handoff 同为**可选**的交接链声明：仅当运行包会在顶层提供 handoff（诊断 → 修正交接链）时才保留它，否则请删除该字段与 evaluation.checks 里的 handoff_valid 检查项。"
   },
   "provenance": {
     "author": "dataset-team",

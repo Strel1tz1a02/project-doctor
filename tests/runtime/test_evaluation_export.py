@@ -85,6 +85,51 @@ def test_export_keeps_status_unknown_costs_and_actual_arguments(tmp_path, bundle
     assert not any(result["report"]["findings"][0]["evidence_flags"].values())
 
 
+def test_registered_handoff_and_repair_are_exported(tmp_path, bundle):
+    home = make_home(tmp_path / "home", bundle)
+    (home / "handoff.json").write_text(
+        json.dumps(
+            {
+                "task_id": bundle.task.id,
+                "finding_id": bundle.findings[0].id,
+                "repair_id": "repair-abc",
+                "source_commit": bundle.task.project.commit,
+                "diagnosis_session_id": "session-diag",
+                "repair_session_id": "session-fix",
+                "finding_from_this_run": True,
+                "build_result": "ok",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (home / "repair.json").write_text(
+        json.dumps(
+            {
+                "attempted": True,
+                "patch_present": True,
+                "patch_files": [{"path": "src/main/java/OrderMapper.java", "line": 17}],
+                "gain_attributable": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = export_run(home, "anonymous-case")
+    assert result["handoff"]["finding_id"] == bundle.findings[0].id
+    assert result["handoff"]["build_result"] == "ok"
+    assert result["retest"]["repair"]["patch_files"] == [
+        {"path": "src/main/java/OrderMapper.java", "line": 17}
+    ]
+    # The placeholder retest layer is not changed by registering patch facts.
+    assert result["retest"]["performed"] is False
+
+
+def test_unregistered_run_omits_handoff_and_repair(tmp_path, bundle):
+    result = export_run(make_home(tmp_path / "home", bundle), "anonymous-case")
+    # The exporter never fabricates handoff/repair evidence; absence stays absence.
+    assert "handoff" not in result
+    assert "repair" not in result["retest"]
+
+
 @pytest.mark.parametrize("status", ["verified", "lead", "unclassified"])
 def test_completed_execution_does_not_imply_a_verified_diagnosis(tmp_path, bundle, status):
     bundle.task.status = "completed"

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.slowquery.mapper.ArticleMapper">
+
+    <!-- 按 author_id 逐条回填作者信息；其 SQL 定义在 XML mapper 中。 -->
+    <select id="findAuthorById" resultType="com.example.slowquery.model.Author">
+        SELECT id, name, email, created_at
+        FROM authors
+        WHERE id = #{id}
+    </select>
+
+</mapper>

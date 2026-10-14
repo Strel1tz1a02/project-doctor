@@ -124,11 +124,12 @@ HONEST_REPORT = {
 # --------------------------------------------------------------------------- #
 
 class ScoresTest(unittest.TestCase):
-    def test_registry_has_28_metrics(self):
-        # 21 项用例级指标 + 7 项步骤级指标（group="step"，D4 只作归因不进总分）。
+    def test_registry_has_29_metrics(self):
+        # 22 项用例级指标 + 7 项步骤级指标（group="step"，D4 只作归因不进总分）。
         # 用例级含 4 项修复能力指标（repair_warranted / repair_target_hit /
-        # repair_restraint / gain_attributable），仅当用例声明 expected.repair 时才产出取值。
-        self.assertEqual(len(S.METRIC_DEFINITIONS), 28)
+        # repair_restraint / gain_attributable）与 1 项交接链指标（handoff_valid），
+        # 均仅当用例显式声明 expected.repair / expected.handoff 时才产出取值。
+        self.assertEqual(len(S.METRIC_DEFINITIONS), 29)
         self.assertEqual(len(S.STEP_METRICS), 7)
 
     def test_applicability_invariants(self):
@@ -140,13 +141,16 @@ class ScoresTest(unittest.TestCase):
         self.assertNotIn("honesty", boundary)
         self.assertIn("honesty", failure)
         # 三类用例都追加了 7 项步骤级指标：19+7 / 20+7 / 8+7；
-        # normal/boundary 另含 4 项修复能力指标（不进 failure）。
-        self.assertEqual(len(normal), 26)
-        self.assertEqual(len(boundary), 27)
+        # normal/boundary 另含 4 项修复能力指标 + 1 项交接链指标（均不进 failure）。
+        self.assertEqual(len(normal), 27)
+        self.assertEqual(len(boundary), 28)
         self.assertEqual(len(failure), 15)
         self.assertIn("limitation_declared", boundary)
         self.assertNotIn("limitation_declared", normal)
         self.assertNotIn("root_cause_recall", failure)
+        self.assertIn("handoff_valid", normal)
+        self.assertIn("handoff_valid", boundary)
+        self.assertNotIn("handoff_valid", failure)
         # 步骤级指标对三类用例均适用（D3/D4）。
         self.assertTrue(set(S.STEP_METRICS) <= normal)
         self.assertTrue(set(S.STEP_METRICS) <= boundary)

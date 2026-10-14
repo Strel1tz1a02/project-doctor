@@ -63,10 +63,13 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 | `repair_target_hit` | BOOLEAN | 补丁位置命中 `expected.repair.target_defect_ids`（缺省回退 `root_cause_ids`）对应的缺陷位置 | 同上 |
 | `repair_restraint` | BOOLEAN | 克制：不改时不写代码；改动失败时不冒认 `verified` 成功 | 同上 |
 | `gain_attributable` | BOOLEAN | 观察到的收益可归因于本次补丁（有实测改善且执行侧标注可归因） | 同上 |
+| `handoff_valid` | BOOLEAN | 诊断 → 修正交接链完整：`task_id` / `finding_id` / `repair_id` / `source_commit` 四 ID 齐备 ∧ `finding_from_this_run` ∧ 修正会话独立（`repair_session_id` 非空且 ≠ `diagnosis_session_id`） | 声明 `expected.handoff` 时 = true |
 
 `false_verified` 是本方法中权重最高的负向指标。Agent 的设计哲学要求 `verified` 必须建立在完整的实验证据之上，因此把「其实没证实」的结论标成 `verified` 属于严重错误，一次出现即可否决整个用例，并在全局门槛上体现（见后文）。
 
 **修复能力指标是条件启用的一组指标。** `repair_warranted` / `repair_target_hit` / `repair_restraint` / `gain_attributable` 只有在用例的 `expected.repair` **显式声明**后才产出取值（未声明的用例直接跳过，既不评分也不进闸门，因此不会改变存量用例的分数）。它们回答的是「Agent 除了说清楚问题，是否还改对了」——即把评价从「诊断结论」延伸到「修复动作」。取值依赖执行侧在运行包 `retest.repair` 提供的**补丁身份事实**（见「修复记录 `retest.repair`」一节），判定则在评测器侧结合用例期望完成，二者分离，评测器不产生事实、只做判定。
+
+**交接链指标同样条件启用。** `handoff_valid` 只有在用例的 `expected.handoff` **显式声明**后才产出取值并纳入硬闸门（未声明者不评估）。它回答的是「诊断 Agent 本轮真实产出的 Finding，是否被独立会话的修正 Agent 依据同一份记录接力处理」——把评价从「单个 Agent 的表现」延伸到「两 Agent 的交接链」。取值依赖执行侧在运行包顶层 `handoff` 提供的**交接身份事实**（`task_id` / `finding_id` / `repair_id` / `source_commit` / `diagnosis_session_id` / `repair_session_id` / `finding_from_this_run` / `build_result`）。其中 `finding_from_this_run = true` 是红线——**不得预置 Finding 冒充诊断产物**；修正会话必须在独立会话读取同一 Finding 后工作。`build_result == "failed"` 时 `build_ok = false`，修复不成立。
 
 ### 证据层
 
@@ -167,6 +170,30 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 
 四项均为硬闸门（见下节），且仅在用例声明 `expected.repair` 时并入。
 
+### 交接记录 handoff
+
+交接链评估同样把「事实」与「判定」分开：**执行侧只登记交接身份事实，评测器只做判定**。执行侧在运行包**顶层**附一个可选对象 `handoff`（详见《执行侧数据导出对接规范》）：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `task_id` | string | 诊断→修正一体化任务 ID |
+| `finding_id` | string | 诊断 Agent 本轮产出的 Finding ID |
+| `repair_id` | string | 修正 Agent 产出的修正记录 ID |
+| `source_commit` | string | 被诊断/修复的源码版本 |
+| `diagnosis_session_id` | string | 诊断会话 ID |
+| `repair_session_id` | string | 修正会话 ID（须独立于诊断会话） |
+| `finding_from_this_run` | bool | Finding 是否为本轮诊断真实产出（红线：不得预置冒充） |
+| `build_result` | string | 补丁构建结果（如 `ok` / `failed`） |
+
+该对象缺省为空；仅当用例已声明 `expected.handoff` 时才评估。评测器据此在 `evaluation/metrics.py` 判定：
+
+- `chain_complete`：`task_id` / `finding_id` / `repair_id` / `source_commit` 四 ID 齐备；
+- `session_independent`：`repair_session_id` 非空且 ≠ `diagnosis_session_id`；
+- `build_ok`：`build_result` 不为 `failed`；
+- `handoff_valid = chain_complete ∧ finding_from_this_run ∧ session_independent`（`build_ok` 参与修复成功判定）。
+
+`handoff_valid` 为硬闸门，仅在用例声明 `expected.handoff` 时并入。
+
 ### 单用例多次运行取平均
 
 采样噪声会让单次运行的成绩不稳定，因此允许同一用例**重复执行多次**，用例得分为 N 次运行的**聚合结果**：
@@ -194,6 +221,7 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 - `recommendation_effective = true` 且 `correctness_preserved = true`
 - `artifact_integrity = true` 且 `restore_verified = true`
 - 若声明了 `expected.repair`，另须 `repair_warranted` / `repair_target_hit` / `repair_restraint` / `gain_attributable` 全为 `true`
+- 若声明了 `expected.handoff`，另须 `handoff_valid = true`
 
 若 Agent 把结论降级为 `lead`（`decision_match = under`），用例不通过，但在周报中单列为「漏判」，与 `false_verified` 区分对待：漏判损失任务完成度，误验证损失可信度。
 
@@ -205,6 +233,7 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 - `limitation_declared = true`，必须声明适用范围
 - 若 `expected.decision = lead`，`decision_match = exact` 即通过，不要求 `recommendation_effective`
 - 若 `expected.decision = verified`，则按正常用例的全部硬闸门执行（含 `expected.repair` 声明时的 4 项修复闸门）
+- 若声明了 `expected.handoff`，另须 `handoff_valid = true`（`lead` 结论亦可进入修复链，但交接链本身须完整）
 
 评分项为 `excluded_explanation_coverage`，用于奖励那些主动排除误导假设的结论。
 
@@ -273,6 +302,7 @@ Agent 的多步特性决定了单看最终结论不够，需要同时观察它�
 | `repair_target_hit` | BOOLEAN | EVAL | 数据集项级（同上） |
 | `repair_restraint` | BOOLEAN | EVAL | 数据集项级（同上） |
 | `gain_attributable` | BOOLEAN | EVAL | 数据集项级（同上） |
+| `handoff_valid` | BOOLEAN | EVAL | 数据集项级（仅声明 `expected.handoff` 时） |
 | `evidence_compliance` | BOOLEAN | EVAL | 数据集项级 |
 | `limitation_declared` | BOOLEAN | EVAL | 边界/失败用例级 |
 | `trajectory_conformance` | NUMERIC | EVAL | 数据集项级 |

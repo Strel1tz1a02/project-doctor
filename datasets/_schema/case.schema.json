@@ -177,6 +177,12 @@
               "description": "补丁应当触及的缺陷 id；留空回退到 expected.root_cause_ids。"
             }
           }
+        },
+        "handoff": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "交接链期望：出现该键（空对象即可）即声明本用例评估诊断→修正交接链（handoff_valid），并纳入硬闸门；未声明则本用例不做交接评估。",
+          "properties": {}
         }
       }
     },

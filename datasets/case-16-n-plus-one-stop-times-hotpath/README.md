@@ -11,6 +11,7 @@
 | `problem_kind` | `n_plus_one` |
 | `difficulty` | `medium` |
 | 期望结论 | `lead` |
+| 首批角色 | **证据不足停**（诊断 + 修正一体化首批三类之一） |
 | 来源 | 改编自 [OneBusAway/maglev](https://github.com/OneBusAway/maglev) Issue #404（Apache-2.0，`source=adapted`） |
 
 设计意图：`GET /api/trips/block-details` 需要为最近行程列表附带每个行程的停靠点数量。项目在**热路径循环内逐条查询 StopTimes**（N+1）：先用一次查询取回 size 条行程，再在 `for` 循环中为每个 trip 单独查询 `stop_times`，形成 1+size 次数据库往返。用例考察 Agent 是否能：
@@ -75,9 +76,16 @@ curl "http://localhost:8080/api/trips/block-details?size=200"
 - `limitation_declared`：必须声明三条 `expected.limitations_required`（判定依据、`n_plus_one` 已支持但证据不足维持 `lead`、依赖 `size`）。
 - `false_verified` 硬闸门：任何为 N+1 伪造 `verified` 的输出直接判负。
 - **边界设定说明**：`n_plus_one` 现已由 Agent 的 `ProblemKind` 支持，本用例维持 `lead` 是数据集刻意的边界设定（未纳入足以闭环的判别实验与改造增益证据）；具备完整证据链的同类用例（如 `case-07`）可产出 `verified`。
+- 接口声明了三块期望，评分器据此从运行包取值：
+  - `expected.repair = {"expected_to_change": false}` → 评估 4 项 `repair_*`（证据链未闭环时正确行为是**克制、不产生永久补丁**）；
+  - `expected.handoff = {}` → 评估 1 项 `handoff_valid`（交接链）；
+  - `expected.decision = lead` → 取 `decision_exact` 硬闸门。
+- **「证据不足停」语义**：本用例检验修正 Agent 在接收到一个 `lead` 状态、证据链未闭环的 Finding 时，能否**停在边界而不改写代码**——`expected.repair.expected_to_change = false` 期望其不产生永久补丁（`repair_warranted = not attempted`、`repair_target_hit = not patched`、`repair_restraint = (not attempted) and decision != verified`）。若修正层贸然改写代码或诊断层为此伪造 `verified`，均判不通过。
+- 交接链判定（`handoff_valid`）：`task_id` / `finding_id` / `repair_id` / `source_commit` 四 ID 齐备 **且** `finding_from_this_run = true`（不得预置 Finding 冒充诊断产物）**且** 修正会话独立（`repair_session_id` 非空且 ≠ `diagnosis_session_id`）。缺 `handoff` 块即 `valid = false`。`lead` Finding 亦可进入修复链（`validate_handoff` 允许 `status ∈ {lead, verified}`），修复层即便「拒绝改动」也会产出修复记录，故 `handoff_valid` 与「正确停下」不冲突。
 
 ## 与其它用例的关系
 
 - 与 `case-07` / `case-17` 同属「热路径循环内逐条查询」家族：`case-07` 为「订单 → 用户」N+1，本用例为「行程 → 停靠点序列（StopTimes）」N+1。
 - 与 `case-15` / `case-04` 对照：后两者是 `slow_query`（缺索引 → 全表扫描）、`decision=verified`；本用例是 `n_plus_one`、`decision=lead`，用于区分「执行计划问题」与「查询次数放大问题」。
 - 与 `case-14` 一致，本用例显式提供 `secondary`（d2）以检验 Agent 是否能把主根因收敛到唯一 `primary`。
+- 与 `case-44-n-plus-one-article-author`（**应修 N+1**）、`case-46-n-plus-one-out-of-bounds-stop`（**越界停**）构成首批「诊断 → 修正一体化」N+1 三类；本用例为其中的**证据不足停**：诊断层维持 `lead`，修正层应克制不改。
