@@ -80,7 +80,9 @@ def validate_repair_handoff(finding: Finding, bundle: TaskBundle) -> Finding:
     if len(experiments) != len(set(finding.experiment_ids)) or not experiments:
         raise ValueError("finding experiment references are not persisted")
     call_ids = {
-        call.id for experiment in experiments for obs in experiment.observations
+        call.id
+        for experiment in experiments
+        for obs in experiment.observations
         for call in obs.sql_calls
     }
     if not finding.sql_call_ids or not set(finding.sql_call_ids).issubset(call_ids):

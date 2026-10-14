@@ -144,8 +144,11 @@ def test_slow_query_retest_requires_actual_sql_and_request_gain() -> None:
 def test_keyset_retest_requires_same_result_no_offset_and_less_work() -> None:
     _, finding = _handoff()
     spec = DeepPaginationSpec(
-        strategy="keyset", query_template="SELECT * FROM orders ORDER BY id LIMIT ? OFFSET ?",
-        sort_column="id", code_location=finding.code_locations[0], observed_offset=100,
+        strategy="keyset",
+        query_template="SELECT * FROM orders ORDER BY id LIMIT ? OFFSET ?",
+        sort_column="id",
+        code_location=finding.code_locations[0],
+        observed_offset=100,
     )
     page = finding.model_copy(update={"kind": "deep_pagination", "fix_spec": spec})
     baseline, patched = _run(), _run(patched=True)

@@ -60,14 +60,16 @@ class ToolWorkflows:
         return await self.repair.submit_fix_patch(context, finding_id, diff)
 
     async def read_fix_source(
-        self, context: CallContext, finding_id: str, path: str,
-        start_line: int, line_count: int,
+        self,
+        context: CallContext,
+        finding_id: str,
+        path: str,
+        start_line: int,
+        line_count: int,
     ) -> SourceFileView:
         if self.repair is None:
             raise ValueError("repair workflow is not configured")
-        return await self.repair.read_fix_source(
-            context, finding_id, path, start_line, line_count
-        )
+        return await self.repair.read_fix_source(context, finding_id, path, start_line, line_count)
 
     async def verify_fix(
         self,

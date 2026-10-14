@@ -48,7 +48,9 @@ def evaluate_retest(
 
 
 def evaluate_slow_query_retest(
-    finding: Finding, baseline: RepairRun, patched: RepairRun,
+    finding: Finding,
+    baseline: RepairRun,
+    patched: RepairRun,
     policy: MeasurementPolicy | None = None,
 ) -> RepairComparison:
     """Require actual target-SQL work and request latency to improve together."""
@@ -61,7 +63,9 @@ def evaluate_slow_query_retest(
 
 
 def evaluate_deep_pagination_retest(
-    finding: Finding, baseline: RepairRun, patched: RepairRun,
+    finding: Finding,
+    baseline: RepairRun,
+    patched: RepairRun,
     policy: MeasurementPolicy | None = None,
 ) -> RepairComparison:
     """Prove an equivalent keyset result and less work on the same deep page."""
@@ -114,9 +118,11 @@ def _validate_common(finding: Finding, baseline: RepairRun, patched: RepairRun) 
         raise ValueError("repair retest must use independent tasks and experiments")
     if baseline.image_digest == patched.image_digest:
         raise ValueError("patched retest reused the baseline image")
-    if not finding.code_locations or any(
-        location.commit != baseline.source_commit for location in finding.code_locations
-    ) or patched.source_commit != baseline.source_commit:
+    if (
+        not finding.code_locations
+        or any(location.commit != baseline.source_commit for location in finding.code_locations)
+        or patched.source_commit != baseline.source_commit
+    ):
         raise ValueError("repair retest source commit does not match the finding")
     for field in (
         "snapshot_id",
@@ -155,9 +161,7 @@ def _require_distinguishable_gain(
         raise ValueError("repair gain is not distinguishable from measurement noise")
 
 
-def _comparison(
-    finding: Finding, baseline: RepairRun, patched: RepairRun
-) -> RepairComparison:
+def _comparison(finding: Finding, baseline: RepairRun, patched: RepairRun) -> RepairComparison:
     old_latency = [item.latency_ms for item in baseline.samples]
     new_latency = [item.latency_ms for item in patched.samples]
     old_median = median(old_latency)

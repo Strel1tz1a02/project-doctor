@@ -40,10 +40,16 @@ def build_server(workflows: ToolWorkflows, timeouts: dict[str, float]) -> FastMC
         "finish_task",
     }
     if workflows.repair is not None:
-        required.update({
-            "get_repair_handoff", "inspect_fix_target", "read_fix_source", "submit_fix_patch",
-            "verify_fix", "get_fix_status",
-        })
+        required.update(
+            {
+                "get_repair_handoff",
+                "inspect_fix_target",
+                "read_fix_source",
+                "submit_fix_patch",
+                "verify_fix",
+                "get_fix_status",
+            }
+        )
     if not required.issubset(timeouts) or any(value <= 0 for value in timeouts.values()):
         raise ValueError("all business tools require positive timeouts")
     active_retests: dict[
@@ -149,8 +155,11 @@ def build_server(workflows: ToolWorkflows, timeouts: dict[str, float]) -> FastMC
 
         @server.tool(annotations=read_only)
         async def read_fix_source(
-            context: CallContext, finding_id: str, path: str,
-            start_line: int, line_count: int,
+            context: CallContext,
+            finding_id: str,
+            path: str,
+            start_line: int,
+            line_count: int,
         ) -> SourceFileView:
             """Read at most 120 lines of permitted, hash-checked application source."""
             return await bounded(

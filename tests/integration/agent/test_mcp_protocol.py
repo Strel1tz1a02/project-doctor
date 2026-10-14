@@ -98,7 +98,11 @@ def test_repair_tools_expose_patch_input_but_no_model_measurement_input() -> Non
                 "diff",
             }
             assert set(listed["read_fix_source"].inputSchema["properties"]) == {
-                "context", "finding_id", "path", "start_line", "line_count",
+                "context",
+                "finding_id",
+                "path",
+                "start_line",
+                "line_count",
             }
             assert set(listed["verify_fix"].inputSchema["properties"]) == {"context", "repair_id"}
 

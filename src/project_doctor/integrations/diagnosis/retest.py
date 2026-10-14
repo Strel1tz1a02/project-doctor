@@ -136,9 +136,7 @@ class DockerDiagnosisRetester:
     async def run(
         self, bundle: TaskBundle, finding: Finding, repair: RepairRecord
     ) -> RetestEvidence:
-        if not (
-            repair.workspace_name and repair.source_sha256 and repair.baseline_source_sha256
-        ):
+        if not (repair.workspace_name and repair.source_sha256 and repair.baseline_source_sha256):
             raise ValueError("repair build does not identify validated source images")
         scenario = next((item for item in bundle.scenarios if item.id == finding.scenario_id), None)
         if scenario is None or len(scenario.steps) != 1 or scenario.steps[0].method != "GET":
@@ -365,50 +363,58 @@ class DockerDiagnosisRetester:
                 if finding.kind in {"slow_query", "deep_pagination"}:
                     paths = {location.path for location in finding.code_locations}
                     target_calls = [
-                        call for call in observation.sql_calls
-                        if call.code_location is not None
-                        and call.code_location.path in paths
+                        call
+                        for call in observation.sql_calls
+                        if call.code_location is not None and call.code_location.path in paths
                     ]
                     if len(target_calls) != 1:
                         raise ValueError("retest cannot identify one diagnosed SQL call")
                     target_call = target_calls[0]
-                    if side == "baseline" and parameterize_sql(
-                        target_call.normalized_sql
-                    ) not in diagnosed_templates:
+                    if (
+                        side == "baseline"
+                        and parameterize_sql(target_call.normalized_sql) not in diagnosed_templates
+                    ):
                         raise ValueError("baseline SQL differs from the diagnosed query")
                     if target_call.rows_examined is None or target_call.duration_ms is None:
                         raise ValueError("retest lacks actual diagnosed SQL measurements")
                     offset_match = re.search(
-                        r"\bOFFSET\s+(\d+)\b", target_call.normalized_sql,
+                        r"\bOFFSET\s+(\d+)\b",
+                        target_call.normalized_sql,
                         re.IGNORECASE,
                     )
                     offset = int(offset_match.group(1)) if offset_match else None
                     keyset = False
                     if isinstance(fix_spec, DeepPaginationSpec):
                         sort = re.escape(fix_spec.sort_column)
-                        keyset = bool(re.search(
-                            rf"\b`?{sort}`?\s*[<>]\s*(?:\d+|'[^']*'|\?)",
-                            target_call.normalized_sql, re.IGNORECASE,
-                        ))
-                    samples.append(RepairSample(
-                        request_id=observation.request_id,
-                        business_valid=True,
-                        result_digest=observation.result_digest,
-                        latency_ms=observation.latency_ms,
-                        sql_count=len(observation.sql_calls),
-                        child_count=0,
-                        parent_rows_examined=0,
-                        parent_keys=[],
-                        lock_covered=bool(observation.sql_calls) and all(
-                            call.lock_evidence is not None
-                            and call.lock_evidence.coverage == "complete"
-                            for call in observation.sql_calls
-                        ),
-                        target_rows_examined=target_call.rows_examined,
-                        target_duration_ms=target_call.duration_ms,
-                        target_offset=offset,
-                        target_uses_keyset=keyset,
-                    ))
+                        keyset = bool(
+                            re.search(
+                                rf"\b`?{sort}`?\s*[<>]\s*(?:\d+|'[^']*'|\?)",
+                                target_call.normalized_sql,
+                                re.IGNORECASE,
+                            )
+                        )
+                    samples.append(
+                        RepairSample(
+                            request_id=observation.request_id,
+                            business_valid=True,
+                            result_digest=observation.result_digest,
+                            latency_ms=observation.latency_ms,
+                            sql_count=len(observation.sql_calls),
+                            child_count=0,
+                            parent_rows_examined=0,
+                            parent_keys=[],
+                            lock_covered=bool(observation.sql_calls)
+                            and all(
+                                call.lock_evidence is not None
+                                and call.lock_evidence.coverage == "complete"
+                                for call in observation.sql_calls
+                            ),
+                            target_rows_examined=target_call.rows_examined,
+                            target_duration_ms=target_call.duration_ms,
+                            target_offset=offset,
+                            target_uses_keyset=keyset,
+                        )
+                    )
                     continue
                 assert isinstance(fix_spec, BatchQuerySpec)
                 assert repair.parent_key_column is not None

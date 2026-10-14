@@ -25,9 +25,11 @@ def main() -> None:
     settings = Settings.model_validate_json(args.settings.read_text(encoding="utf-8"))
     engine = create_engine(resolve_secret_ref(settings.platform_dsn_ref), pool_pre_ping=True)
     try:
-        payload = asyncio.run(export_repair_handoff(
-            MySQLTaskStore(engine), FileEvidenceReader(settings.artifact_root), args.task_id
-        ))
+        payload = asyncio.run(
+            export_repair_handoff(
+                MySQLTaskStore(engine), FileEvidenceReader(settings.artifact_root), args.task_id
+            )
+        )
     finally:
         engine.dispose()
     args.out.parent.mkdir(parents=True, exist_ok=True)

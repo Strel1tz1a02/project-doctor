@@ -399,8 +399,13 @@ def apply_source_patch(
     if any(before[path] == after[path] for path in changed):
         raise ValueError("patch contains an unchanged source file")
     return PatchedSource(
-        destination, target.source_commit, digest, source_tree_sha256(destination),
-        changed, before, after,
+        destination,
+        target.source_commit,
+        digest,
+        source_tree_sha256(destination),
+        changed,
+        before,
+        after,
     )
 
 

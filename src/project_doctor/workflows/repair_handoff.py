@@ -37,7 +37,8 @@ async def export_repair_handoff(
                 "evidence_refs": [item.model_dump(mode="json") for item in finding.evidence_refs],
                 "recommendation": (
                     finding.recommendation.model_dump(mode="json")
-                    if finding.recommendation is not None else None
+                    if finding.recommendation is not None
+                    else None
                 ),
                 "limitations": finding.limitations,
             }

@@ -53,17 +53,20 @@ class DiagnosisRetestService:
         self,
         adapter: DiagnosticRetestAdapter,
         reader: EvidenceReader,
-        verifiers: Mapping[
-            str, Callable[[Finding, RepairRun, RepairRun], RepairComparison]
-        ] | None = None,
+        verifiers: Mapping[str, Callable[[Finding, RepairRun, RepairRun], RepairComparison]]
+        | None = None,
     ) -> None:
         self._adapter = adapter
         self._reader = reader
-        self._verifiers = dict(verifiers) if verifiers is not None else {
-            "n_plus_one": evaluate_retest,
-            "slow_query": evaluate_slow_query_retest,
-            "deep_pagination": evaluate_deep_pagination_retest,
-        }
+        self._verifiers = (
+            dict(verifiers)
+            if verifiers is not None
+            else {
+                "n_plus_one": evaluate_retest,
+                "slow_query": evaluate_slow_query_retest,
+                "deep_pagination": evaluate_deep_pagination_retest,
+            }
+        )
 
     async def cleanup(self, repair: RepairRecord, context: CallContext) -> None:
         await self._adapter.cleanup(repair, context)

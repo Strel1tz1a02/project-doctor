@@ -137,14 +137,20 @@ def test_generic_workflow_inspects_and_reads_versioned_source(tmp_path: Path) ->
     bundle, finding = _handoff()
     bundle = bundle.model_copy(deep=True)
     bundle.task.project.commit = commit
-    slow = finding.model_copy(update={
-        "kind": "slow_query",
-        "fix_spec": None,
-        "code_locations": [CodeLocation(
-            commit=commit, path=MAPPER_PATH, line=4,
-            association_evidence_ids=finding.code_locations[0].association_evidence_ids,
-        )],
-    })
+    slow = finding.model_copy(
+        update={
+            "kind": "slow_query",
+            "fix_spec": None,
+            "code_locations": [
+                CodeLocation(
+                    commit=commit,
+                    path=MAPPER_PATH,
+                    line=4,
+                    association_evidence_ids=finding.code_locations[0].association_evidence_ids,
+                )
+            ],
+        }
+    )
     bundle.findings = [slow]
     settings = _settings(tmp_path)
     assert settings.target_repo_root == root
@@ -152,9 +158,9 @@ def test_generic_workflow_inspects_and_reads_versioned_source(tmp_path: Path) ->
     view = asyncio.run(workflow.inspect_fix_target(bundle.task.correlation, slow.id))
     assert view.finding_id == slow.id
     assert view.source_commit == commit
-    excerpt = asyncio.run(workflow.read_fix_source(
-        bundle.task.correlation, slow.id, MAPPER_PATH, 4, 2
-    ))
+    excerpt = asyncio.run(
+        workflow.read_fix_source(bundle.task.correlation, slow.id, MAPPER_PATH, 4, 2)
+    )
     assert "4:     @Select" in (excerpt.context or "")
 
 

@@ -74,27 +74,41 @@ class RepairWorkflow:
         bundle, finding, spec = await self._target(context.task_id, finding_id)
         if spec is not None:
             target = await asyncio.to_thread(
-                inspect_target, self._settings.target_repo_root, spec,
+                inspect_target,
+                self._settings.target_repo_root,
+                spec,
                 bundle.task.project.commit,
             )
             return present_target(finding_id, target)
         source_target = await asyncio.to_thread(
-            inspect_source_target, self._settings.target_repo_root,
-            finding, bundle.task.project.commit,
+            inspect_source_target,
+            self._settings.target_repo_root,
+            finding,
+            bundle.task.project.commit,
         )
         return present_source_target(finding_id, source_target)
 
     async def read_fix_source(
-        self, context: CallContext, finding_id: str, path: str,
-        start_line: int, line_count: int,
+        self,
+        context: CallContext,
+        finding_id: str,
+        path: str,
+        start_line: int,
+        line_count: int,
     ) -> SourceFileView:
         bundle, finding, _ = await self._target(context.task_id, finding_id)
         target = await asyncio.to_thread(
-            inspect_source_target, self._settings.target_repo_root,
-            finding, bundle.task.project.commit,
+            inspect_source_target,
+            self._settings.target_repo_root,
+            finding,
+            bundle.task.project.commit,
         )
         return await asyncio.to_thread(
-            read_source_context, target, path, start_line, line_count,
+            read_source_context,
+            target,
+            path,
+            start_line,
+            line_count,
         )
 
     async def submit_fix_patch(
@@ -125,12 +139,16 @@ class RepairWorkflow:
         target: RepairTarget | SourceRepairTarget
         if spec is not None:
             target = await asyncio.to_thread(
-                inspect_target, self._settings.target_repo_root, spec,
+                inspect_target,
+                self._settings.target_repo_root,
+                spec,
                 bundle.task.project.commit,
             )
         else:
             target = await asyncio.to_thread(
-                inspect_source_target, self._settings.target_repo_root, finding,
+                inspect_source_target,
+                self._settings.target_repo_root,
+                finding,
                 bundle.task.project.commit,
             )
         repair = RepairRecord(
@@ -154,9 +172,7 @@ class RepairWorkflow:
             if isinstance(target, RepairTarget):
                 source = await asyncio.to_thread(apply_patch, target, diff, workspace)
             else:
-                source = await asyncio.to_thread(
-                    apply_source_patch, target, diff, workspace
-                )
+                source = await asyncio.to_thread(apply_source_patch, target, diff, workspace)
             baseline_source = await asyncio.to_thread(copy_baseline_source, target, workspace)
             patch_ref = await publish_artifact(
                 self._settings.artifact_root,

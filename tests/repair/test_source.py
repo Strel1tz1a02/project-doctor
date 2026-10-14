@@ -139,13 +139,20 @@ def test_generic_source_patch_uses_diagnosed_context_without_mybatis_shape(
 ) -> None:
     root, _, commit = _project(tmp_path)
     _, finding = _handoff()
-    finding = finding.model_copy(update={
-        "kind": "slow_query", "fix_spec": None,
-        "code_locations": [CodeLocation(
-            commit=commit, path=MAPPER_PATH, line=4,
-            association_evidence_ids=["location-evidence"],
-        )],
-    })
+    finding = finding.model_copy(
+        update={
+            "kind": "slow_query",
+            "fix_spec": None,
+            "code_locations": [
+                CodeLocation(
+                    commit=commit,
+                    path=MAPPER_PATH,
+                    line=4,
+                    association_evidence_ids=["location-evidence"],
+                )
+            ],
+        }
+    )
     target = inspect_source_target(root, finding, commit)
     assert target.allowed_hashes[MAPPER_PATH]
     assert "4:     @Select" in target.contexts[MAPPER_PATH]
@@ -156,10 +163,14 @@ def test_generic_source_patch_uses_diagnosed_context_without_mybatis_shape(
     with pytest.raises(ValueError, match="permitted"):
         read_source_context(target, "secret.env", 1, 1)
     revised = MAPPER.replace("User findUserById", "User findUserByIndex")
-    diff = "".join(difflib.unified_diff(
-        MAPPER.splitlines(keepends=True), revised.splitlines(keepends=True),
-        fromfile="a/" + MAPPER_PATH, tofile="b/" + MAPPER_PATH,
-    ))
+    diff = "".join(
+        difflib.unified_diff(
+            MAPPER.splitlines(keepends=True),
+            revised.splitlines(keepends=True),
+            fromfile="a/" + MAPPER_PATH,
+            tofile="b/" + MAPPER_PATH,
+        )
+    )
     patched = apply_source_patch(target, diff, tmp_path / "workspaces")
     assert "findUserByIndex" in (patched.root / MAPPER_PATH).read_text(encoding="utf-8")
     assert (root / MAPPER_PATH).read_text(encoding="utf-8") == MAPPER
@@ -171,24 +182,35 @@ def test_generic_source_patch_rejects_test_file_and_missed_diagnosed_location(
 ) -> None:
     root, _, commit = _project(tmp_path)
     _, finding = _handoff()
-    finding = finding.model_copy(update={
-        "kind": "slow_query", "fix_spec": None,
-        "code_locations": [CodeLocation(
-            commit=commit, path=MAPPER_PATH, line=4,
-            association_evidence_ids=["location-evidence"],
-        )],
-    })
+    finding = finding.model_copy(
+        update={
+            "kind": "slow_query",
+            "fix_spec": None,
+            "code_locations": [
+                CodeLocation(
+                    commit=commit,
+                    path=MAPPER_PATH,
+                    line=4,
+                    association_evidence_ids=["location-evidence"],
+                )
+            ],
+        }
+    )
     target = inspect_source_target(root, finding, commit)
-    service_diff = "".join(difflib.unified_diff(
-        SERVICE.splitlines(keepends=True),
-        SERVICE.replace("void search()", "void searchFast()").splitlines(keepends=True),
-        fromfile="a/" + SERVICE_PATH, tofile="b/" + SERVICE_PATH,
-    ))
+    service_diff = "".join(
+        difflib.unified_diff(
+            SERVICE.splitlines(keepends=True),
+            SERVICE.replace("void search()", "void searchFast()").splitlines(keepends=True),
+            fromfile="a/" + SERVICE_PATH,
+            tofile="b/" + SERVICE_PATH,
+        )
+    )
     with pytest.raises(ValueError, match="misses the diagnosed"):
         apply_source_patch(target, service_diff, tmp_path / "missed")
     with pytest.raises(ValueError, match="scope"):
         apply_source_patch(
-            target, service_diff.replace(SERVICE_PATH, "tests/Answer.java"),
+            target,
+            service_diff.replace(SERVICE_PATH, "tests/Answer.java"),
             tmp_path / "test-file",
         )
 
