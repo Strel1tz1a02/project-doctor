@@ -36,7 +36,10 @@ def _patch_text(root: Path, record: RepairRecord) -> str:
         raise ValueError("patch artifact is missing or corrupted") from exc
     if len(raw) != ref.size_bytes or hashlib.sha256(raw).hexdigest() != ref.sha256:
         raise ValueError("patch artifact is missing or corrupted")
-    return raw.decode("utf-8")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("patch artifact is missing or corrupted") from exc
 
 
 def build_repair_facts(
@@ -50,9 +53,15 @@ def build_repair_facts(
 ) -> RepairFacts:
     diagnosis_session_id = bundle.task.correlation.agh_session_id or ""
     notes: list[str] = []
+    # An independent repair session is the evidence that a repair Agent actually
+    # ran; without it neither restraint nor a handoff chain may be registered.
+    session_independent = bool(repair_session_id) and repair_session_id != diagnosis_session_id
+
+    def persisted(finding: str) -> bool:
+        return any(f.id == finding and f.task_id == bundle.task.id for f in bundle.findings)
 
     def handoff(repair_id: str, finding: str, build_result: str) -> dict[str, object] | None:
-        if not repair_session_id or repair_session_id == diagnosis_session_id:
+        if not session_independent:
             notes.append("repair session is missing or not independent; handoff omitted")
             return None
         return {
@@ -62,18 +71,24 @@ def build_repair_facts(
             "source_commit": bundle.task.project.commit,
             "diagnosis_session_id": diagnosis_session_id,
             "repair_session_id": repair_session_id,
-            "finding_from_this_run": True,
+            "finding_from_this_run": persisted(finding),
             "build_result": build_result,
         }
 
     if not bundle.repairs:
-        # Restraint path: a no-change decision is auditable only with a real repair session.
-        if (
-            repair_session_transcript is None
-            or not repair_session_transcript.is_file()
-            or not repair_session_transcript.read_text(encoding="utf-8", errors="replace").strip()
-        ):
-            return RepairFacts(handoff=None, repair=None)
+        # Restraint needs an auditable independent repair session: a no-change
+        # decision must not be credited from a missing session.
+        transcript_ok = (
+            repair_session_transcript is not None
+            and repair_session_transcript.is_file()
+            and bool(
+                repair_session_transcript.read_text(encoding="utf-8", errors="replace").strip()
+            )
+        )
+        if not (session_independent and transcript_ok):
+            if not session_independent:
+                notes.append("repair session is missing or not independent; restraint unregistered")
+            return RepairFacts(handoff=None, repair=None, notes=tuple(notes))
         repair = {
             "attempted": False,
             "patch_present": False,
@@ -83,7 +98,7 @@ def build_repair_facts(
         if repair_decision_id is None:
             notes.append("no repair decision id; handoff omitted")
             return RepairFacts(handoff=None, repair=repair, notes=tuple(notes))
-        if finding_id is None or finding_id not in {f.id for f in bundle.findings}:
+        if finding_id is None or not persisted(finding_id):
             raise ValueError("no-change handoff requires a persisted finding from this task")
         return RepairFacts(
             handoff=handoff(repair_decision_id, finding_id, "skipped"),
@@ -96,7 +111,7 @@ def build_repair_facts(
     record = bundle.repairs[0]
     if record.task_id != bundle.task.id:
         raise ValueError("repair record belongs to another task")
-    if record.finding_id not in {f.id for f in bundle.findings}:
+    if not persisted(record.finding_id):
         raise ValueError("repair finding is not persisted in this task")
     if record.source_commit != bundle.task.project.commit:
         raise ValueError("repair source commit differs from the diagnosed commit")

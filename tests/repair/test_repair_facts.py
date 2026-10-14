@@ -174,7 +174,7 @@ def test_restraint_rejects_a_finding_from_outside_this_task(tmp_path):
         )
 
 
-def test_missing_session_omits_handoff_but_keeps_repair(tmp_path):
+def test_missing_session_stays_unregistered(tmp_path):
     transcript = tmp_path / "s.jsonl"
     transcript.write_text('{"seq":1}\n', encoding="utf-8")
     bundle = load_bundle()
@@ -186,12 +186,13 @@ def test_missing_session_omits_handoff_but_keeps_repair(tmp_path):
         repair_decision_id="d1",
         finding_id=bundle.findings[0].id,
     )
+    # No independent repair session: restraint must not be credited.
     assert facts.handoff is None
-    assert facts.repair["attempted"] is False
+    assert facts.repair is None
     assert any("independent" in note for note in facts.notes)
 
 
-def test_same_session_omits_handoff_but_keeps_repair(tmp_path):
+def test_shared_session_stays_unregistered(tmp_path):
     transcript = tmp_path / "s.jsonl"
     transcript.write_text('{"seq":1}\n', encoding="utf-8")
     bundle = load_bundle()
@@ -210,8 +211,14 @@ def test_same_session_omits_handoff_but_keeps_repair(tmp_path):
         finding_id=bundle.findings[0].id,
     )
     assert facts.handoff is None
-    assert facts.repair["attempted"] is False
-    assert any("independent" in note for note in facts.notes)
+    assert facts.repair is None
+
+
+def test_session_without_transcript_stays_unregistered(tmp_path):
+    bundle = load_bundle()
+    facts = build_repair_facts(bundle, artifacts_root=tmp_path, repair_session_id="repair-session")
+    assert facts.handoff is None
+    assert facts.repair is None
 
 
 def test_built_patch_exports_actual_lines_and_build_ok(tmp_path):
@@ -272,3 +279,47 @@ def test_multiple_records_rejected(tmp_path):
     bundle.repairs = [record(bundle, "built", tmp_path), record(bundle, "built", tmp_path)]
     with pytest.raises(ValueError, match="multiple"):
         build_repair_facts(bundle, artifacts_root=tmp_path, repair_session_id="s2")
+
+
+def test_finding_from_another_task_is_rejected(tmp_path):
+    transcript = tmp_path / "s.jsonl"
+    transcript.write_text('{"seq":1}\n', encoding="utf-8")
+    bundle = load_bundle()
+    foreign = bundle.findings[0].model_copy(update={"task_id": "another-task"})
+    bundle.findings = [foreign]
+    with pytest.raises(ValueError, match="persisted finding"):
+        build_repair_facts(
+            bundle,
+            artifacts_root=tmp_path,
+            repair_session_id="repair-session",
+            repair_session_transcript=transcript,
+            repair_decision_id="d1",
+            finding_id=foreign.id,
+        )
+
+
+def test_repair_record_for_foreign_finding_is_rejected(tmp_path):
+    bundle = load_bundle()
+    bundle.repairs = [record(bundle, "built", tmp_path)]
+    bundle.findings = [bundle.findings[0].model_copy(update={"task_id": "another-task"})]
+    with pytest.raises(ValueError, match="not persisted"):
+        build_repair_facts(bundle, artifacts_root=tmp_path, repair_session_id="repair-session")
+
+
+def test_non_utf8_patch_artifact_is_reported_as_corrupted(tmp_path):
+    bundle = load_bundle()
+    stored = record(bundle, "built", tmp_path)
+    ref = stored.patch_ref
+    assert ref is not None
+    raw = b"\xff\xfe\x00not utf-8"
+    (tmp_path / "fix.patch").write_bytes(raw)
+    stored = stored.model_copy(
+        update={
+            "patch_ref": ref.model_copy(
+                update={"sha256": hashlib.sha256(raw).hexdigest(), "size_bytes": len(raw)}
+            )
+        }
+    )
+    bundle.repairs = [stored]
+    with pytest.raises(ValueError, match="corrupted"):
+        build_repair_facts(bundle, artifacts_root=tmp_path, repair_session_id="repair-session")
