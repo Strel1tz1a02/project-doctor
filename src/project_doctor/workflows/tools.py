@@ -16,7 +16,7 @@ from project_doctor.models.finding import Finding, ReportResult
 from project_doctor.models.hypothesis import Hypothesis, HypothesisBatch
 from project_doctor.models.repair import RepairRecord, RepairTargetView
 from project_doctor.models.scenario import Scenario
-from project_doctor.models.task import CallContext, TaskRecord
+from project_doctor.models.task import AgentVersion, CallContext, TaskRecord
 from project_doctor.workflows.diagnose import evaluate
 from project_doctor.workflows.repair import RepairWorkflow
 from project_doctor.workflows.task_ports import TaskStore
@@ -31,6 +31,7 @@ class ToolWorkflows:
     repository_manifest: dict[str, object]
     policy: MeasurementPolicy = field(default_factory=MeasurementPolicy)
     repair: RepairWorkflow | None = None
+    version_provider: Callable[[], AgentVersion] | None = None
 
     async def inspect_fix_target(self, context: CallContext, finding_id: str) -> RepairTargetView:
         if self.repair is None:
@@ -62,7 +63,7 @@ class ToolWorkflows:
     async def create_task(
         self, project: ProjectInput, limits: Limits, operation_id: str
     ) -> TaskRecord:
-        return await create_task(project, limits, operation_id, self.store)
+        return await create_task(project, limits, operation_id, self.store, self.version_provider)
 
     async def prepare_environment(self, context: CallContext) -> EnvironmentHandle:
         task = await self.store.get(context.task_id)

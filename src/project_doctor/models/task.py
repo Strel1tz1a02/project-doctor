@@ -77,6 +77,14 @@ class Reservation(Contract):
         return self
 
 
+class AgentVersion(Contract):
+    """Agent code identity captured when the task starts; excludes target project code."""
+
+    commit: str | None = None
+    source_sha256: Sha256
+    dirty: bool | None = None
+
+
 class TaskRecord(Contract):
     id: Identifier
     project: ProjectInput
@@ -90,6 +98,7 @@ class TaskRecord(Contract):
     finding_ids: list[Identifier] = Field(default_factory=list)
     correlation: CallContext
     coverage: list[str] = Field(default_factory=list)
+    agent_version: AgentVersion | None = None
 
     @model_validator(mode="after")
     def context_matches_task(self) -> TaskRecord:

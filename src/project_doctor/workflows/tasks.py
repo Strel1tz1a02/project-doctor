@@ -1,13 +1,18 @@
 import hashlib
+from collections.abc import Callable
 
 from project_doctor.models.common import Limits, Usage
 from project_doctor.models.environment import ProjectInput
-from project_doctor.models.task import CallContext, TaskRecord
+from project_doctor.models.task import AgentVersion, CallContext, TaskRecord
 from project_doctor.workflows.task_ports import TaskStore
 
 
 async def create_task(
-    project: ProjectInput, limits: Limits, operation_id: str, store: TaskStore
+    project: ProjectInput,
+    limits: Limits,
+    operation_id: str,
+    store: TaskStore,
+    version_provider: Callable[[], AgentVersion] | None = None,
 ) -> TaskRecord:
     if not operation_id.strip():
         raise ValueError("creation operation_id cannot be empty")
@@ -32,6 +37,7 @@ async def create_task(
         limits=limits,
         usage=Usage(),
         correlation=context,
+        agent_version=version_provider() if version_provider is not None else None,
     )
     await store.create(record)
     return await store.get(task_id)

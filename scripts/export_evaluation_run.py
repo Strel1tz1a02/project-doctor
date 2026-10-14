@@ -278,6 +278,11 @@ def export_run(home: Path, case_id: str) -> dict[str, Any]:
             "case_id": case_id,
             "task_id": bundle.task.id,
             "target_commit": bundle.task.project.commit,
+            "agent_version": (
+                bundle.task.agent_version.model_dump(mode="json")
+                if bundle.task.agent_version is not None
+                else None
+            ),
             "source": "actual_task_and_agh_records"
             if events
             else "actual_task_and_platform_records",

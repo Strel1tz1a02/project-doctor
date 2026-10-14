@@ -272,6 +272,71 @@ class MultiRunAverageTest(unittest.TestCase):
         self.assertEqual(merged.case_id, good.case_id)
 
 
+class AgentVersionBindingTest(unittest.TestCase):
+    _write_cases_root = MultiRunAverageTest._write_cases_root
+    def test_report_binds_one_agent_version_and_rejects_mixed_versions(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        version = {"commit": "a" * 40, "source_sha256": "b" * 64, "dirty": False}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bundles, cases = self._write_cases_root(root)
+            runs = root / "runs"
+            runs.mkdir()
+            for case in cases:
+                case_id = case["case_id"]
+                bundles[case_id]["collection"] = {
+                    "agent_version": version, "task_id": f"task-{case_id}"
+                }
+                (runs / f"{case_id}.json").write_text(
+                    json.dumps(bundles[case_id]), encoding="utf-8"
+                )
+            report = R.run(runs, root / "out", cases_root=root)
+            self.assertTrue(report["global"]["version_bound"])
+            self.assertEqual(report["manifest"]["agent_version"], version)
+            self.assertEqual(len(report["manifest"]["dataset_hash"]), 64)
+            repeat_score = R.run(runs, root / "out-again", cases_root=root)
+            self.assertEqual(
+                report["manifest"]["evaluation_id"],
+                repeat_score["manifest"]["evaluation_id"],
+            )
+            markdown = (root / "out/report.md").read_text(encoding="utf-8")
+            self.assertIn("Agent 版本：`aaaaaaaaaaaa`", markdown)
+            self.assertIn("<summary>查看完整指标与逐用例结果</summary>", markdown)
+
+            mixed = bundles[cases[-1]["case_id"]]
+            mixed["collection"]["agent_version"] = dict(version, source_sha256="c" * 64)
+            (runs / f"{cases[-1]['case_id']}.json").write_text(
+                json.dumps(mixed), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "different Agent versions"):
+                R.run(runs, root / "mixed", cases_root=root)
+
+    def test_unbound_legacy_run_is_scored_but_cannot_pass_strict_version_gate(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bundles, cases = self._write_cases_root(root)
+            runs = root / "runs"
+            runs.mkdir()
+            for case in cases:
+                case_id = case["case_id"]
+                (runs / f"{case_id}.json").write_text(
+                    json.dumps(bundles[case_id]), encoding="utf-8"
+                )
+            report = R.run(runs, root / "out", cases_root=root)
+            self.assertFalse(report["global"]["version_bound"])
+            self.assertFalse(report["global"]["overall_passed"])
+            self.assertEqual(len(report["global"]["unbound_cases"]), 3)
+            markdown = (root / "out/report.md").read_text(encoding="utf-8")
+            self.assertIn("Agent 版本：未绑定", markdown)
+
+
 class ReservedDirTest(unittest.TestCase):
     """扫描根目录时必须与 ``tools/validate_cases.py`` 同口径：跳过保留目录。
 

@@ -8,7 +8,7 @@ from project_doctor.features.reports.build import build_report
 from project_doctor.integrations.artifacts.publish import publish_artifact
 from project_doctor.models.experiment import ExperimentSpec
 from project_doctor.models.finding import ReportResult
-from project_doctor.models.task import TaskBundle
+from project_doctor.models.task import AgentVersion, TaskBundle
 from scripts.export_evaluation_run import attach_retest, export_run
 from scripts.run_independent_retest import run
 
@@ -67,8 +67,11 @@ def make_home(path, bundle):
 
 
 def test_export_keeps_status_unknown_costs_and_actual_arguments(tmp_path, bundle):
+    bundle.task.agent_version = AgentVersion(commit="a" * 40, source_sha256="b" * 64, dirty=False)
     home = make_home(tmp_path / "home", bundle)
     result = export_run(home, "anonymous-case")
+    assert result["collection"]["agent_version"]["source_sha256"] == "b" * 64
+    assert result["collection"]["target_commit"] == bundle.task.project.commit
     assert result["report"]["findings"][0]["status"] == bundle.findings[0].status
     assert result["retest"]["performed"] is False
     assert "api_cost" in result["collection"]["missing_measurements"]

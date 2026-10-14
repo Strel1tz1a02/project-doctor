@@ -1,5 +1,51 @@
 {
   "$defs": {
+    "AgentVersion": {
+      "additionalProperties": false,
+      "description": "Agent code identity captured when the task starts; excludes target project code.",
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "dirty": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dirty"
+        }
+      },
+      "required": [
+        "source_sha256"
+      ],
+      "title": "AgentVersion",
+      "type": "object"
+    },
     "CallContext": {
       "additionalProperties": false,
       "properties": {
@@ -294,6 +340,17 @@
       },
       "title": "Coverage",
       "type": "array"
+    },
+    "agent_version": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentVersion"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

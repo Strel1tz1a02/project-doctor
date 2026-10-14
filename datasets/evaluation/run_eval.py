@@ -59,6 +59,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -159,6 +160,39 @@ def freeze_manifest(root: Path) -> dict[str, Any]:
     for rel in sorted(files):
         combined.update(f"{rel}:{files[rel] or 'MISSING'}\n".encode("utf-8"))
     return {"files": files, "evaluator_hash": combined.hexdigest()}
+
+
+def dataset_hash(cases: Mapping[str, Any], root: Path) -> str:
+    """Bind a score to the exact case cards used for that score."""
+    digest = hashlib.sha256()
+    for case_id in sorted(cases):
+        digest.update(case_id.encode("utf-8") + b"\0")
+        digest.update((root / case_id / "case.json").read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _agent_identity(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    collection = payload.get("collection")
+    if not isinstance(collection, Mapping):
+        return None
+    version = collection.get("agent_version")
+    if version is None:
+        return None
+    if not isinstance(version, Mapping):
+        raise ValueError("collection.agent_version must be an object")
+    source = version.get("source_sha256")
+    commit = version.get("commit")
+    dirty = version.get("dirty")
+    if not isinstance(source, str) or not re.fullmatch(r"[0-9a-f]{64}", source):
+        raise ValueError("collection.agent_version.source_sha256 is invalid")
+    if commit is not None and (
+        not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40,64}", commit)
+    ):
+        raise ValueError("collection.agent_version.commit is invalid")
+    if dirty is not None and not isinstance(dirty, bool):
+        raise ValueError("collection.agent_version.dirty is invalid")
+    return {"commit": commit, "source_sha256": source, "dirty": dirty}
 
 
 # --------------------------------------------------------------------------- #
@@ -650,6 +684,7 @@ def run(runs_dir: Path, out_dir: Path,
     cases_root = cases_root or _HERE.parent
     manifest = freeze_manifest(cases_root)
     manifest["generated_at"] = datetime.now().isoformat(timespec="seconds")
+    manifest["mode"] = "fixture_only" if only_bundled else "strict"
 
     # 第二步：装载与校验
     schema = V.load_schema(cases_root / "_schema" / "case.schema.json")
@@ -661,6 +696,8 @@ def run(runs_dir: Path, out_dir: Path,
     missing: list[str] = []
     skipped: list[str] = []
     baselines: dict[str, Any] = {}
+    versions: list[dict[str, Any]] = []
+    unbound_cases: list[str] = []
 
     for case_id in sorted(cases):
         case = cases[case_id]
@@ -681,6 +718,12 @@ def run(runs_dir: Path, out_dir: Path,
         # 第四 / 五 / 六步：交付 → 自动评测 → 独立复测（复测结果来自运行包）。
         # 单用例支持多次运行：包内 ``runs`` 为多次运行；缺省时整包视为 1 次。
         run_payloads = _case_runs(bundle)
+        run_versions = [_agent_identity(payload) for payload in run_payloads]
+        if any(version is None for version in run_versions):
+            unbound_cases.append(case_id)
+        else:
+            versions.extend(version for version in run_versions if version is not None)
+        collections = [payload.get("collection") for payload in run_payloads]
         run_results = [
             evaluate_case(EvalInput.from_raw(
                 case,
@@ -702,6 +745,11 @@ def run(runs_dir: Path, out_dir: Path,
 
         case_entry = result.to_dict()
         case_entry["baseline"] = baseline
+        case_entry["agent_version"] = run_versions[0] if run_versions else None
+        case_entry["task_ids"] = [
+            collection.get("task_id") if isinstance(collection, Mapping) else None
+            for collection in collections
+        ]
         case_entry["repeats"] = len(run_results)
         case_entry["repeat_totals"] = [
             r.reward.get("total") for r in run_results]
@@ -710,6 +758,18 @@ def run(runs_dir: Path, out_dir: Path,
         cases_out.append(case_entry)
 
     # 第七步：聚合 + 全局门槛
+    manifest["dataset_hash"] = dataset_hash(
+        {case_id: cases[case_id] for case_id in (c["case_id"] for c in cases_out)},
+        cases_root,
+    )
+    evaluation_digest = hashlib.sha256()
+    evaluation_digest.update(manifest["evaluator_hash"].encode())
+    evaluation_digest.update(manifest["dataset_hash"].encode())
+    for case in cases_out:
+        case_id = case["case_id"]
+        evaluation_digest.update(case_id.encode() + b"\0")
+        evaluation_digest.update(sha256_file(runs_dir / f"{case_id}.json").encode())
+    manifest["evaluation_id"] = evaluation_digest.hexdigest()
     agg = aggregate(evaluated)
     false_verified_count = agg["false_verified"]["count"]
     all_passed = bool(evaluated) and all(r.passed for r in evaluated)
@@ -718,6 +778,14 @@ def run(runs_dir: Path, out_dir: Path,
     repeats_total = sum(int(c.get("repeats", 1)) for c in cases_out)
     mean_repeats = _round(_mean([float(c.get("repeats", 1)) for c in cases_out]))
     stability = _stability_summary(cases_out)
+    distinct_versions = {json.dumps(version, sort_keys=True) for version in versions}
+    if len(distinct_versions) > 1:
+        raise ValueError("evaluation contains different Agent versions; split the runs")
+    agent_version = versions[0] if versions and not unbound_cases else None
+    version_bound = bool(agent_version) and not unbound_cases
+    if not only_bundled and not version_bound:
+        overall_passed = False
+    manifest["agent_version"] = agent_version
 
     report = {
         "manifest": manifest,
@@ -741,6 +809,8 @@ def run(runs_dir: Path, out_dir: Path,
             "false_verified_rate": _round(false_verified_count / len(evaluated)) if evaluated else None,
             "gate_passed": gate_passed,
             "overall_passed": overall_passed,
+            "version_bound": version_bound,
+            "unbound_cases": unbound_cases,
             "repeats_total": repeats_total,
             "mean_repeats_per_case": mean_repeats,
             "stability": stability,
@@ -777,9 +847,54 @@ def _pct(value: Any) -> str:
 def render_markdown(report: Mapping[str, Any]) -> str:
     gl = report["global"]
     agg = report["aggregate"]
+    manifest = report["manifest"]
     lines: list[str] = []
     lines.append("# 评估运行报告")
     lines.append("")
+    version = manifest.get("agent_version")
+    if isinstance(version, Mapping):
+        commit = version.get("commit")
+        short_commit = str(commit)[:12] if commit else "无 Git commit"
+        dirty = version.get("dirty")
+        dirty_label = "有改动" if dirty else "干净" if dirty is False else "状态未知"
+        lines.append(f"**Agent 版本：`{short_commit}`**"
+                     f"（源码指纹 `{str(version['source_sha256'])[:12]}`；"
+                     f"工作区{dirty_label}）")
+    else:
+        lines.append("**Agent 版本：未绑定。此报告不能用于版本效果比较。**")
+    lines.append("")
+    result_label = "通过" if gl["overall_passed"] else "未通过"
+    if not version and manifest.get("mode") == "fixture_only":
+        result_label += "（旧运行包回归；版本未绑定）"
+    lines.append(f"**结果：{result_label}**；"
+                 f"用例 {gl['cases_evaluated']} 个，"
+                 f"通过 {sum(bool(c['passed']) for c in report['cases'])} 个，"
+                 f"误验证 {gl['false_verified_count']} 次。")
+    lines.append(f"评估 ID：`{str(manifest.get('evaluation_id', '—'))[:12]}`；"
+                 f"数据集 `{str(manifest.get('dataset_hash', '—'))[:12]}`；"
+                 f"评测器 `{manifest['evaluator_hash'][:12]}`。")
+    if gl.get("unbound_cases"):
+        unbound = gl["unbound_cases"]
+        examples = "、".join(unbound[:3])
+        suffix = f" 等 {len(unbound)} 例" if len(unbound) > 3 else ""
+        lines.append(f"版本缺失：{examples}{suffix}。完整清单见 `report.json`。")
+    failed = [case for case in report["cases"] if not case["passed"]]
+    if failed:
+        lines.append("")
+        lines.append("| 未通过用例 | 主要原因 |")
+        lines.append("| --- | --- |")
+        for case in failed:
+            lines.append(f"| {case['case_id']} | "
+                         f"{', '.join(case['failed_gates']) or '评分项未达标'} |")
+    lines.extend(["", "<details>", "<summary>查看完整指标与逐用例结果</summary>", ""])
+    if isinstance(version, Mapping):
+        lines.append(f"- Agent Git commit：`{version.get('commit') or '无'}`")
+        lines.append(f"- Agent 源码指纹：`{version['source_sha256']}`")
+        lines.append("- 指纹范围：`src/project_doctor/*.py`、`agh/*.md|json`、"
+                     "`pyproject.toml`、`uv.lock`；在服务启动时采集")
+        lines.append("")
+    if manifest.get("evaluation_id"):
+        lines.append(f"- 评估 ID：`{manifest['evaluation_id']}`")
     lines.append(f"- 生成时间：{report['manifest'].get('generated_at', '—')}")
     lines.append(f"- 评测器哈希（冻结）：`{report['manifest']['evaluator_hash']}`")
     skipped = gl.get("cases_skipped_no_bundle") or []
@@ -924,6 +1039,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     lines.append(f"- case.json 校验：通过 {sv['total'] - len(sv['failed'])}/{sv['total']}，"
                  f"失败 {', '.join(sv['failed']) or '无'}")
     lines.append("")
+    lines.append("</details>")
     return "\n".join(lines)
 
 

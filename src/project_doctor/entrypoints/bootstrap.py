@@ -6,6 +6,7 @@ from typing import cast
 from project_doctor.entrypoints.settings import Settings
 from project_doctor.features.diagnosis.ports import EvidenceReader
 from project_doctor.features.experiments.ports import Runtime
+from project_doctor.integrations.agent_version import capture_agent_version
 from project_doctor.integrations.diagnosis.retest import DockerDiagnosisRetester
 from project_doctor.workflows.diagnose_retest import DiagnosisRetestService
 from project_doctor.workflows.repair import RepairWorkflow
@@ -24,10 +25,12 @@ def bootstrap(settings: Settings, repository_manifest: dict[str, object]) -> Too
     runtime = cast(Runtime, runtime_factory.build_runtime(settings, store))
     reader = cast(EvidenceReader, reader_factory.build_evidence_reader(settings))
     retester = DiagnosisRetestService(DockerDiagnosisRetester(settings, store, reader), reader)
+    agent_version = capture_agent_version()
     return ToolWorkflows(
         runtime=runtime,
         store=store,
         reader=reader,
         repository_manifest=repository_manifest,
         repair=RepairWorkflow(settings, store, reader, retester),
+        version_provider=lambda: agent_version,
     )
