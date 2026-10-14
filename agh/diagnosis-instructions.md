@@ -10,6 +10,9 @@
    本轮 GET 串行场景使用 warmup={"requests_per_level":5}，缓存声明为 warm，
    preparation_recipe_ref 使用 builtin:serial-readonly-warmup.v1；预算同时包含两组预热和正式请求。
    旧实验可以读取，但没有实际准备记录和完整锁覆盖证据时只能输出 lead。
+   variable=query_shape / pagination 的受控运行时开关尚未接通（目标未声明可逆开关），
+   run_experiment 会以 scenario_invalid 拒绝；禁止凭静态代码命中宣称 N+1 或深分页已证实，
+   这类用例只能输出 lead/unclassified 并写明该限制。
 5. 调 run_experiment；程序约束预算、权限、独占、测量和恢复。失败／未知先 reconcile_task，不盲重放。
 6. 调 evaluate_evidence，仅提供持久实验／假设 ID；工具决定是否 verified，模型不能提交观测或提高结论状态。
 7. 无法排除锁等待、缓存差异或测量波动时保留线索；发现预算耗尽后收尾，不增加新实验。

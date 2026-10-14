@@ -9,7 +9,11 @@ from typing import Any
 import pytest
 
 from project_doctor.features.experiments.compare import compare, summarize
-from project_doctor.features.experiments.interventions import IndexRecipe, parse_index_recipe
+from project_doctor.features.experiments.interventions import (
+    IndexRecipe,
+    parse_index_recipe,
+    parse_intervention_recipe,
+)
 from project_doctor.features.experiments.validate import validate_experiment
 from project_doctor.integrations.observation.execution_stats import (
     RawExecutionStats,
@@ -67,6 +71,60 @@ def test_parse_unique_multi_column_and_semicolon() -> None:
 def test_reject_arbitrary_ddl(sql: str) -> None:
     with pytest.raises(ValueError):
         parse_index_recipe(sql)
+
+
+# --- per-variable intervention dispatch --------------------------------------
+
+QUERY_SHAPE_RECIPE = json.dumps(
+    {
+        "strategy": "batch_in",
+        "flag": "app.query.batch",
+        "baseline_value": "false",
+        "candidate_value": "true",
+        "child_template": "SELECT * FROM users WHERE id = ?",
+        "key_column": "id",
+    }
+)
+PAGINATION_RECIPE = json.dumps(
+    {
+        "strategy": "keyset",
+        "flag": "app.pagination.keyset",
+        "baseline_value": "false",
+        "candidate_value": "true",
+        "sort_column": "created_at",
+        "query_template": "SELECT * FROM orders ORDER BY created_at LIMIT ?, ?",
+    }
+)
+
+
+def test_index_variable_returns_the_index_recipe() -> None:
+    recipe = parse_intervention_recipe("index", "CREATE INDEX i ON t (a)")
+    assert recipe == IndexRecipe(name="i", table="t", columns=("a",))
+
+
+@pytest.mark.parametrize("variable", ["query_shape", "pagination"])
+def test_unwired_variables_are_rejected_instead_of_faking_a_candidate(variable: str) -> None:
+    """目标未声明可逆运行时开关：宁可拒绝，也不能把候选级测量伪造出来。"""
+    recipe = QUERY_SHAPE_RECIPE if variable == "query_shape" else PAGINATION_RECIPE
+    with pytest.raises(ValueError) as excinfo:
+        parse_intervention_recipe(variable, recipe)
+    assert variable in str(excinfo.value)
+    assert "未接通" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "variable,recipe",
+    [
+        ("query_shape", "not json"),
+        ("query_shape", '{"strategy": "batch_in"}'),
+        ("pagination", "{}"),
+        ("index", "DROP TABLE users"),
+    ],
+)
+def test_malformed_recipes_still_report_the_recipe_error(variable: str, recipe: str) -> None:
+    with pytest.raises(ValueError) as excinfo:
+        parse_intervention_recipe(variable, recipe)
+    assert "未接通" not in str(excinfo.value)
 
 
 # --- experiment pre-flight validation ---------------------------------------

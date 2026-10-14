@@ -20,7 +20,7 @@ from sqlalchemy import Engine, create_engine
 from project_doctor.entrypoints.settings import Settings
 from project_doctor.features.environments.ports import EnvironmentGateway, RestoredState
 from project_doctor.features.environments.prepare import compose_project_name
-from project_doctor.features.experiments.interventions import IndexRecipe, parse_index_recipe
+from project_doctor.features.experiments.interventions import IndexRecipe, parse_intervention_recipe
 from project_doctor.features.experiments.ports import Runtime
 from project_doctor.features.experiments.preparation import preparation_digest
 from project_doctor.features.experiments.validate import validate_experiment
@@ -216,8 +216,9 @@ class RuntimeService:
             )
 
         try:
-            recipe = parse_index_recipe(
-                await asyncio.to_thread(self._resolve_recipe, spec.intervention_recipe_ref)
+            recipe = parse_intervention_recipe(
+                spec.variable,
+                await asyncio.to_thread(self._resolve_recipe, spec.intervention_recipe_ref),
             )
         except ValueError as exc:
             return self._reject(

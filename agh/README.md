@@ -29,3 +29,5 @@ node $aghCli -p $prompt --mode json --profile local-dev --cwd $repairCwd
 修复会话的工作目录应与被测源码仓库分开；源码读取和补丁提交都走 Project Doctor MCP 工具。需要先确认该 AGH profile 已连接当前 Project Doctor MCP 服务。
 
 当前真实 `run_experiment` 仅执行索引对照。N+1 与深分页已有诊断判定规则和修复交接结构，但对应的查询形状／分页运行时干预尚未接通；不要把它们描述成已能由现有 AGH 诊断主流程实测产出。
+
+2026-10-15 复核：现有 45 个数据集目标（`datasets/*/project/`）没有任何可逆的 N+1／分页运行时开关声明（无 flag／property 切换），因此在目标补齐受控开关之前，`variable=query_shape|pagination` 的实验由运行适配层显式拒绝（`scenario_invalid`，消息含「未接通」），不会退化成「只测基线却声称候选级」的伪对照。对应结论只能是 `lead`／`unclassified` 并附限制。此结论来自静态核对与适配层单测，尚未在真实 AGH 会话中复跑（缺 Docker／平台 DSN／JDK 17，见阶段 1 验收记录）。

@@ -63,6 +63,26 @@ def parse_index_recipe(recipe: str) -> IndexRecipe:
     return IndexRecipe(name=name, table=table, columns=columns, unique=bool(match.group("unique")))
 
 
+def parse_intervention_recipe(variable: str, recipe: str) -> IndexRecipe:
+    """Dispatch a persisted experiment variable to its controlled intervention.
+
+    Only ``index`` has a wired, reversible runtime intervention today. ``query_shape``
+    and ``pagination`` recipes are still parsed so a malformed recipe reports its own
+    error, but no dataset target declares a reversible runtime switch for them. Running
+    the baseline level while applying no real change would fabricate the candidate
+    comparison, so this refuses to produce a candidate level instead.
+    """
+    if variable == "index":
+        return parse_index_recipe(recipe)
+    if variable == "query_shape":
+        parse_query_shape_recipe(recipe)
+    elif variable == "pagination":
+        parse_pagination_recipe(recipe)
+    else:
+        raise ValueError(f"unknown experiment variable {variable}")
+    raise ValueError(f"{variable} 的受控运行时开关尚未接通：目标未声明可逆开关，不伪造候选级测量。")
+
+
 @dataclass(frozen=True)
 class QueryShapeRecipe:
     """A temporary, reversible runtime flag toggle proving an N+1 mechanism.
