@@ -10,7 +10,9 @@
     "evaluate_evidence": {"timeout_seconds": 30, "side_effect": "platform_state", "replay": "business_key"},
     "reconcile_task": {"timeout_seconds": 120, "side_effect": "environment", "replay": "reconcile_first"},
     "finish_task": {"timeout_seconds": 120, "side_effect": "artifacts_and_environment", "replay": "reconcile_first"},
+    "get_repair_handoff": {"timeout_seconds": 30, "side_effect": "none", "replay": "read_only"},
     "inspect_fix_target": {"timeout_seconds": 30, "side_effect": "none", "replay": "read_only"},
+    "read_fix_source": {"timeout_seconds": 30, "side_effect": "none", "replay": "read_only"},
     "submit_fix_patch": {"timeout_seconds": 600, "side_effect": "isolated_source_and_image", "replay": "reconcile_first"},
     "verify_fix": {"timeout_seconds": 600, "side_effect": "isolated_retest_and_platform_state", "replay": "reconcile_first"},
     "get_fix_status": {"timeout_seconds": 120, "side_effect": "isolated_retest_cleanup_and_platform_state", "replay": "reconcile_first"}

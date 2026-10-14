@@ -5,10 +5,15 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
-from project_doctor.features.diagnosis.retest import evaluate_retest
+from project_doctor.features.diagnosis.retest import (
+    evaluate_deep_pagination_retest,
+    evaluate_retest,
+    evaluate_slow_query_retest,
+)
 from project_doctor.features.repair.gates import (
     apply_retest_fields,
     validate_handoff,
+    validate_repair_handoff,
 )
 from project_doctor.models.deep_pagination import DeepPaginationSpec
 from project_doctor.models.finding import Recommendation
@@ -90,6 +95,76 @@ def test_deep_pagination_handoff_cannot_enter_n_plus_one_repair() -> None:
         validate_handoff(other, bundle)
     with pytest.raises(ValueError, match="batch_in fix_spec"):
         evaluate_retest(other, _run(), _run(patched=True))
+
+
+def test_generic_handoff_accepts_persisted_slow_query_but_not_unclassified() -> None:
+    bundle, finding = _handoff()
+    slow = finding.model_copy(update={"kind": "slow_query", "fix_spec": None})
+    bundle.findings = [slow]
+    assert validate_repair_handoff(slow, bundle) is slow
+    refused = slow.model_copy(update={"status": "unclassified"})
+    bundle.findings = [refused]
+    with pytest.raises(ValueError, match="diagnosed performance"):
+        validate_repair_handoff(refused, bundle)
+
+
+def test_generic_handoff_rejects_unproven_location() -> None:
+    bundle, finding = _handoff()
+    slow = finding.model_copy(update={"kind": "slow_query", "fix_spec": None})
+    slow.code_locations[0].association_evidence_ids = ["missing-artifact"]
+    bundle.findings = [slow]
+    with pytest.raises(ValueError, match="code location lacks finding evidence"):
+        validate_repair_handoff(slow, bundle)
+
+
+def test_slow_query_retest_requires_actual_sql_and_request_gain() -> None:
+    bundle, finding = _handoff()
+    slow = finding.model_copy(update={"kind": "slow_query", "fix_spec": None})
+    bundle.findings = [slow]
+    baseline, patched = _run(), _run(patched=True)
+    for sample in baseline.samples:
+        sample.target_rows_examined = 10000
+        sample.target_duration_ms = 90
+    for sample in patched.samples:
+        sample.target_rows_examined = 10
+        sample.target_duration_ms = 1
+    comparison = evaluate_slow_query_retest(slow, baseline, patched)
+    assert comparison.measured_gain_percent > 80
+    for sample in patched.samples:
+        sample.target_rows_examined = 10000
+    with pytest.raises(ValueError, match="SQL work"):
+        evaluate_slow_query_retest(slow, baseline, patched)
+    for sample in patched.samples:
+        sample.target_rows_examined = 10
+    patched.samples[0].result_digest = "d" * 64
+    with pytest.raises(ValueError, match="business results"):
+        evaluate_slow_query_retest(slow, baseline, patched)
+
+
+def test_keyset_retest_requires_same_result_no_offset_and_less_work() -> None:
+    _, finding = _handoff()
+    spec = DeepPaginationSpec(
+        strategy="keyset", query_template="SELECT * FROM orders ORDER BY id LIMIT ? OFFSET ?",
+        sort_column="id", code_location=finding.code_locations[0], observed_offset=100,
+    )
+    page = finding.model_copy(update={"kind": "deep_pagination", "fix_spec": spec})
+    baseline, patched = _run(), _run(patched=True)
+    for sample in baseline.samples:
+        sample.target_rows_examined = 10000
+        sample.target_duration_ms = 90
+        sample.target_offset = 100
+    for sample in patched.samples:
+        sample.target_rows_examined = 10
+        sample.target_duration_ms = 1
+        sample.target_uses_keyset = True
+    assert evaluate_deep_pagination_retest(page, baseline, patched).measured_gain_percent > 80
+    patched.samples[0].target_offset = 100
+    with pytest.raises(ValueError, match="cursor without OFFSET"):
+        evaluate_deep_pagination_retest(page, baseline, patched)
+    patched.samples[0].target_offset = None
+    patched.samples[0].result_digest = "d" * 64
+    with pytest.raises(ValueError, match="business results"):
+        evaluate_deep_pagination_retest(page, baseline, patched)
 
 
 def test_handoff_rejects_unpersisted_or_unstructured_finding() -> None:

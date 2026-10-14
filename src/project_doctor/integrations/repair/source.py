@@ -1,4 +1,4 @@
-"""Inspect a diagnosed MyBatis call and apply a bounded diff to a source copy."""
+"""Inspect diagnosed application source and apply bounded diffs to isolated copies."""
 
 from __future__ import annotations
 
@@ -10,8 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from project_doctor.models.common import safe_relative_path
+from project_doctor.models.finding import Finding
 from project_doctor.models.n_plus_one import BatchQuerySpec
-from project_doctor.models.repair import RepairTarget
+from project_doctor.models.repair import RepairTarget, SourceFileView, SourceRepairTarget
 
 _METHOD = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 _MYBATIS_PARAMETER = re.compile(r"#\{[^}]+\}")
@@ -92,6 +93,63 @@ def _context(lines: list[str], line_number: int) -> str:
     first = max(0, line_number - 21)
     last = min(len(lines), line_number + 20)
     return "".join(f"{index + 1}: {lines[index]}" for index in range(first, last))
+
+
+def inspect_source_target(root: Path, finding: Finding, commit: str) -> SourceRepairTarget:
+    """Expose versioned application source without choosing a repair mechanism."""
+    root = root.resolve(strict=True)
+    if _git(root, "rev-parse", "HEAD") != commit:
+        raise ValueError("diagnostic source commit does not match the target")
+    if _git(root, "status", "--porcelain", "--", "."):
+        raise ValueError("target source is dirty; an exact committed baseline is required")
+    names = [name for name in _git(root, "ls-files", "-z", "--", ".").split("\0") if name]
+    allowed: dict[str, str] = {}
+    for name in names:
+        path = safe_relative_path(name)
+        if not path.startswith("src/main/") or Path(path).suffix not in {".java", ".xml"}:
+            continue
+        file = root / path
+        if file.is_symlink() or not file.is_file() or not file.resolve().is_relative_to(root):
+            raise ValueError("application source contains an unsafe path")
+        if file.stat().st_size > 512_000:
+            continue
+        allowed[path] = _sha256(file.read_bytes())
+    if not allowed or len(allowed) > 1000:
+        raise ValueError("application source scope is empty or too large")
+    contexts: dict[str, str] = {}
+    for location in finding.code_locations:
+        path = safe_relative_path(location.path)
+        if location.commit != commit or path not in allowed:
+            raise ValueError("diagnosed code location is outside supported application source")
+        lines = (root / path).read_text(encoding="utf-8").splitlines(keepends=True)
+        if location.line > len(lines):
+            raise ValueError("diagnosed code location is outside the source file")
+        contexts[path] = _context(lines, location.line)
+    if not contexts:
+        raise ValueError("repair target has no diagnosed source context")
+    return SourceRepairTarget(root, commit, tuple(finding.code_locations), allowed, contexts)
+
+
+def read_source_context(
+    target: SourceRepairTarget, path: str, start_line: int, line_count: int
+) -> SourceFileView:
+    """Read a bounded window from one hashed, tracked application-source file."""
+    path = safe_relative_path(path)
+    if path not in target.allowed_hashes:
+        raise ValueError("source path is outside the permitted application scope")
+    if start_line < 1 or not 1 <= line_count <= 120:
+        raise ValueError("source window must start at line 1 or later and contain 1-120 lines")
+    file = target.root / path
+    if file.is_symlink() or not file.resolve(strict=True).is_relative_to(target.root):
+        raise ValueError("source path escaped the target root")
+    if _sha256(file.read_bytes()) != target.allowed_hashes[path]:
+        raise ValueError("source changed after inspection")
+    lines = file.read_text(encoding="utf-8").splitlines(keepends=True)
+    if start_line > len(lines):
+        raise ValueError("source window starts after the last line")
+    end = min(len(lines), start_line + line_count - 1)
+    context = "".join(f"{index + 1}: {lines[index]}" for index in range(start_line - 1, end))
+    return SourceFileView(path=path, sha256=target.allowed_hashes[path], context=context)
 
 
 def inspect_target(root: Path, spec: BatchQuerySpec, commit: str) -> RepairTarget:
@@ -184,7 +242,7 @@ def inspect_target(root: Path, spec: BatchQuerySpec, commit: str) -> RepairTarge
     )
 
 
-def _changed_paths(diff: str, allowed: set[str], caller_path: str) -> tuple[str, ...]:
+def _changed_paths(diff: str, allowed: set[str], caller_path: str | None) -> tuple[str, ...]:
     if not diff.strip() or "\x00" in diff or "GIT binary patch" in diff:
         raise ValueError("patch scope is empty or includes binary content")
     paths: list[str] = []
@@ -212,8 +270,10 @@ def _changed_paths(diff: str, allowed: set[str], caller_path: str) -> tuple[str,
             ("rename ", "copy ", "new file mode", "deleted file mode", "old mode", "new mode")
         ):
             raise ValueError("patch scope cannot rename, add or delete files")
-    if caller_path not in paths:
+    if caller_path is not None and caller_path not in paths:
         raise ValueError("patch scope must change the unique caller")
+    if not paths:
+        raise ValueError("patch scope has no source file changes")
     return tuple(sorted(set(paths)))
 
 
@@ -308,7 +368,45 @@ def apply_patch(target: RepairTarget, diff: str, workspace_root: Path) -> Patche
     )
 
 
-def copy_baseline_source(target: RepairTarget, workspace_root: Path) -> PatchedSource:
+def apply_source_patch(
+    target: SourceRepairTarget, diff: str, workspace_root: Path
+) -> PatchedSource:
+    """Apply a model diff only to tracked application source in an isolated copy."""
+    allowed = target.allowed_hashes
+    diagnosed = {location.path for location in target.locations}
+    changed = _changed_paths(diff, set(allowed), None)
+    if not diagnosed.intersection(changed):
+        raise ValueError("patch scope misses the diagnosed code location")
+    before = {path: _sha256((target.root / path).read_bytes()) for path in changed}
+    if any(before[path] != allowed[path] for path in changed):
+        raise ValueError("source changed after inspection")
+    for file in target.root.rglob("*"):
+        if file.is_symlink():
+            raise ValueError("symlinked source is not allowed")
+    workspace_root = workspace_root.resolve()
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    digest = _sha256(diff.encode("utf-8"))
+    destination = workspace_root / ("repair-" + digest[:20])
+    if destination.exists():
+        raise ValueError("repair workspace already exists; reconcile before retry")
+    _copy_tracked_source(target.root, destination)
+    if not destination.resolve().is_relative_to(workspace_root):
+        raise ValueError("repair workspace escaped the configured root")
+    git_diff = diff if diff.endswith("\n") else diff + "\n"
+    _git(destination, "apply", "--check", "-", input_text=git_diff)
+    _git(destination, "apply", "-", input_text=git_diff)
+    after = {path: _sha256((destination / path).read_bytes()) for path in changed}
+    if any(before[path] == after[path] for path in changed):
+        raise ValueError("patch contains an unchanged source file")
+    return PatchedSource(
+        destination, target.source_commit, digest, source_tree_sha256(destination),
+        changed, before, after,
+    )
+
+
+def copy_baseline_source(
+    target: RepairTarget | SourceRepairTarget, workspace_root: Path
+) -> PatchedSource:
     """Make an immutable-source comparison build beside the patched source."""
     workspace_root = workspace_root.resolve()
     workspace_root.mkdir(parents=True, exist_ok=True)

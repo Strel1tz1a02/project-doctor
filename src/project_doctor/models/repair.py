@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from project_doctor.models.common import (
+    CodeLocation,
     Contract,
     EvidenceRef,
     Identifier,
@@ -38,6 +39,33 @@ class RepairTarget:
     caller_context: str
 
 
+@dataclass(frozen=True)
+class SourceRepairTarget:
+    """Versioned application-source scope, independent of a fix mechanism."""
+
+    root: Path
+    source_commit: str
+    locations: tuple[CodeLocation, ...]
+    allowed_hashes: dict[str, str]
+    contexts: dict[str, str]
+
+
+class SourceFileView(Contract):
+    path: str
+    sha256: Sha256
+    context: str | None = None
+
+    _safe_path = field_validator("path")(safe_relative_path)
+
+
+class CodeRepairTargetView(Contract):
+    finding_id: Identifier
+    source_commit: Identifier
+    target_sha256: Sha256
+    diagnosed_locations: list[CodeLocation] = Field(min_length=1)
+    allowed_files: list[SourceFileView] = Field(min_length=1)
+
+
 class RepairSample(Contract):
     request_id: Identifier
     business_valid: bool
@@ -50,6 +78,10 @@ class RepairSample(Contract):
     child_parameters: list[Identifier] = Field(default_factory=list)
     batch_parameters: list[Identifier] = Field(default_factory=list)
     lock_covered: bool
+    target_rows_examined: NonNegativeInt | None = None
+    target_duration_ms: NonNegativeFloat | None = None
+    target_offset: NonNegativeInt | None = None
+    target_uses_keyset: bool | None = None
 
 
 class RepairRun(Contract):

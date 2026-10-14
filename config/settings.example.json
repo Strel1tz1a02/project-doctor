@@ -14,7 +14,9 @@
     "evaluate_evidence": 30,
     "reconcile_task": 120,
     "finish_task": 120,
+    "get_repair_handoff": 30,
     "inspect_fix_target": 30,
+    "read_fix_source": 30,
     "submit_fix_patch": 600,
     "verify_fix": 600,
     "get_fix_status": 120

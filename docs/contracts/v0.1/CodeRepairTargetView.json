@@ -1,0 +1,137 @@
+{
+  "$defs": {
+    "CodeLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Commit",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "exclusiveMinimum": 0,
+          "title": "Line",
+          "type": "integer"
+        },
+        "association_evidence_ids": {
+          "items": {
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Association Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "commit",
+        "path",
+        "line",
+        "association_evidence_ids"
+      ],
+      "title": "CodeLocation",
+      "type": "object"
+    },
+    "SourceFileView": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "title": "SourceFileView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "finding_id": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Finding Id",
+      "type": "string"
+    },
+    "source_commit": {
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Source Commit",
+      "type": "string"
+    },
+    "target_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Target Sha256",
+      "type": "string"
+    },
+    "diagnosed_locations": {
+      "items": {
+        "$ref": "#/$defs/CodeLocation"
+      },
+      "minItems": 1,
+      "title": "Diagnosed Locations",
+      "type": "array"
+    },
+    "allowed_files": {
+      "items": {
+        "$ref": "#/$defs/SourceFileView"
+      },
+      "minItems": 1,
+      "title": "Allowed Files",
+      "type": "array"
+    }
+  },
+  "required": [
+    "finding_id",
+    "source_commit",
+    "target_sha256",
+    "diagnosed_locations",
+    "allowed_files"
+  ],
+  "title": "CodeRepairTargetView",
+  "type": "object"
+}

@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Awaitable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -12,7 +12,12 @@ from project_doctor.models.environment import EnvironmentHandle, ProjectInput
 from project_doctor.models.experiment import ExperimentResult, ExperimentSpec, ReconcileResult
 from project_doctor.models.finding import Finding, ReportResult
 from project_doctor.models.hypothesis import Hypothesis
-from project_doctor.models.repair import RepairRecord, RepairTargetView
+from project_doctor.models.repair import (
+    CodeRepairTargetView,
+    RepairRecord,
+    RepairTargetView,
+    SourceFileView,
+)
 from project_doctor.models.scenario import Scenario
 from project_doctor.models.task import CallContext, TaskRecord
 from project_doctor.workflows.tools import ToolWorkflows
@@ -35,7 +40,10 @@ def build_server(workflows: ToolWorkflows, timeouts: dict[str, float]) -> FastMC
         "finish_task",
     }
     if workflows.repair is not None:
-        required.update({"inspect_fix_target", "submit_fix_patch", "verify_fix", "get_fix_status"})
+        required.update({
+            "get_repair_handoff", "inspect_fix_target", "read_fix_source", "submit_fix_patch",
+            "verify_fix", "get_fix_status",
+        })
     if not required.issubset(timeouts) or any(value <= 0 for value in timeouts.values()):
         raise ValueError("all business tools require positive timeouts")
     active_retests: dict[
@@ -126,17 +134,35 @@ def build_server(workflows: ToolWorkflows, timeouts: dict[str, float]) -> FastMC
         )
 
         @server.tool(annotations=read_only)
-        async def inspect_fix_target(context: CallContext, finding_id: str) -> RepairTargetView:
-            """Locate the persisted N+1 mapper and its unique Java caller with source hashes."""
+        async def get_repair_handoff(task_id: str) -> dict[str, Any]:
+            """Read evidence-checked persisted diagnosis targets for a separate repair Agent."""
+            return await bounded("get_repair_handoff", workflows.get_repair_handoff(task_id))
+
+        @server.tool(annotations=read_only)
+        async def inspect_fix_target(
+            context: CallContext, finding_id: str
+        ) -> RepairTargetView | CodeRepairTargetView:
+            """Inspect persisted diagnostic source and permitted patch paths."""
             return await bounded(
                 "inspect_fix_target", workflows.inspect_fix_target(context, finding_id)
+            )
+
+        @server.tool(annotations=read_only)
+        async def read_fix_source(
+            context: CallContext, finding_id: str, path: str,
+            start_line: int, line_count: int,
+        ) -> SourceFileView:
+            """Read at most 120 lines of permitted, hash-checked application source."""
+            return await bounded(
+                "read_fix_source",
+                workflows.read_fix_source(context, finding_id, path, start_line, line_count),
             )
 
         @server.tool(annotations=annotations)
         async def submit_fix_patch(
             context: CallContext, finding_id: str, diff: str
         ) -> RepairRecord:
-            """Apply a bounded Java/MyBatis diff in isolation and build its unique image."""
+            """Apply a bounded application-source diff in isolation and build its image."""
             return await bounded(
                 "submit_fix_patch", workflows.submit_fix_patch(context, finding_id, diff)
             )

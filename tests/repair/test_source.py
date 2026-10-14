@@ -1,4 +1,4 @@
-"""A model patch is constrained to the diagnosed Java/MyBatis call chain."""
+"""Model patches are constrained to diagnosed, versioned application source."""
 
 import difflib
 import hashlib
@@ -10,10 +10,13 @@ import pytest
 from project_doctor.integrations.repair.source import (
     _patched_select_sql,
     apply_patch,
+    apply_source_patch,
+    inspect_source_target,
     inspect_target,
 )
 from project_doctor.models.common import CodeLocation
 from project_doctor.models.n_plus_one import BatchQuerySpec
+from tests.repair.test_gates import _handoff
 
 MAPPER = """package demo;
 import org.apache.ibatis.annotations.Select;
@@ -129,6 +132,65 @@ def test_inspection_rejects_ambiguous_or_stale_source(tmp_path: Path) -> None:
     (root / SERVICE_PATH).write_text(SERVICE + "// changed\n", encoding="utf-8")
     with pytest.raises(ValueError, match="dirty"):
         inspect_target(root, spec, commit)
+
+
+def test_generic_source_patch_uses_diagnosed_context_without_mybatis_shape(
+    tmp_path: Path,
+) -> None:
+    root, _, commit = _project(tmp_path)
+    _, finding = _handoff()
+    finding = finding.model_copy(update={
+        "kind": "slow_query", "fix_spec": None,
+        "code_locations": [CodeLocation(
+            commit=commit, path=MAPPER_PATH, line=4,
+            association_evidence_ids=["location-evidence"],
+        )],
+    })
+    target = inspect_source_target(root, finding, commit)
+    assert target.allowed_hashes[MAPPER_PATH]
+    assert "4:     @Select" in target.contexts[MAPPER_PATH]
+    from project_doctor.integrations.repair.source import read_source_context
+
+    excerpt = read_source_context(target, SERVICE_PATH, 4, 3)
+    assert "5:         for" in (excerpt.context or "")
+    with pytest.raises(ValueError, match="permitted"):
+        read_source_context(target, "secret.env", 1, 1)
+    revised = MAPPER.replace("User findUserById", "User findUserByIndex")
+    diff = "".join(difflib.unified_diff(
+        MAPPER.splitlines(keepends=True), revised.splitlines(keepends=True),
+        fromfile="a/" + MAPPER_PATH, tofile="b/" + MAPPER_PATH,
+    ))
+    patched = apply_source_patch(target, diff, tmp_path / "workspaces")
+    assert "findUserByIndex" in (patched.root / MAPPER_PATH).read_text(encoding="utf-8")
+    assert (root / MAPPER_PATH).read_text(encoding="utf-8") == MAPPER
+    assert not (patched.root / "secret.env").exists()
+
+
+def test_generic_source_patch_rejects_test_file_and_missed_diagnosed_location(
+    tmp_path: Path,
+) -> None:
+    root, _, commit = _project(tmp_path)
+    _, finding = _handoff()
+    finding = finding.model_copy(update={
+        "kind": "slow_query", "fix_spec": None,
+        "code_locations": [CodeLocation(
+            commit=commit, path=MAPPER_PATH, line=4,
+            association_evidence_ids=["location-evidence"],
+        )],
+    })
+    target = inspect_source_target(root, finding, commit)
+    service_diff = "".join(difflib.unified_diff(
+        SERVICE.splitlines(keepends=True),
+        SERVICE.replace("void search()", "void searchFast()").splitlines(keepends=True),
+        fromfile="a/" + SERVICE_PATH, tofile="b/" + SERVICE_PATH,
+    ))
+    with pytest.raises(ValueError, match="misses the diagnosed"):
+        apply_source_patch(target, service_diff, tmp_path / "missed")
+    with pytest.raises(ValueError, match="scope"):
+        apply_source_patch(
+            target, service_diff.replace(SERVICE_PATH, "tests/Answer.java"),
+            tmp_path / "test-file",
+        )
 
 
 def test_patch_rejects_out_of_scope_paths(tmp_path: Path) -> None:

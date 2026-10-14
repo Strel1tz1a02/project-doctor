@@ -1,4 +1,4 @@
-"""Durable Java/MyBatis patch workflow. Only a retest adapter may produce measurements."""
+"""Durable source-repair workflow; diagnosis alone measures repair effects."""
 
 from __future__ import annotations
 
@@ -13,19 +13,30 @@ from project_doctor.features.diagnosis.ports import EvidenceReader
 from project_doctor.features.repair.gates import (
     apply_retest_fields,
     validate_handoff,
+    validate_repair_handoff,
 )
-from project_doctor.features.repair.source import present_target
+from project_doctor.features.repair.source import present_source_target, present_target
 from project_doctor.integrations.artifacts.publish import publish_artifact
 from project_doctor.integrations.repair.build import build_image
 from project_doctor.integrations.repair.lease import RepairBusy, repair_lease
 from project_doctor.integrations.repair.source import (
     apply_patch,
+    apply_source_patch,
     copy_baseline_source,
+    inspect_source_target,
     inspect_target,
+    read_source_context,
 )
 from project_doctor.models.finding import Finding
 from project_doctor.models.n_plus_one import BatchQuerySpec
-from project_doctor.models.repair import RepairRecord, RepairTargetView
+from project_doctor.models.repair import (
+    CodeRepairTargetView,
+    RepairRecord,
+    RepairTarget,
+    RepairTargetView,
+    SourceFileView,
+    SourceRepairTarget,
+)
 from project_doctor.models.task import CallContext, TaskBundle
 from project_doctor.workflows.diagnose_retest import DiagnosisRetestService, RetestRejected
 from project_doctor.workflows.task_ports import TaskStore
@@ -46,25 +57,45 @@ class RepairWorkflow:
 
     async def _target(
         self, task_id: str, finding_id: str
-    ) -> tuple[TaskBundle, Finding, BatchQuerySpec]:
+    ) -> tuple[TaskBundle, Finding, BatchQuerySpec | None]:
         bundle = await self._store.load_bundle(task_id)
         finding = next((item for item in bundle.findings if item.id == finding_id), None)
         if finding is None:
             raise ValueError("finding is not persisted in this task")
-        spec = validate_handoff(finding, bundle)
+        validate_repair_handoff(finding, bundle)
+        spec = validate_handoff(finding, bundle) if finding.kind == "n_plus_one" else None
         if not (await self._reader.verify(finding.evidence_refs)).valid:
             raise ValueError("diagnostic handoff evidence is unavailable or corrupt")
         return bundle, finding, spec
 
-    async def inspect_fix_target(self, context: CallContext, finding_id: str) -> RepairTargetView:
+    async def inspect_fix_target(
+        self, context: CallContext, finding_id: str
+    ) -> RepairTargetView | CodeRepairTargetView:
         bundle, finding, spec = await self._target(context.task_id, finding_id)
-        target = await asyncio.to_thread(
-            inspect_target,
-            self._settings.target_repo_root,
-            spec,
-            bundle.task.project.commit,
+        if spec is not None:
+            target = await asyncio.to_thread(
+                inspect_target, self._settings.target_repo_root, spec,
+                bundle.task.project.commit,
+            )
+            return present_target(finding_id, target)
+        source_target = await asyncio.to_thread(
+            inspect_source_target, self._settings.target_repo_root,
+            finding, bundle.task.project.commit,
         )
-        return present_target(finding_id, target)
+        return present_source_target(finding_id, source_target)
+
+    async def read_fix_source(
+        self, context: CallContext, finding_id: str, path: str,
+        start_line: int, line_count: int,
+    ) -> SourceFileView:
+        bundle, finding, _ = await self._target(context.task_id, finding_id)
+        target = await asyncio.to_thread(
+            inspect_source_target, self._settings.target_repo_root,
+            finding, bundle.task.project.commit,
+        )
+        return await asyncio.to_thread(
+            read_source_context, target, path, start_line, line_count,
+        )
 
     async def submit_fix_patch(
         self, context: CallContext, finding_id: str, diff: str
@@ -91,12 +122,17 @@ class RepairWorkflow:
                 raise ValueError("operation_conflict: repair identity has different input")
             return await self._prior_repair(existing)
         bundle, finding, spec = await self._target(context.task_id, finding_id)
-        target = await asyncio.to_thread(
-            inspect_target,
-            self._settings.target_repo_root,
-            spec,
-            bundle.task.project.commit,
-        )
+        target: RepairTarget | SourceRepairTarget
+        if spec is not None:
+            target = await asyncio.to_thread(
+                inspect_target, self._settings.target_repo_root, spec,
+                bundle.task.project.commit,
+            )
+        else:
+            target = await asyncio.to_thread(
+                inspect_source_target, self._settings.target_repo_root, finding,
+                bundle.task.project.commit,
+            )
         repair = RepairRecord(
             id="repair-" + identity,
             task_id=context.task_id,
@@ -106,19 +142,21 @@ class RepairWorkflow:
             status="preparing",
             source_commit=bundle.task.project.commit,
             patch_sha256=patch_hash,
-            parent_key_column=target.parent_key_column,
+            parent_key_column=(
+                target.parent_key_column if isinstance(target, RepairTarget) else None
+            ),
         )
         prior = await self._store.create_repair(repair)
         if prior.attempt_id != repair.attempt_id:
             return await self._prior_repair(prior)
         try:
             workspace = self._settings.workspace_root / ("fix-" + identity)
-            source = await asyncio.to_thread(
-                apply_patch,
-                target,
-                diff,
-                workspace,
-            )
+            if isinstance(target, RepairTarget):
+                source = await asyncio.to_thread(apply_patch, target, diff, workspace)
+            else:
+                source = await asyncio.to_thread(
+                    apply_source_patch, target, diff, workspace
+                )
             baseline_source = await asyncio.to_thread(copy_baseline_source, target, workspace)
             patch_ref = await publish_artifact(
                 self._settings.artifact_root,
