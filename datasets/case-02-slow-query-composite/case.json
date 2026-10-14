@@ -131,6 +131,11 @@
     "code_locations": [
       {
         "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
+        "line": 15,
+        "symbol": "findSlowOrders"
+      },
+      {
+        "path": "src/main/java/com/example/slowquery/mapper/OrderMapper.java",
         "line": 21,
         "symbol": "findSlowOrders"
       }

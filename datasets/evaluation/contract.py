@@ -44,6 +44,7 @@ __all__ = [
     "paths_equal",
     "location_matches",
     "text_covers",
+    "limitation_coverage",
     "Location",
     "Recommendation",
     "Finding",
@@ -139,11 +140,13 @@ def location_matches(a: "Location", b: "Location",
 def text_covers(declared: str, required: str) -> bool:
     """判断 ``declared`` 是否覆盖了 ``required`` 这一限制项/解释项。
 
-    容错匹配，按两级判定：先看规范化子串，再看显著词元覆盖率（≥ 0.6）。
-    这样 Agent 用自己的措辞表述同一限制时仍可判定为「已声明」。
+    评测方要求里混有评测侧脚手架（「必须声明…」）与数据集缺陷编号（``d2``/``d5``），
+    二者都不是 Agent 能知道的内容，比对前先剥离。随后按两级判定：先看规范化子串，
+    再看显著词元覆盖率（≥ 0.6）。这样 Agent 用自己的措辞表述同一限制时仍可判定为
+    「已声明」。
     """
     d = _norm(declared)
-    r = _norm(required)
+    r = _norm(_strip_requirement_scaffold(required))
     if not r:
         return True
     if r in d:
@@ -153,6 +156,102 @@ def text_covers(declared: str, required: str) -> bool:
         return False
     hit = sum(1 for t in tokens if t in d)
     return hit / len(tokens) >= 0.6
+
+
+# --------------------------------------------------------------------------- #
+# 限制项覆盖：评测要求 × Agent 声明的限制
+# --------------------------------------------------------------------------- #
+
+#: 评测方在 ``case.json`` 里用「必须声明…」的指令句式描述要求；这是评测侧脚手架，
+#: 不是 Agent 应该照抄的内容，比对前剥离。
+_REQUIREMENT_SCAFFOLD = re.compile(
+    r"^\s*(?:必须|需要|需|应当|应)\s*(?:声明|说明|明确|指出)?\s*[：:，,]?\s*"
+)
+
+#: 缺陷目录 id（``d2``、``d5/d4``…）是数据集内部编号，Agent 无从得知；按散文忽略。
+_DEFECT_ID = re.compile(r"(?<![a-z0-9_])d\d+(?:\s*/\s*d\d+)*(?![a-z0-9_])", re.IGNORECASE)
+
+#: 评测要求会点名机制，Agent 的声明要覆盖它。每项为 ``(名称, 要求侧正则, 声明侧正则)``：
+#: 要求侧可以笼统点名（如「COUNT」），声明侧必须落到具体形态（如 ``COUNT(*)``），
+#: 否则「分页与 COUNT 的耗时结论依赖数据规模」这类范围句会被误认成 COUNT 声明。
+_MECHANISMS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        "leading_wildcard",
+        (r"前导通配符", r"(?<![a-z0-9_])like(?![a-z0-9_])", r"leading\s+wildcard"),
+        (r"前导通配符", r"(?<![a-z0-9_])like(?![a-z0-9_])"),
+    ),
+    (
+        "n_plus_one",
+        (r"(?<![a-z0-9_])n\s*\+\s*1(?![a-z0-9_])", r"逐条", r"调用次数"),
+        (r"(?<![a-z0-9_])n\s*\+\s*1(?![a-z0-9_])", r"逐条", r"调用次数"),
+    ),
+    (
+        "redundant_count",
+        (r"(?<![a-z0-9_])count(?![a-z0-9_])", r"计数"),
+        # 括号里的机制名（「（COUNT）」）是显式点名；而「分页与 COUNT 的耗时结论」这类
+        # 交叉引用只提了机制名，不构成该机制的声明。
+        (r"(?<![a-z0-9_])count\s*\(\s*\*\s*\)", r"计数", r"(?<![a-z0-9_])count(?=\s*[）)])"),
+    ),
+    (
+        "deep_pagination",
+        (r"深分页", r"(?<![a-z0-9_])offset(?![a-z0-9_])", r"游标分页"),
+        (r"深分页", r"(?<![a-z0-9_])offset(?![a-z0-9_])"),
+    ),
+    (
+        "data_scale",
+        (r"数据规模", r"数据量"),
+        (r"数据规模", r"数据量"),
+    ),
+)
+
+#: 命中机制关键词的那条声明，还必须留下这么多「机制关键词之外」的字符，才算真的
+#: 在陈述限制；否则只是把机制名堆成一串关键词。
+_MIN_ASSERTION_CHARS = 6
+
+
+def _strip_requirement_scaffold(text: str) -> str:
+    """剥离评测要求里的指令脚手架与缺陷目录编号。"""
+    return _DEFECT_ID.sub(" ", _REQUIREMENT_SCAFFOLD.sub("", str(text)))
+
+
+def _matches_any(patterns: tuple[str, ...], text: str) -> bool:
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
+def _named_mechanisms(text: str) -> tuple[str, ...]:
+    """``text`` 点名了哪些已知机制（保持 ``_MECHANISMS`` 的顺序）。"""
+    return tuple(name for name, named_by, _declared_by in _MECHANISMS
+                 if _matches_any(named_by, text))
+
+
+def _declares_mechanism(statement: str, mechanism: str) -> bool:
+    """单条声明是否真的陈述了该机制，而不是只出现关键词。"""
+    patterns = next(group for name, _named_by, group in _MECHANISMS if name == mechanism)
+    if not _matches_any(patterns, statement):
+        return False
+    remainder = statement
+    for _name, _named_by, declared_by in _MECHANISMS:
+        for pattern in declared_by:
+            remainder = re.sub(pattern, " ", remainder, flags=re.IGNORECASE)
+    remainder = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", remainder)
+    return len(remainder) >= _MIN_ASSERTION_CHARS
+
+
+def limitation_coverage(declared: Sequence[str], required: str) -> bool:
+    """``required`` 这一条要求是否被 ``declared`` 中的限制声明覆盖。
+
+    评测要求会点名若干机制（如「前导通配符 / N+1 / COUNT / 深分页」）。真实回答往往
+    把它们分散在多条真实分句里，因此逐个机制在**全部声明**中查找，只要求每个机制都有
+    一条实质陈述覆盖它，而不要求某一句覆盖整条要求。要求没有点名已知机制时，退回
+    :func:`text_covers` 的容忍匹配。
+    """
+    mechanisms = _named_mechanisms(_strip_requirement_scaffold(required))
+    if not mechanisms:
+        return any(text_covers(statement, required) for statement in declared)
+    return all(
+        any(_declares_mechanism(statement, mechanism) for statement in declared)
+        for mechanism in mechanisms
+    )
 
 
 def _as_str_tuple(value: Any) -> tuple[str, ...]:

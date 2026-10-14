@@ -50,6 +50,7 @@ from contract import (  # noqa: E402
     Cost,
     location_matches,
     text_covers,
+    limitation_coverage,
     STATUS_LEAD,
     STATUS_UNCLASSIFIED,
     STATUS_VERIFIED,
@@ -376,8 +377,10 @@ def _metric_values(inp: EvalInput) -> dict[str, Any]:
         values["excluded_explanation_coverage"] = 1.0
 
     if expected.limitations_required:
+        # 「限制项是否已声明」按要求逐条判定：一条要求点名的每个机制，都必须在
+        # **全部声明**里有实质陈述（可分散在多条真实分句里）才算覆盖。
         values["limitation_declared"] = all(
-            any(text_covers(d, req) for d in report.declared_limitations)
+            limitation_coverage(report.declared_limitations, req)
             for req in expected.limitations_required
         )
     else:

@@ -254,6 +254,11 @@ class ContractTest(unittest.TestCase):
         self.assertTrue(text_covers("结论依赖数据规模，尚不能确定根因", "结论依赖数据规模"))
         self.assertFalse(text_covers("测量结果稳定", "结论依赖数据规模"))
 
+    def test_text_covers_ignores_requirement_scaffold_and_defect_ids(self):
+        """评测要求里的「必须声明」与缺陷编号 d2 不是 Agent 需要照抄的内容。"""
+        self.assertTrue(text_covers("结论依赖数据规模，尚不能确定根因", "必须声明 d2（数据规模）"))
+        self.assertFalse(text_covers("测量结果稳定", "必须声明 d2（数据规模）"))
+
     def test_trajectory_steps_coverage(self):
         full = Trajectory.from_obj({"required_steps_done": list(C.REQUIRED_STEPS)})
         self.assertEqual(full.steps_coverage, 1.0)
@@ -266,6 +271,120 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(expected.root_cause_ids, ("d1",))
         self.assertEqual(len(expected.defect_locations["d1"]), 1)
         self.assertEqual(expected.improvement_min_percent, 50.0)
+
+
+# --------------------------------------------------------------------------- #
+# 限制项覆盖：case-02 原始报告的逐机制判定 + 多行 SQL 位置
+# --------------------------------------------------------------------------- #
+
+#: case-02 真实运行包（runtime-data/serial-evaluation-20261013-retry3）里该轮 finding 的
+#: 原始限制声明文本，逐条照抄；评测器必须能用它们覆盖「前导通配符 / N+1 / COUNT / 深分页」。
+CASE02_DECLARED = (
+    "索引干预未降低实际扫描工作量，且基线 SQL 耗时低于最小可区分差异，"
+    "慢查询/全表扫描在当前数据与代码下未复现（已有可用索引或数据量过小）。",
+    "结论仅适用于本次请求参数、数据规模、过滤值和数据分布；分布变化会改变索引收益。",
+    "索引收益依赖被查询的过滤值：高占比取值下优化器可能仍走全表扫描，收益不稳定；"
+    "本次没有改变状态分布倾斜比例，不能外推其他取值。",
+    "COUNT(*) 的耗时贡献未通过单独删除或改写计数查询的实验证实；"
+    "计数是否冗余取决于业务用途，不能由索引实验推断。",
+    "LIKE 前导通配符可能限制普通索引收益；本次未单独改写 LIKE，不能证实该根因。",
+    "多条查询可能涉及 N+1，但本次未单独改变调用次数，不能证实 N+1 根因。",
+    "深分页未通过改变 offset 或分页方式的单变量实验单独证实；"
+    "分页与 COUNT 的耗时结论依赖数据规模及 offset 大小。",
+    "不自动宣称缺索引是所有慢查询的原因，不推断线上频率或业务 SLA。",
+)
+
+CASE02_REQUIREMENTS = (
+    "必须声明 d2（email 前导通配符）、d3（N+1）、d4（COUNT）、d5（深分页）"
+    "未能在单变量索引实验下证实",
+    "必须声明 d5/d4 的耗时结论依赖数据规模与 offset 大小",
+)
+
+
+class LimitationCoverageTest(unittest.TestCase):
+    """限制项判定：分句联合覆盖通过、缺一即失败、关键词堆砌不算声明。"""
+
+    def test_separate_true_statements_together_cover_the_requirement(self):
+        for requirement in CASE02_REQUIREMENTS:
+            with self.subTest(requirement=requirement):
+                self.assertTrue(C.limitation_coverage(CASE02_DECLARED, requirement))
+
+    def test_removing_the_statement_for_any_mechanism_fails(self):
+        mechanism_index = {
+            "leading_wildcard": 4, "n_plus_one": 5,
+            "redundant_count": 3, "deep_pagination": 6,
+        }
+        for mechanism, index in mechanism_index.items():
+            with self.subTest(mechanism=mechanism):
+                reduced = tuple(
+                    text for position, text in enumerate(CASE02_DECLARED) if position != index
+                )
+                self.assertFalse(C.limitation_coverage(reduced, CASE02_REQUIREMENTS[0]),
+                                 f"缺少 {mechanism} 声明仍被判为已覆盖")
+
+    def test_unrelated_keyword_stuffing_is_not_a_declaration(self):
+        stuffed = ("前导通配符 N+1 COUNT(*) 深分页",)
+        self.assertFalse(C.limitation_coverage(stuffed, CASE02_REQUIREMENTS[0]))
+        split = ("前导通配符", "N+1", "COUNT(*)", "深分页")
+        self.assertFalse(C.limitation_coverage(split, CASE02_REQUIREMENTS[0]))
+
+    def test_requirement_without_known_mechanism_uses_tolerant_match(self):
+        declared = ("结论依赖当前数据规模，尚不能确定根因",)
+        self.assertTrue(C.limitation_coverage(
+            declared, "必须声明结论依赖数据规模，分布变化会改变结论"))
+        self.assertFalse(C.limitation_coverage(
+            declared, "必须声明所述延迟在当前代码与数据集下无法复现"))
+
+    def test_case02_limitation_gate_passes_on_the_original_report(self):
+        """端到端：原始 case-02 报告在修正后的评测器下应通过限制项闸门。"""
+        case = json.loads(
+            (_ROOT / "case-02-slow-query-composite" / "case.json").read_text(encoding="utf-8")
+        )
+        report = {
+            "task": {"status": "completed"},
+            "findings": [{
+                "status": "lead",
+                "code_locations": [{"path": MAPPER, "line": 15}],
+                "excluded_explanations": [
+                    {"explanation": e} for e in case["expected"]["excluded_explanations"]],
+                "limitations": list(CASE02_DECLARED),
+                "evidence_flags": {},
+            }],
+        }
+        result = evaluate_case(good_input(case, report=report, retest=None))
+        m = result.score_map()
+        self.assertTrue(m["limitation_declared"], result.failed_gates())
+        self.assertTrue(m["code_location_hit"], result.failed_gates())
+        self.assertTrue(result.passed, result.failed_gates())
+
+    def test_case02_multiline_sql_position_accepted_and_other_method_rejected(self):
+        """多行 SQL 注解可指向首行或内部相关行；其他方法/文件仍必须失败。"""
+        case = json.loads(
+            (_ROOT / "case-02-slow-query-composite" / "case.json").read_text(encoding="utf-8")
+        )
+        expected = Expected.from_case(case)
+        self.assertEqual(
+            [(loc.line) for loc in expected.code_locations], [15, 21])
+        mapper = MAPPER
+        for line, accepted in ((15, True), (21, True), (22, True), (30, False)):
+            with self.subTest(line=line):
+                finding = Finding.from_obj({
+                    "status": "lead", "code_locations": [{"path": mapper, "line": line}]})
+                hit = any(
+                    location_matches(fl, el)
+                    for fl in finding.code_locations
+                    for el in expected.code_locations
+                )
+                self.assertIs(hit, accepted, f"line {line} 的命中判定不符合预期")
+        other_file = Finding.from_obj({
+            "status": "lead",
+            "code_locations": [{"path": "src/main/java/com/example/slowquery/service/OrderService.java",
+                                "line": 21}]})
+        self.assertFalse(any(
+            location_matches(fl, el)
+            for fl in other_file.code_locations
+            for el in expected.code_locations
+        ))
 
 
 # --------------------------------------------------------------------------- #
