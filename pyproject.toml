@@ -48,6 +48,7 @@ files = [
     "src/project_doctor",
     "scripts/export_contracts.py",
     "scripts/export_evaluation_run.py",
+    "scripts/register_repair_facts.py",
     "scripts/run_independent_retest.py",
 ]
 plugins = ["pydantic.mypy"]
