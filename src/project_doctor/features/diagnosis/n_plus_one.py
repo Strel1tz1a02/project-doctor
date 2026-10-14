@@ -137,9 +137,9 @@ def _no_pattern_finding(
     issues: list[str],
     refs: list[EvidenceRef],
 ) -> Finding:
-    key = hashlib.sha256(
-        f"{task_id}:{result.experiment_id}:no-n-plus-one".encode()
-    ).hexdigest()[:20]
+    key = hashlib.sha256(f"{task_id}:{result.experiment_id}:no-n-plus-one".encode()).hexdigest()[
+        :20
+    ]
     status: Literal["lead", "unclassified"] = "lead" if issues else "unclassified"
     reasons = list(issues) if issues else []
     reasons.append(

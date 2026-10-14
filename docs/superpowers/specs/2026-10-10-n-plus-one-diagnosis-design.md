@@ -94,9 +94,9 @@ ProblemKind = Literal["slow_query", "n_plus_one", "unclassified"]
 class BatchQuerySpec(Contract):
     kind: Literal["n_plus_one"] = "n_plus_one"
     strategy: Literal["batch_in", "joinedload", "selectinload"]
-    child_template: Identifier          # 参数化子查询模板，如 "SELECT * FROM users WHERE id = ?"
-    key_column: Identifier              # 子查询关联键（来自父结果集），如 "id"
-    child_code_location: CodeLocation   # 触发循环/懒加载的代码位置
+    child_template: Identifier  # 参数化子查询模板，如 "SELECT * FROM users WHERE id = ?"
+    key_column: Identifier  # 子查询关联键（来自父结果集），如 "id"
+    child_code_location: CodeLocation  # 触发循环/懒加载的代码位置
     observed_child_count: NonNegativeInt
     parent_sql_call_ids: list[Identifier] = Field(default_factory=list)
 ```
@@ -127,11 +127,11 @@ class BatchQuerySpec(Contract):
 class QueryShapeRecipe(Contract):
     kind: Literal["query_shape"] = "query_shape"
     strategy: Literal["batch_in", "joinedload", "selectinload"]
-    flag: Identifier                 # 应用开关，如 "app.query.mode"
-    baseline_value: Identifier       # 如 "n1"
-    candidate_value: Identifier      # 如 "batch"
-    child_template: Identifier       # 参数化子查询模板
-    key_column: Identifier           # 子查询关联键
+    flag: Identifier  # 应用开关，如 "app.query.mode"
+    baseline_value: Identifier  # 如 "n1"
+    candidate_value: Identifier  # 如 "batch"
+    child_template: Identifier  # 参数化子查询模板
+    key_column: Identifier  # 子查询关联键
     child_code_location: CodeLocation
 ```
 

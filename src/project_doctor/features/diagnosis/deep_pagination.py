@@ -73,8 +73,7 @@ def _rows_examined_for_sort(observations: list[Observation], sort_column: str) -
         float(call.rows_examined)
         for item in observations
         for call in item.sql_calls
-        if call.rows_examined is not None
-        and _order_by_column(_template_of(call)) == sort_column
+        if call.rows_examined is not None and _order_by_column(_template_of(call)) == sort_column
     ]
 
 
@@ -289,9 +288,9 @@ def _grade(
             code_location=page.code_location,
             observed_offset=page.offset,
         )
-    key = hashlib.sha256(
-        f"{task_id}:{result.experiment_id}:{page.template}".encode()
-    ).hexdigest()[:20]
+    key = hashlib.sha256(f"{task_id}:{result.experiment_id}:{page.template}".encode()).hexdigest()[
+        :20
+    ]
     limitations = list(
         dict.fromkeys(
             reasons

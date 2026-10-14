@@ -179,13 +179,14 @@ class BatchQuerySpec(Contract):
 ```python
 PaginationStrategy = Literal["keyset", "max_page_limit"]
 
+
 class DeepPaginationSpec(Contract):
     kind: Literal["deep_pagination"] = "deep_pagination"
     strategy: PaginationStrategy
-    query_template: Identifier          # 参数化深分页 SQL 模板（含 LIMIT ? OFFSET ?）
-    sort_column: Identifier             # keyset 稳定排序列，如 "id"
-    code_location: CodeLocation         # OFFSET 查询定义位置（mapper 方法）
-    observed_offset: NonNegativeInt     # 观测到的 OFFSET 值 M
+    query_template: Identifier  # 参数化深分页 SQL 模板（含 LIMIT ? OFFSET ?）
+    sort_column: Identifier  # keyset 稳定排序列，如 "id"
+    code_location: CodeLocation  # OFFSET 查询定义位置（mapper 方法）
+    observed_offset: NonNegativeInt  # 观测到的 OFFSET 值 M
 ```
 
 | 字段 | 语义 | 约束 |

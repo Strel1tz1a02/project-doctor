@@ -38,9 +38,7 @@ class Reader:
 
 
 def _template_call() -> dict:
-    return copy.deepcopy(
-        _FIXTURE["bundle"]["experiments"][0]["observations"][0]["sql_calls"][0]
-    )
+    return copy.deepcopy(_FIXTURE["bundle"]["experiments"][0]["observations"][0]["sql_calls"][0])
 
 
 def _sql_call(

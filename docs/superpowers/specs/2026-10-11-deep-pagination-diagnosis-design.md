@@ -76,13 +76,14 @@ ProblemKind = Literal["slow_query", "n_plus_one", "deep_pagination", "unclassifi
 ```python
 PaginationStrategy = Literal["keyset", "max_page_limit"]
 
+
 class DeepPaginationSpec(Contract):
     kind: Literal["deep_pagination"] = "deep_pagination"
     strategy: PaginationStrategy
-    query_template: Identifier          # 参数化深分页 SQL 模板（含 LIMIT ? OFFSET ?）
-    sort_column: Identifier             # keyset 稳定排序列，如 "id"
-    code_location: CodeLocation         # OFFSET 查询定义位置（mapper 方法）
-    observed_offset: NonNegativeInt     # 观测到的 OFFSET 值 M
+    query_template: Identifier  # 参数化深分页 SQL 模板（含 LIMIT ? OFFSET ?）
+    sort_column: Identifier  # keyset 稳定排序列，如 "id"
+    code_location: CodeLocation  # OFFSET 查询定义位置（mapper 方法）
+    observed_offset: NonNegativeInt  # 观测到的 OFFSET 值 M
 ```
 
 ### 3.3 `fix_spec` 判别联合（`models/finding.py`）
@@ -124,11 +125,11 @@ fix_spec: Annotated[
 ```python
 class PaginationRecipe:  # frozen dataclass, features/experiments/interventions.py
     strategy: Literal["keyset", "max_page_limit"]
-    flag: Identifier                 # 应用开关，如 "app.pagination.mode"
-    baseline_value: Identifier       # 如 "offset"
-    candidate_value: Identifier      # 如 "keyset"
-    sort_column: Identifier          # keyset 稳定排序列，如 "id"
-    query_template: Identifier       # 参数化深分页 SQL 模板
+    flag: Identifier  # 应用开关，如 "app.pagination.mode"
+    baseline_value: Identifier  # 如 "offset"
+    candidate_value: Identifier  # 如 "keyset"
+    sort_column: Identifier  # keyset 稳定排序列，如 "id"
+    query_template: Identifier  # 参数化深分页 SQL 模板
 ```
 
 运行时语义：`baseline` 组 = 开关为 `baseline_value`；`candidate_pagination` 组 = 开关设为

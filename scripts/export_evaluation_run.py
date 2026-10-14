@@ -113,7 +113,9 @@ def load_repair(home: Path) -> dict[str, Any] | None:
     for item in files:
         if not isinstance(item, dict):
             raise ValueError("repair.json patch_files entries must be {path, line} objects")
-        patch_files.append({"path": str(item.get("path", "")), "line": int(item.get("line", 0) or 0)})
+        patch_files.append(
+            {"path": str(item.get("path", "")), "line": int(item.get("line", 0) or 0)}
+        )
     return {
         "attempted": bool(raw.get("attempted", False)),
         "patch_present": bool(raw.get("patch_present", False)),
@@ -295,7 +297,7 @@ def export_run(home: Path, case_id: str) -> dict[str, Any]:
             # A resumed task can have a longer tool span than its last model session.
             # Retain the larger measured span, rather than dropping the earlier attempt.
             wall_scope = "observed_tool_span_including_prior_attempts"
-    payload = {
+    payload: dict[str, Any] = {
         "baseline": {
             "repeats_ms": [o.latency_ms for o in observations if o.level == "baseline"],
             "environment_fingerprint": observations[0].fingerprint if observations else None,
