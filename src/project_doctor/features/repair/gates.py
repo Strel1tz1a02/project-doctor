@@ -60,6 +60,47 @@ def validate_handoff(finding: Finding, bundle: TaskBundle) -> BatchQuerySpec:
     return spec
 
 
+def validate_repair_handoff(finding: Finding, bundle: TaskBundle) -> Finding:
+    """Reject an unsupported or untraceable diagnostic result before source access."""
+    if finding.task_id != bundle.task.id or finding.id not in {item.id for item in bundle.findings}:
+        raise ValueError("finding is not persisted in this task")
+    supported = finding.kind in {"slow_query", "n_plus_one", "deep_pagination"}
+    if not supported or finding.status not in {"lead", "verified"}:
+        raise ValueError("only a diagnosed performance finding can enter repair")
+    if not finding.code_locations or not finding.evidence_refs or not finding.experiment_ids:
+        raise ValueError("repair requires code locations and diagnostic evidence")
+    recommendation = finding.recommendation
+    if recommendation is None or recommendation.validation_status != "expected_mechanism":
+        raise ValueError("repair requires an unretested recommendation")
+    if not any(item.id == finding.scenario_id for item in bundle.scenarios):
+        raise ValueError("finding scenario is not persisted")
+    experiments = [
+        item for item in bundle.experiments if item.experiment_id in finding.experiment_ids
+    ]
+    if len(experiments) != len(set(finding.experiment_ids)) or not experiments:
+        raise ValueError("finding experiment references are not persisted")
+    call_ids = {
+        call.id for experiment in experiments for obs in experiment.observations
+        for call in obs.sql_calls
+    }
+    if not finding.sql_call_ids or not set(finding.sql_call_ids).issubset(call_ids):
+        raise ValueError("finding SQL references are not persisted")
+    artifact_ids = {ref.artifact_id for ref in bundle.evidence_refs}
+    finding_artifacts = {ref.artifact_id for ref in finding.evidence_refs}
+    if not finding_artifacts.issubset(artifact_ids):
+        raise ValueError("finding evidence references are unavailable")
+    for location in finding.code_locations:
+        if location.commit != bundle.task.project.commit:
+            raise ValueError("source commit differs from diagnostic code location")
+        if not location.association_evidence_ids or not set(
+            location.association_evidence_ids
+        ).issubset(finding_artifacts):
+            raise ValueError("code location lacks finding evidence")
+    if finding.kind == "n_plus_one":
+        validate_handoff(finding, bundle)
+    return finding
+
+
 def apply_retest_fields(finding: Finding, comparison: RepairComparison) -> Finding:
     """Revalidate a deep copy so only the agreed Recommendation fields can change."""
     if comparison.source_task_id != finding.task_id or comparison.finding_id != finding.id:

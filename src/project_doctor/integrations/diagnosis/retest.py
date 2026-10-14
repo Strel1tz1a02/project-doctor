@@ -1,4 +1,4 @@
-"""Independent baseline-only measurements of old and repaired Java/MyBatis images."""
+"""Independent baseline-only measurements of original and repaired Java images."""
 
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ from project_doctor.integrations.repair.build import inspect_image_digest
 from project_doctor.integrations.repair.source import source_tree_sha256
 from project_doctor.integrations.runtime_factory import RuntimeService
 from project_doctor.models.common import EvidenceRef
+from project_doctor.models.deep_pagination import DeepPaginationSpec
 from project_doctor.models.finding import Finding
 from project_doctor.models.n_plus_one import BatchQuerySpec
 from project_doctor.models.repair import RepairRecord, RepairRun, RepairSample
@@ -64,6 +65,15 @@ def _diagnostic_spec(bundle: TaskBundle, finding: Finding) -> tuple[Any, str]:
     if len(parent_templates) != 1:
         raise ValueError("diagnostic parent query shape is ambiguous")
     return spec, parent_templates.pop()
+
+
+def _source_experiment_spec(bundle: TaskBundle, finding: Finding) -> Any:
+    experiments = [
+        item for item in bundle.experiments if item.experiment_id in finding.experiment_ids
+    ]
+    if len(experiments) != 1 or experiments[0].spec is None:
+        raise ValueError("source retest requires one persisted diagnostic experiment")
+    return experiments[0].spec
 
 
 def _safe_parent_query(sql: str, column: str) -> str:
@@ -127,18 +137,23 @@ class DockerDiagnosisRetester:
         self, bundle: TaskBundle, finding: Finding, repair: RepairRecord
     ) -> RetestEvidence:
         if not (
-            repair.workspace_name
-            and repair.source_sha256
-            and repair.baseline_source_sha256
-            and repair.parent_key_column
+            repair.workspace_name and repair.source_sha256 and repair.baseline_source_sha256
         ):
-            raise ValueError("repair build does not identify a validated source and parent key")
+            raise ValueError("repair build does not identify validated source images")
         scenario = next((item for item in bundle.scenarios if item.id == finding.scenario_id), None)
         if scenario is None or len(scenario.steps) != 1 or scenario.steps[0].method != "GET":
             raise ValueError("Java/MyBatis retest requires one read-only GET step")
         if scenario.load.mode != "serial":
             raise ValueError("Java/MyBatis retest currently supports serial load only")
-        spec, parent_template = _diagnostic_spec(bundle, finding)
+        if finding.kind == "n_plus_one":
+            if repair.parent_key_column is None:
+                raise ValueError("N+1 repair lacks a validated parent key")
+            spec, parent_template = _diagnostic_spec(bundle, finding)
+        elif finding.kind in {"slow_query", "deep_pagination"}:
+            spec = _source_experiment_spec(bundle, finding)
+            parent_template = ""
+        else:
+            raise ValueError("diagnostic source-version verifier is unavailable")
         if (
             spec.snapshot_id != scenario.dataset.snapshot_id
             and scenario.dataset.snapshot_id != "snapshot-resolved-at-first-prepare"
@@ -216,9 +231,20 @@ class DockerDiagnosisRetester:
         expected_dump: bytes | None,
     ) -> tuple[RepairRun, list[EvidenceRef], bytes]:
         fix_spec = finding.fix_spec
-        if not isinstance(fix_spec, BatchQuerySpec):
+        if finding.kind == "n_plus_one" and not isinstance(fix_spec, BatchQuerySpec):
             raise ValueError("retest requires an N+1 BatchQuerySpec")
-        assert repair.parent_key_column is not None
+        if finding.kind not in {"n_plus_one", "slow_query", "deep_pagination"}:
+            raise ValueError("diagnostic source-version verifier is unavailable")
+        diagnosed_templates = {
+            parameterize_sql(call.normalized_sql)
+            for experiment in bundle.experiments
+            if experiment.experiment_id in finding.experiment_ids
+            for observation in experiment.observations
+            for call in observation.sql_calls
+            if call.id in finding.sql_call_ids
+        }
+        if finding.kind != "n_plus_one" and len(diagnosed_templates) != 1:
+            raise ValueError("diagnosed target SQL shape is ambiguous")
         task_id = f"{repair.id}-{side}"
         context = bundle.task.correlation.model_copy(
             update={"task_id": task_id, "operation_id": f"{repair.id}-{side}-measure"}
@@ -336,6 +362,56 @@ class DockerDiagnosisRetester:
                 refs.extend(observation.evidence_refs)
                 if not observation.business_valid or observation.result_digest is None:
                     raise ValueError("repair retest changed business assertions")
+                if finding.kind in {"slow_query", "deep_pagination"}:
+                    paths = {location.path for location in finding.code_locations}
+                    target_calls = [
+                        call for call in observation.sql_calls
+                        if call.code_location is not None
+                        and call.code_location.path in paths
+                    ]
+                    if len(target_calls) != 1:
+                        raise ValueError("retest cannot identify one diagnosed SQL call")
+                    target_call = target_calls[0]
+                    if side == "baseline" and parameterize_sql(
+                        target_call.normalized_sql
+                    ) not in diagnosed_templates:
+                        raise ValueError("baseline SQL differs from the diagnosed query")
+                    if target_call.rows_examined is None or target_call.duration_ms is None:
+                        raise ValueError("retest lacks actual diagnosed SQL measurements")
+                    offset_match = re.search(
+                        r"\bOFFSET\s+(\d+)\b", target_call.normalized_sql,
+                        re.IGNORECASE,
+                    )
+                    offset = int(offset_match.group(1)) if offset_match else None
+                    keyset = False
+                    if isinstance(fix_spec, DeepPaginationSpec):
+                        sort = re.escape(fix_spec.sort_column)
+                        keyset = bool(re.search(
+                            rf"\b`?{sort}`?\s*[<>]\s*(?:\d+|'[^']*'|\?)",
+                            target_call.normalized_sql, re.IGNORECASE,
+                        ))
+                    samples.append(RepairSample(
+                        request_id=observation.request_id,
+                        business_valid=True,
+                        result_digest=observation.result_digest,
+                        latency_ms=observation.latency_ms,
+                        sql_count=len(observation.sql_calls),
+                        child_count=0,
+                        parent_rows_examined=0,
+                        parent_keys=[],
+                        lock_covered=bool(observation.sql_calls) and all(
+                            call.lock_evidence is not None
+                            and call.lock_evidence.coverage == "complete"
+                            for call in observation.sql_calls
+                        ),
+                        target_rows_examined=target_call.rows_examined,
+                        target_duration_ms=target_call.duration_ms,
+                        target_offset=offset,
+                        target_uses_keyset=keyset,
+                    ))
+                    continue
+                assert isinstance(fix_spec, BatchQuerySpec)
+                assert repair.parent_key_column is not None
                 parents = [
                     call
                     for call in observation.sql_calls

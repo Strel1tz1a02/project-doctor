@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import hashlib
 
-from project_doctor.models.repair import RepairTarget, RepairTargetView
+from project_doctor.models.repair import (
+    CodeRepairTargetView,
+    RepairTarget,
+    RepairTargetView,
+    SourceFileView,
+    SourceRepairTarget,
+)
 
 
 def present_target(finding_id: str, target: RepairTarget) -> RepairTargetView:
@@ -39,4 +45,26 @@ def present_target(finding_id: str, target: RepairTarget) -> RepairTargetView:
         parent_key_column=target.parent_key_column,
         caller_sha256=target.caller_sha256,
         caller_context=target.caller_context,
+    )
+
+
+def present_source_target(
+    finding_id: str, target: SourceRepairTarget
+) -> CodeRepairTargetView:
+    """Present the diagnosed context and the exact application files in scope."""
+    identity = "\n".join(
+        [finding_id, target.source_commit]
+        + [f"{path}:{digest}" for path, digest in sorted(target.allowed_hashes.items())]
+    )
+    return CodeRepairTargetView(
+        finding_id=finding_id,
+        source_commit=target.source_commit,
+        target_sha256=hashlib.sha256(identity.encode("utf-8")).hexdigest(),
+        diagnosed_locations=list(target.locations),
+        allowed_files=[
+            SourceFileView(
+                path=path, sha256=digest, context=target.contexts.get(path)
+            )
+            for path, digest in sorted(target.allowed_hashes.items())
+        ],
     )

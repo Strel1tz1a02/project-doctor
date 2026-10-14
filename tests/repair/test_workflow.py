@@ -8,7 +8,7 @@ import pytest
 
 from project_doctor.entrypoints.settings import Settings
 from project_doctor.features.diagnosis.retest import evaluate_retest
-from project_doctor.models.common import EvidenceRef
+from project_doctor.models.common import CodeLocation, EvidenceRef
 from project_doctor.models.repair import RepairRecord
 from project_doctor.workflows.diagnose_retest import (
     RetestEvidence,
@@ -19,6 +19,7 @@ from project_doctor.workflows.repair import RepairWorkflow
 from tests.diagnosis.test_n_plus_one import Reader
 from tests.repair.test_diagnosis_retest import _ref, _repair
 from tests.repair.test_gates import _handoff, _run
+from tests.repair.test_source import MAPPER_PATH, _project
 
 
 class Store:
@@ -129,6 +130,32 @@ def test_workflow_refuses_corrupt_diagnostic_handoff_before_source_access(
     )
     with pytest.raises(ValueError, match="handoff evidence"):
         asyncio.run(workflow.inspect_fix_target(bundle.task.correlation, finding.id))
+
+
+def test_generic_workflow_inspects_and_reads_versioned_source(tmp_path: Path) -> None:
+    root, _, commit = _project(tmp_path)
+    bundle, finding = _handoff()
+    bundle = bundle.model_copy(deep=True)
+    bundle.task.project.commit = commit
+    slow = finding.model_copy(update={
+        "kind": "slow_query",
+        "fix_spec": None,
+        "code_locations": [CodeLocation(
+            commit=commit, path=MAPPER_PATH, line=4,
+            association_evidence_ids=finding.code_locations[0].association_evidence_ids,
+        )],
+    })
+    bundle.findings = [slow]
+    settings = _settings(tmp_path)
+    assert settings.target_repo_root == root
+    workflow = RepairWorkflow(settings, Store(bundle, None), Reader(), Diagnosis(slow))
+    view = asyncio.run(workflow.inspect_fix_target(bundle.task.correlation, slow.id))
+    assert view.finding_id == slow.id
+    assert view.source_commit == commit
+    excerpt = asyncio.run(workflow.read_fix_source(
+        bundle.task.correlation, slow.id, MAPPER_PATH, 4, 2
+    ))
+    assert "4:     @Select" in (excerpt.context or "")
 
 
 def test_workflow_persists_rejected_diagnosis_samples(tmp_path: Path) -> None:

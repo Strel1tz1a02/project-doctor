@@ -103,6 +103,15 @@ def test_diagnosis_retest_returns_evidence_based_verdict() -> None:
     assert verdict.evidence is evidence
 
 
+def test_unregistered_problem_kind_cannot_claim_retested() -> None:
+    bundle, finding = _handoff()
+    other = finding.model_copy(update={"kind": "deep_pagination", "fix_spec": None})
+    evidence = RetestEvidence(_run(), _run(patched=True), (_ref(),))
+    service = DiagnosisRetestService(Adapter(evidence), Reader(), verifiers={})
+    with pytest.raises(ValueError, match="verifier is unavailable for deep_pagination"):
+        asyncio.run(service.run(bundle, other, _repair(bundle, finding)))
+
+
 def test_diagnosis_retest_rejects_wrong_image_and_business_output() -> None:
     bundle, finding = _handoff()
     repair = _repair(bundle, finding)

@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
 from project_doctor.features.diagnosis.ports import EvidenceReader
-from project_doctor.features.diagnosis.retest import evaluate_retest
+from project_doctor.features.diagnosis.retest import (
+    evaluate_deep_pagination_retest,
+    evaluate_retest,
+    evaluate_slow_query_retest,
+)
 from project_doctor.models.common import EvidenceRef
+from project_doctor.models.deep_pagination import DeepPaginationSpec
 from project_doctor.models.finding import Finding
 from project_doctor.models.repair import RepairComparison, RepairRecord, RepairRun
 from project_doctor.models.task import CallContext, TaskBundle
@@ -43,9 +49,21 @@ class DiagnosticRetestAdapter(Protocol):
 
 
 class DiagnosisRetestService:
-    def __init__(self, adapter: DiagnosticRetestAdapter, reader: EvidenceReader) -> None:
+    def __init__(
+        self,
+        adapter: DiagnosticRetestAdapter,
+        reader: EvidenceReader,
+        verifiers: Mapping[
+            str, Callable[[Finding, RepairRun, RepairRun], RepairComparison]
+        ] | None = None,
+    ) -> None:
         self._adapter = adapter
         self._reader = reader
+        self._verifiers = dict(verifiers) if verifiers is not None else {
+            "n_plus_one": evaluate_retest,
+            "slow_query": evaluate_slow_query_retest,
+            "deep_pagination": evaluate_deep_pagination_retest,
+        }
 
     async def cleanup(self, repair: RepairRecord, context: CallContext) -> None:
         await self._adapter.cleanup(repair, context)
@@ -53,6 +71,16 @@ class DiagnosisRetestService:
     async def run(
         self, bundle: TaskBundle, finding: Finding, repair: RepairRecord
     ) -> ValidatedRetest:
+        verifier = self._verifiers.get(finding.kind)
+        if verifier is None:
+            raise ValueError(
+                f"diagnostic source-version verifier is unavailable for {finding.kind}"
+            )
+        if finding.kind == "deep_pagination" and (
+            not isinstance(finding.fix_spec, DeepPaginationSpec)
+            or finding.fix_spec.strategy != "keyset"
+        ):
+            raise ValueError("deep-pagination source verifier only supports keyset")
         if repair.status != "retesting" or repair.source_commit != bundle.task.project.commit:
             raise ValueError("diagnostic retest needs the persisted source build")
         if repair.patch_ref is None or repair.build_ref is None:
@@ -75,7 +103,7 @@ class DiagnosisRetestService:
         if not check.valid:
             raise ValueError("diagnostic retest artifacts are unavailable or corrupt")
         try:
-            comparison = evaluate_retest(finding, evidence.baseline, evidence.patched)
+            comparison = verifier(finding, evidence.baseline, evidence.patched)
         except ValueError as exc:
             raise RetestRejected(str(exc), evidence) from exc
         return ValidatedRetest(comparison, evidence)

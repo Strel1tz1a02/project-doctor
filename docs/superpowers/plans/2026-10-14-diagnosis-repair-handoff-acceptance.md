@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-14-generic-source-repair-design.md`; evaluation contract: `datasets/docs/运行包采集模块交接说明.md` §5.4 and `datasets/docs/Agent评估方法.md` repair metrics.
 
+**Scope update (2026-10-14):** The user requested functionality only and deferred evaluation. Tasks 1-2 are the active delivery. Tasks 3-4 remain a future evaluation plan; their checkboxes are not acceptance requirements for this delivery. The diagnosis runtime currently executes index experiments only, so this change does not claim live N+1 or pagination diagnosis experiments.
+
 ## Global Constraints
 
 - Diagnosis and repair may be separate AGH sessions; both use the same persisted task identity.
@@ -50,11 +52,11 @@
 - Consumes: `TaskStore.load_bundle(task_id) -> TaskBundle`, `EvidenceReader.verify(refs) -> EvidenceCheck`.
 - Produces: `async export_repair_handoff(store: TaskStore, reader: EvidenceReader, task_id: str) -> dict[str, object]` with task/correlation/commit, each persisted candidate's id/kind/status/evidence/locations/recommendation, and explicit empty-candidate state.
 
-- [ ] **Step 1: Write failing tests.** Assert a real persisted candidate is exported without dataset fields; corrupt evidence, wrong commit and unpersisted references fail; no eligible Finding returns an explicit empty list.
-- [ ] **Step 2: Run `uv run --locked pytest -q tests/repair/test_handoff_export.py`.** Expect failures from missing export.
-- [ ] **Step 3: Implement the function and CLI.** Reuse `validate_repair_handoff` and `FileEvidenceReader`; load from MySQL via `build_store(settings)` and a settings JSON path. Do not read `case.json`.
-- [ ] **Step 4: Run the focused tests and `uv run --locked mypy src/project_doctor`.** Expect pass.
-- [ ] **Step 5: Commit Task 1 files.**
+- [x] **Step 1: Write failing tests.** Assert a real persisted candidate is exported without dataset fields; corrupt evidence and wrong commit fail; no eligible Finding returns an explicit empty list.
+- [x] **Step 2: Run `uv run --locked pytest -q tests/repair/test_handoff_export.py`.** Failed with missing module.
+- [x] **Step 3: Implement the function and CLI.** Reuse `validate_repair_handoff` and `FileEvidenceReader`; construct `MySQLTaskStore` directly to avoid schema writes in the read-only CLI. Do not read `case.json`.
+- [x] **Step 4: Run the focused tests and `uv run --locked mypy src/project_doctor`.** Passed.
+- [x] **Step 5: Commit Task 1 files.** `29714af`.
 
 ### Task 2: Separate repair Agent session
 
@@ -67,11 +69,11 @@
 - Consumes: Task 1 handoff and existing MCP `inspect_fix_target`, `read_fix_source`, `submit_fix_patch`, `verify_fix`, `get_fix_status`.
 - Produces: a repair session with its own AGH session log and business tool-call log; no new platform Agent loop.
 
-- [ ] **Step 1: Add a failing protocol/prompt check.** The repair prompt must require task identity, evidence review, an explicit change/no-change decision, and status polling; diagnosis prompt must permit N+1 hypothesis/experiment selection instead of forcing an index experiment.
-- [ ] **Step 2: Run `uv run --locked pytest -q tests/integration/agent/test_mcp_protocol.py`.** Expect failure.
-- [ ] **Step 3: Update prompts.** Pass only persisted task/finding identifiers and the handoff export to the repair session; use new AGH session identity. For N+1, keep the existing strict `batch_in` requirements. For no change, make the Agent explain evidence and end without `submit_fix_patch`.
-- [ ] **Step 4: Run the focused tests.** Expect pass.
-- [ ] **Step 5: Commit Task 2 files.**
+- [x] **Step 1: Add a failing MCP protocol test.** A separate repair Agent must retrieve persisted candidates by task ID.
+- [x] **Step 2: Run `uv run --locked pytest -q tests/integration/agent/test_mcp_protocol.py`.** Failed with unknown tool.
+- [x] **Step 3: Add `get_repair_handoff` and split diagnosis/repair prompts.** Do not claim N+1 live experiment support until runtime intervention exists.
+- [x] **Step 4: Run focused tests.** 19 passed.
+- [x] **Step 5: Commit Task 2 files.** `85de18d`.
 
 ### Task 3: Export repair facts, never answers
 
