@@ -61,7 +61,7 @@
 | 项目 | 值 |
 | --- | --- |
 | 起始 HEAD | `0c9dae474404b5bd8f18dec9de8eb2ae36778c6a` |
-| 本轮提交 | `1e71b84`（诊断守卫）、`23d477e`（评测器修正）、`ac7eb18`（按变量分派）、`665b453`（pagination 测试+矩阵）、本报告所在提交 |
+| 本轮提交 | `1e71b84`（诊断守卫）、`23d477e`（评测器修正）、`ac7eb18`（按变量分派）、`665b453`（pagination 测试+矩阵）、`2d251de`（范围类要求 + 本报告） |
 | 数据集哈希 | `7d1c1bbe4792a8a677adbd31992dec9a3863ecb02d8d1bba7fee272e16f37bcd` |
 | 评测器哈希（当前） | `6f51e39396cd0a6d6dbf2e1acc4b8eb56afbae501fdb80e06bc793e8c4c14ca2` |
 | 六例子集评估 ID（当前） | `7557aeff4c0cdc452fc00e29a0ab3d2b302b5bdfd04d5b33b226085a3dfd0001`（`fixture_only`） |
