@@ -2,8 +2,11 @@ import pytest
 
 from project_doctor.features.repair.patch_files import extract_patch_locations
 
-DIFF = """diff --git a/src/main/java/com/example/OrderMapper.java b/src/main/java/com/example/OrderMapper.java
-index 1111111..2222222 100644
+_MAPPER = "src/main/java/com/example/OrderMapper.java"
+
+DIFF = (
+    f"diff --git a/{_MAPPER} b/{_MAPPER}\n"
+    """index 1111111..2222222 100644
 --- a/src/main/java/com/example/OrderMapper.java
 +++ b/src/main/java/com/example/OrderMapper.java
 @@ -10,7 +10,9 @@ public interface OrderMapper {
@@ -18,6 +21,7 @@ index 1111111..2222222 100644
 -    void legacy();
 +    void legacyRemoved();
 """
+)
 
 
 def test_added_lines_use_new_side_numbers():
