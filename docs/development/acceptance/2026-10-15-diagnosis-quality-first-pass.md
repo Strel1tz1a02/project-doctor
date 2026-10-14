@@ -98,7 +98,8 @@ python datasets/evaluation/run_eval.py \
 ## 6. 未完成项（进入后续阶段）
 
 1. 六例新的真实诊断运行包（依赖 Docker + 平台 DSN + AGH CLI + JDK 17）。
-2. case-05 的 `limitation_declared` 仍未通过：其要求属「结论依赖取值/分布」类，不在本轮评测器机制词汇
-   内，需要用新运行包的真实声明文本再判定，而不是无证据放宽。
+2. case-05 的 `limitation_declared` 已在本轮追加修正中通过（新增 `distribution_scope` 机制，见
+   [评测器迁移说明](../../../datasets/docs/2026-10-15-evaluator-migration.md) 第二轮）；该历史包仍因
+   **误验证**（`false_verified`/`decision_exact`）不通过，需由新运行包验证诊断侧修复。
 3. 其余 37 个 boundary 用例的 `limitations_required` 尚无真实包复核。
 4. 阶段 2 的修复链（独立修复会话、复测、登记）与阶段 3/4 的全量 45 例运行、冻结验收均未开始。

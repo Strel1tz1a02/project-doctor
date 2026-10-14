@@ -329,9 +329,8 @@ class LimitationCoverageTest(unittest.TestCase):
         self.assertFalse(C.limitation_coverage(split, CASE02_REQUIREMENTS[0]))
 
     def test_requirement_without_known_mechanism_uses_tolerant_match(self):
-        declared = ("结论依赖当前数据规模，尚不能确定根因",)
-        self.assertTrue(C.limitation_coverage(
-            declared, "必须声明结论依赖数据规模，分布变化会改变结论"))
+        declared = ("结论依赖数据规模，尚不能确定根因",)
+        self.assertTrue(C.limitation_coverage(declared, "必须声明结论依赖数据规模"))
         self.assertFalse(C.limitation_coverage(
             declared, "必须声明所述延迟在当前代码与数据集下无法复现"))
 
@@ -385,6 +384,48 @@ class LimitationCoverageTest(unittest.TestCase):
             for fl in other_file.code_locations
             for el in expected.code_locations
         ))
+
+
+#: case-05 真实运行包（同一轮 retry3）里该轮 finding 的原始限制声明。
+CASE05_DECLARED = (
+    "扫描工作量下降，但 SQL 耗时变化不足以区分测量波动，无法证实延迟收益。",
+    "结论仅适用于本次请求参数、数据规模、过滤值和数据分布；分布变化会改变索引收益。",
+    "索引收益依赖被查询的过滤值：高占比取值下优化器可能仍走全表扫描，收益不稳定；"
+    "本次没有改变状态分布倾斜比例，不能外推其他取值。",
+    "COUNT(*) 的耗时贡献未通过单独删除或改写计数查询的实验证实；"
+    "计数是否冗余取决于业务用途，不能由索引实验推断。",
+    "深分页未通过改变 offset 或分页方式的单变量实验单独证实；"
+    "分页与 COUNT 的耗时结论依赖数据规模及 offset 大小。",
+    "不自动宣称缺索引是所有慢查询的原因，不推断线上频率或业务 SLA。",
+)
+
+
+class Case05LimitationCoverageTest(unittest.TestCase):
+    """case-05：取值/分布范围类要求也应按机制联合覆盖，而不是整句照抄。"""
+
+    def _requirements(self) -> tuple[str, ...]:
+        case = json.loads(
+            (_ROOT / "case-05-slow-query-skewed-status" / "case.json").read_text(encoding="utf-8")
+        )
+        return tuple(case["expected"]["limitations_required"])
+
+    def test_all_three_requirements_are_covered_by_separate_true_statements(self):
+        requirements = self._requirements()
+        self.assertEqual(len(requirements), 3)
+        for requirement in requirements:
+            with self.subTest(requirement=requirement):
+                self.assertTrue(C.limitation_coverage(CASE05_DECLARED, requirement))
+
+    def test_removing_the_distribution_or_count_declaration_fails(self):
+        requirements = self._requirements()
+        stripped = tuple(
+            text
+            for text in CASE05_DECLARED
+            if not any(word in text for word in ("取值", "分布", "倾斜", "高占比"))
+        )
+        self.assertFalse(C.limitation_coverage(stripped, requirements[0]))
+        without_count = tuple(text for text in CASE05_DECLARED if not text.startswith("COUNT(*)"))
+        self.assertFalse(C.limitation_coverage(without_count, requirements[1]))
 
 
 # --------------------------------------------------------------------------- #

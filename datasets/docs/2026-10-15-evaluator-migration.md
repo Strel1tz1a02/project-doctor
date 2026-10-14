@@ -72,5 +72,22 @@ python datasets/evaluation/run_eval.py \
 
 ## 已知未修正（留给后续阶段）
 
-- `case-05` 的 `limitation_declared` 仍为 False：其要求属「结论依赖取值/分布」类，不在本轮机制词汇内。
 - 其余 37 个 boundary 用例的 `limitations_required` 尚无真实运行包可复核；本轮不做无证据的放宽。
+
+## 第二轮（同日追加）：取值／分布范围类要求
+
+第一轮之后重评六例，case-05 的 `limitation_declared` 仍为 False。复核该包真实声明后确认：其三条要求
+属「结论依赖取值／分布」类，同样存在「要求整句 vs 分句联合」的口径问题（要求里还带 `必须声明` 与
+缺陷编号），属与 case-02 同根因的评测侧缺陷。据此在机制词汇中增加 `distribution_scope`
+（`取值`／`分布`／`选择性`／`倾斜`／`高占比`），判定规则不变：必须有**一条实质声明**陈述该范围依赖。
+
+- 新单测：`test_metrics.Case05LimitationCoverageTest`（三条要求被真实分句联合覆盖；删掉全部取值／分布
+  声明或 COUNT 声明即失败）。
+- case-05 重评：`limitation_declared` False → True；失败闸门只剩 `false_verified_false` 与
+  `decision_exact`，即该历史包**仍然误验证**（属被测系统侧，已由阶段 1 的诊断侧守卫阻断，但不回溯改写
+  历史包）。
+- 版本：evaluator_hash `c56d8a06…` → `6f51e39396cd0a6d6dbf2e1acc4b8eb56afbae501fdb80e06bc793e8c4c14ca2`；
+  `evaluation/contract.py` → `f910c83a4fe18888af4d23b686c3528b25816493cce65d6ba7be6d6f730218a4`
+  （`metrics.py` 与 `dataset_hash` 不变）；新评估 ID
+  `7557aeff4c0cdc452fc00e29a0ab3d2b302b5bdfd04d5b33b226085a3dfd0001`（六例子集，`fixture_only`）。
+- 14 例金标准运行包 fixture 逐用例总分与通过判定仍**未变化**（158 项评测器单测通过）。
