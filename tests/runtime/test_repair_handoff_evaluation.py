@@ -219,6 +219,8 @@ def test_case46_restraint_with_valid_handoff(report):
 
 
 def test_synthetic_run_has_no_false_verified(report):
+    # The zero must come from evaluating both cases, not from evaluating none.
+    assert report["global"]["cases_evaluated"] == 2
     assert report["global"]["false_verified_count"] == 0
 
 
