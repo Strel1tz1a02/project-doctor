@@ -16,4 +16,16 @@ Windows 重建前停止使用该构建的 daemon，避免原生模块锁住旧�
 
 诊断 Agent 调用 `finish_task` 后，把返回的 `task_id` 交给另一个 AGH 会话。修复会话使用 [repair-instructions.md](repair-instructions.md)，先调用只读 `get_repair_handoff(task_id)`，由平台从持久任务及制品核验中返回候选 Finding；随后由修复 Agent 判断是否改、读源码和提交补丁。补丁后的成功判定仍由诊断层复测工具负责。两个会话不共享聊天上下文，也不需要把数据集答案或手工编造的 Finding 交给修复会话。
 
+Windows 上启动独立会话的示例（`$aghCli`、`$aghHome` 和 `$taskId` 由操作者指定；密钥留在 AGH 配置中）：
+
+```powershell
+$env:AGH_HOME = $aghHome
+$repairCwd = Join-Path $env:TEMP "project-doctor-repair-agent"
+New-Item -ItemType Directory -Force -Path $repairCwd | Out-Null
+$prompt = (Get-Content "agh/repair-instructions.md" -Raw -Encoding utf8) + "`n本次持久诊断 task_id：$taskId"
+node $aghCli -p $prompt --mode json --profile local-dev --cwd $repairCwd
+```
+
+修复会话的工作目录应与被测源码仓库分开；源码读取和补丁提交都走 Project Doctor MCP 工具。需要先确认该 AGH profile 已连接当前 Project Doctor MCP 服务。
+
 当前真实 `run_experiment` 仅执行索引对照。N+1 与深分页已有诊断判定规则和修复交接结构，但对应的查询形状／分页运行时干预尚未接通；不要把它们描述成已能由现有 AGH 诊断主流程实测产出。

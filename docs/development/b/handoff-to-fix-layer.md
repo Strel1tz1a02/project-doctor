@@ -17,6 +17,8 @@
 
 核心原则：诊断层**不靠自由文本**交接，修复层依据结构化目标判断并改写；改后效果由诊断层复测，修复工作流只回填诊断结论。
 
+2026-10-14 的通用源码修复入口增加只读 `get_repair_handoff(task_id)`：独立修复 Agent 凭已完成诊断的持久任务 ID 获取候选 Finding；平台先核对任务状态、结构化引用和制品完整性。返回的候选包含 `finding_id`、类型、状态、场景、实验与 SQL 调用 ID、代码位置、证据引用、Recommendation 和限制。空候选是明确的“不提交补丁”输入。修复 Agent 再按候选调用 `inspect_fix_target`，自行决定是否改；该工具不会替 Agent 决定修复，也不会读取数据集答案。通用 Java/XML 目标的公开结构为 `CodeRepairTargetView`，N+1 的 `BatchQuerySpec` 与专用校验仍保留。
+
 ## 2. 交接体 = `Finding` + `Recommendation` + `fix_spec`
 
 `Finding` 上新增可选字段 `fix_spec: BatchQuerySpec | DeepPaginationSpec | None`（按 `kind` 判别联合）。N+1 结论的完整交接体由三部分构成：
