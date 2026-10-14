@@ -162,6 +162,24 @@ def write_query_shape_recipe(settings: Settings) -> None:
     )
 
 
+def write_pagination_recipe(settings: Settings) -> None:
+    recipes = settings.target_repo_root / "recipes"
+    recipes.mkdir(parents=True, exist_ok=True)
+    (recipes / "keyset-page.sql").write_text(
+        json.dumps(
+            {
+                "strategy": "keyset",
+                "flag": "app.pagination.keyset",
+                "baseline_value": "false",
+                "candidate_value": "true",
+                "sort_column": "created_at",
+                "query_template": "SELECT * FROM orders ORDER BY created_at LIMIT ?, ?",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def build_runtime(
     tmp_path: Path, task: TaskRecord
 ) -> tuple[RuntimeService, FakeGateway, FakeStore]:
@@ -270,26 +288,45 @@ def test_recipe_rejects_inline_sql_and_escaping_paths(tmp_path: Path, reference:
         runtime._resolve_recipe(reference)
 
 
-def test_unwired_query_shape_variable_is_rejected_before_any_measurement(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "variable,levels,recipe_ref,writer",
+    [
+        (
+            "query_shape",
+            ("baseline", "candidate_batch"),
+            "recipe:n1-batch",
+            write_query_shape_recipe,
+        ),
+        (
+            "pagination",
+            ("baseline", "candidate_pagination"),
+            "recipe:keyset-page",
+            write_pagination_recipe,
+        ),
+    ],
+)
+def test_unwired_variables_are_rejected_before_any_measurement(
+    tmp_path: Path, variable: str, levels: tuple[str, str], recipe_ref: str, writer
+) -> None:
     """目标没有可逆运行时开关：宁可拒绝该实验，也不能把候选级测量伪造出来。"""
     bundle, spec = load_bundle_and_spec()
     runtime, gateway, _ = build_runtime(tmp_path, bundle.task)
-    write_query_shape_recipe(runtime._settings)
-    shape = spec.model_copy(
+    writer(runtime._settings)
+    unwired = spec.model_copy(
         update={
-            "variable": "query_shape",
-            "levels": ("baseline", "candidate_batch"),
-            "intervention_recipe_ref": "recipe:n1-batch",
+            "variable": variable,
+            "levels": levels,
+            "intervention_recipe_ref": recipe_ref,
         }
     )
 
     result = asyncio.run(
-        runtime.run("environment-1", bundle.scenarios[0], shape, context("op-shape"))
+        runtime.run("environment-1", bundle.scenarios[0], unwired, context("op-unwired"))
     )
 
     assert result.failure is not None
     assert result.failure.code == "scenario_invalid"
-    assert "query_shape" in result.failure.message
+    assert variable in result.failure.message
     assert "未接通" in result.failure.message
     assert result.observations == []
     assert gateway.sql_applied == []
