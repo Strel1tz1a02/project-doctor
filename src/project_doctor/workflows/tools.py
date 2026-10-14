@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from project_doctor.features.diagnosis.compare import MeasurementPolicy
 from project_doctor.features.diagnosis.ports import EvidenceReader
@@ -14,11 +15,17 @@ from project_doctor.models.environment import EnvironmentHandle, ProjectInput
 from project_doctor.models.experiment import ExperimentResult, ExperimentSpec, ReconcileResult
 from project_doctor.models.finding import Finding, ReportResult
 from project_doctor.models.hypothesis import Hypothesis, HypothesisBatch
-from project_doctor.models.repair import RepairRecord, RepairTargetView
+from project_doctor.models.repair import (
+    CodeRepairTargetView,
+    RepairRecord,
+    RepairTargetView,
+    SourceFileView,
+)
 from project_doctor.models.scenario import Scenario
 from project_doctor.models.task import AgentVersion, CallContext, TaskRecord
 from project_doctor.workflows.diagnose import evaluate
 from project_doctor.workflows.repair import RepairWorkflow
+from project_doctor.workflows.repair_handoff import export_repair_handoff
 from project_doctor.workflows.task_ports import TaskStore
 from project_doctor.workflows.tasks import create_task
 
@@ -33,7 +40,14 @@ class ToolWorkflows:
     repair: RepairWorkflow | None = None
     version_provider: Callable[[], AgentVersion] | None = None
 
-    async def inspect_fix_target(self, context: CallContext, finding_id: str) -> RepairTargetView:
+    async def get_repair_handoff(self, task_id: str) -> dict[str, Any]:
+        if self.repair is None:
+            raise ValueError("repair workflow is not configured")
+        return await export_repair_handoff(self.store, self.reader, task_id)
+
+    async def inspect_fix_target(
+        self, context: CallContext, finding_id: str
+    ) -> RepairTargetView | CodeRepairTargetView:
         if self.repair is None:
             raise ValueError("repair workflow is not configured")
         return await self.repair.inspect_fix_target(context, finding_id)
@@ -44,6 +58,16 @@ class ToolWorkflows:
         if self.repair is None:
             raise ValueError("repair workflow is not configured")
         return await self.repair.submit_fix_patch(context, finding_id, diff)
+
+    async def read_fix_source(
+        self, context: CallContext, finding_id: str, path: str,
+        start_line: int, line_count: int,
+    ) -> SourceFileView:
+        if self.repair is None:
+            raise ValueError("repair workflow is not configured")
+        return await self.repair.read_fix_source(
+            context, finding_id, path, start_line, line_count
+        )
 
     async def verify_fix(
         self,

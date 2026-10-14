@@ -41,7 +41,9 @@ def test_mcp_catalog_structured_call_and_invalid_input() -> None:
         async with create_connected_server_and_client_session(server) as session:
             catalog = await session.list_tools()
             assert {item.name for item in catalog.tools} == set(tools) - {
+                "get_repair_handoff",
                 "inspect_fix_target",
+                "read_fix_source",
                 "submit_fix_patch",
                 "verify_fix",
                 "get_fix_status",
@@ -95,9 +97,33 @@ def test_repair_tools_expose_patch_input_but_no_model_measurement_input() -> Non
                 "finding_id",
                 "diff",
             }
+            assert set(listed["read_fix_source"].inputSchema["properties"]) == {
+                "context", "finding_id", "path", "start_line", "line_count",
+            }
             assert set(listed["verify_fix"].inputSchema["properties"]) == {"context", "repair_id"}
 
     asyncio.run(catalog())
+
+
+def test_repair_agent_can_fetch_persisted_handoff_by_task_id() -> None:
+    root = Path(__file__).resolve().parents[3]
+    policy = json.loads((root / "agh/tool-policy.json").read_text("utf-8"))["tools"]
+    bundle, finding = _handoff()
+    store = Store(bundle, _repair(bundle, finding))
+    workflows = ToolWorkflows(object(), store, Reader(), {})  # type: ignore[arg-type]
+    workflows.repair = object()  # type: ignore[assignment]
+    server = build_server(
+        workflows, {name: item["timeout_seconds"] for name, item in policy.items()}
+    )
+
+    async def call() -> None:
+        async with create_connected_server_and_client_session(server) as session:
+            result = await session.call_tool("get_repair_handoff", {"task_id": bundle.task.id})
+            assert not result.isError
+            handoff = json.loads(result.content[0].text)
+            assert handoff["candidates"][0]["finding_id"] == finding.id
+
+    asyncio.run(call())
 
 
 def test_mcp_verify_fix_delegates_effect_verdict_to_diagnosis(tmp_path: Path) -> None:

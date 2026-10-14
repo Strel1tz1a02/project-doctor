@@ -11,3 +11,9 @@ P0 仅预留配置目录；不启动 AGH，也不提供第二个 Agent 循环。
 固定 AGH 提交 `2ef9b71` 的长工具适配补丁由 `apply_timeout_patch.py` 管理，运行 `uv run --locked python agh/apply_timeout_patch.py <AGH源码目录>` 后重建 `@agnes/cli`。补丁通过 `AGNES_MCP_CALL_TIMEOUT_MS` 设置 SDK 调用上限；本次独立 daemon 设置 660000 毫秒，平台工具预算 600 秒。还通过官方 base preset 的 `tools.timeouts` 将服务 ID `pd` 的准备、实验、收尾执行上限设为 720000 毫秒；其他工具仍沿用原默认值。服务 ID 改变时工具前缀也会改变，必须重新核对映射，不能直接沿用。
 
 Windows 重建前停止使用该构建的 daemon，避免原生模块锁住旧输出。SDK 取消后，平台会屏蔽 AnyIO 重复取消、等待已有 Docker 工作线程结束，再清理和结算；这一等待受 Docker 准备时限约束，不能把已发出的 Docker 操作当作立即停止。
+
+## 独立修复会话
+
+诊断 Agent 调用 `finish_task` 后，把返回的 `task_id` 交给另一个 AGH 会话。修复会话使用 [repair-instructions.md](repair-instructions.md)，先调用只读 `get_repair_handoff(task_id)`，由平台从持久任务及制品核验中返回候选 Finding；随后由修复 Agent 判断是否改、读源码和提交补丁。补丁后的成功判定仍由诊断层复测工具负责。两个会话不共享聊天上下文，也不需要把数据集答案或手工编造的 Finding 交给修复会话。
+
+当前真实 `run_experiment` 仅执行索引对照。N+1 与深分页已有诊断判定规则和修复交接结构，但对应的查询形状／分页运行时干预尚未接通；不要把它们描述成已能由现有 AGH 诊断主流程实测产出。
