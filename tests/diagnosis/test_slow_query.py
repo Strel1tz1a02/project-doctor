@@ -7,8 +7,11 @@ import pytest
 from project_doctor.features.diagnosis.slow_query import check_slow_query
 from project_doctor.models.common import EvidenceCheck, EvidenceRef
 from project_doctor.models.experiment import ExperimentSpec
+from project_doctor.models.finding import Finding
 from project_doctor.models.task import TaskBundle
 from project_doctor.workflows.diagnose import evaluate
+
+COUNT_TEMPLATE = "SELECT COUNT(*) FROM orders WHERE customer_id = ?"
 
 
 def add_spec(bundle: TaskBundle) -> TaskBundle:
@@ -16,6 +19,29 @@ def add_spec(bundle: TaskBundle) -> TaskBundle:
     spec = ExperimentSpec.model_validate(json.loads(path.read_text("utf-8"))["spec"])
     bundle.experiments[0].spec = spec
     return bundle
+
+
+def add_count_template(bundle: TaskBundle, candidate_rows: int) -> None:
+    """Append a second, by itself verified-eligible statement to every observation.
+
+    The baseline scan stays at the fixture's 10 000 rows; only the candidate scan varies,
+    so the caller controls how much of the tested value's scan the candidate access keeps.
+    """
+    for item in bundle.experiments[0].observations:
+        call = item.sql_calls[0]
+        payload = call.model_dump(mode="json")
+        payload.update(
+            id=f"{call.id}-count",
+            normalized_sql=COUNT_TEMPLATE,
+            duration_ms=80.0 if item.level == "baseline" else 10.0,
+            rows_examined=10000 if item.level == "baseline" else candidate_rows,
+            rows_returned=1,
+        )
+        item.sql_calls.append(type(call).model_validate(payload))
+
+
+def limitations_of(findings: list[Finding]) -> str:
+    return "\n".join(note for item in findings for note in item.limitations)
 
 
 class Reader:
@@ -166,6 +192,66 @@ def test_repeated_request_id_is_not_independent_measurement(bundle: TaskBundle) 
         bundle.experiments[0].observations[0].request_id
     )
     assert asyncio.run(evaluate(bundle, Reader()))[0].status == "lead"
+
+
+def test_single_value_scan_retention_is_not_broadly_verified(bundle: TaskBundle) -> None:
+    # The tested filter value keeps 80% of the baseline scan under the candidate access,
+    # so the measured gain is specific to a value the index cannot make selective.
+    add_spec(bundle)
+    add_count_template(bundle, candidate_rows=8000)
+    findings = asyncio.run(evaluate(bundle, Reader()))
+    assert findings and all(item.status == "lead" for item in findings)
+    notes = limitations_of(findings)
+    assert "customer_id=10" in notes
+    assert "snapshot-1" in notes
+    assert "未覆盖" in notes
+
+
+def test_selective_candidate_scan_stays_verified_across_templates(bundle: TaskBundle) -> None:
+    add_spec(bundle)
+    add_count_template(bundle, candidate_rows=10)
+    findings = asyncio.run(evaluate(bundle, Reader()))
+    assert findings and all(item.status == "verified" for item in findings)
+
+
+def test_recorded_distribution_coverage_lifts_the_scope_guard(bundle: TaskBundle) -> None:
+    add_spec(bundle)
+    add_count_template(bundle, candidate_rows=8000)
+    bundle.scenarios[0].dataset.distribution_notes = ["过滤取值的选择性已在样本中核对"]
+    findings = asyncio.run(evaluate(bundle, Reader()))
+    assert findings and all(item.status == "verified" for item in findings)
+
+
+def test_plan_filtered_estimate_never_decides_and_malformed_plans_do_not_crash(
+    bundle: TaskBundle,
+) -> None:
+    add_spec(bundle)
+    result = bundle.experiments[0]
+    keys = {key for item in result.observations for key in item.sql_calls[0].plan_evidence_ids}
+    unrefined = {
+        key: {"query_block": {"table": {"table_name": "orders", "filtered": "100.00"}}}
+        for key in keys
+    }
+    verified = check_slow_query(
+        result,
+        bundle.scenarios[0],
+        bundle.task.id,
+        bundle.task.project.commit,
+        verified_plans=unrefined,
+    )
+    assert verified[0].status == "verified"
+    assert any("filtered" in note for note in verified[0].limitations)
+
+    add_count_template(bundle, candidate_rows=8000)
+    malformed = {key: {"query_block": {"table": {"filtered": "not-a-number"}}} for key in keys}
+    guarded = check_slow_query(
+        result,
+        bundle.scenarios[0],
+        bundle.task.id,
+        bundle.task.project.commit,
+        verified_plans=malformed,
+    )
+    assert all(item.status == "lead" for item in guarded)
 
 
 @pytest.mark.parametrize(

@@ -4,10 +4,66 @@ from typing import Any, Literal
 
 from project_doctor.features.diagnosis.compare import MeasurementPolicy, distinguishable, stable
 from project_doctor.features.diagnosis.gates import evidence_refs, experiment_failures
+from project_doctor.features.diagnosis.plan_scope import all_filtered
 from project_doctor.features.diagnosis.query_scope import already_covering_count, scope_limitations
 from project_doctor.models.experiment import ExperimentResult
 from project_doctor.models.finding import ExcludedExplanation, Finding, Impact, Recommendation
 from project_doctor.models.scenario import Scenario
+
+#: A candidate access that still performs at least this share of the baseline scan did not
+#: make the tested filter value selective: the measured gain is then specific to that value.
+_NON_SELECTIVE_SCAN_SHARE = 0.5
+
+
+def _retained_scan_share(result: ExperimentResult) -> float | None:
+    """Largest measured candidate/baseline scan ratio over comparable SQL templates.
+
+    Only actual ``rows_examined`` samples enter this ratio; plan estimates never do.
+    ``None`` when no template was measured on both levels.
+    """
+    scans: dict[str, dict[str, float]] = {"baseline": {}, "candidate_index": {}}
+    for item in result.observations:
+        level = "baseline" if item.level == "baseline" else "candidate_index"
+        for call in item.sql_calls:
+            if call.rows_examined is None:
+                continue
+            scans[level][call.normalized_sql] = max(
+                scans[level].get(call.normalized_sql, 0.0), float(call.rows_examined)
+            )
+    ratios = [
+        candidate / baseline
+        for template, baseline in scans["baseline"].items()
+        if baseline > 0 and (candidate := scans["candidate_index"].get(template)) is not None
+    ]
+    return max(ratios) if ratios else None
+
+
+def _tested_parameters(scenario: Scenario) -> str:
+    """Recorded request parameters of the measured scenario, for scope limitations."""
+    recorded = "、".join(
+        f"{name}={value}" for step in scenario.steps for name, value in sorted(step.params.items())
+    )
+    return recorded or "无显式请求参数"
+
+
+def _filtered_notes(result: ExperimentResult, plans: dict[str, dict[str, Any]]) -> list[str]:
+    """Supporting-only optimizer estimates from the hash-verified plans, if any exist."""
+    estimates = sorted(
+        {
+            value
+            for item in result.observations
+            for call in item.sql_calls
+            for key in call.plan_evidence_ids
+            for value in all_filtered(plans.get(key, {}))
+        }
+    )
+    if not estimates:
+        return []
+    rendered = "、".join(f"{value:g}" for value in estimates)
+    return [
+        f"执行计划中表节点的 filtered 估计为 {rendered}%（优化器估计；只提示需复核对其他"
+        "取值的收益，不构成根因或收益证据）。"
+    ]
 
 
 def check_slow_query(
@@ -26,6 +82,11 @@ def check_slow_query(
     known_ids = {ref.artifact_id for ref in refs}
     calls = [call for item in result.observations for call in item.sql_calls]
     templates = sorted({call.normalized_sql for call in calls}) or ["SQL 未采集"]
+    # Scope facts are per experiment, not per template: one measured statement that keeps
+    # most of its baseline scan already shows the tested value is not selective.
+    retained_share = _retained_scan_share(result)
+    distribution_proven = bool(scenario.dataset.distribution_notes)
+    filtered_notes = _filtered_notes(result, verified_plans or {})
     findings: list[Finding] = []
     for template in templates:
         insufficient = list(issues)
@@ -105,8 +166,26 @@ def check_slow_query(
             status = "lead"
             reasons = list(insufficient)
         elif rows_decreased and duration_effect:
-            status = "verified"
-            reasons = []
+            if (
+                retained_share is not None
+                and retained_share >= _NON_SELECTIVE_SCAN_SHARE
+                and not distribution_proven
+            ):
+                # The tested value is not selective: the candidate access still performs most
+                # of the baseline scan, so the measured gain holds for that value only and a
+                # broad missing-index conclusion is not established.
+                status = "lead"
+                reasons = [
+                    "候选索引只在本次过滤取值下减少了部分扫描工作量：实测候选访问仍保留基线"
+                    f"扫描的 {retained_share:.0%}，该取值本身不具选择性；本次没有改变参数取值"
+                    "或分布，收益不能外推到其他取值。",
+                    f"已证实范围：参数 {_tested_parameters(scenario)}、快照 "
+                    f"{result.observations[0].snapshot_id}；未覆盖其他参数取值、其他分布倾斜"
+                    "比例与更大数据规模。",
+                ]
+            else:
+                status = "verified"
+                reasons = []
         elif not rows_decreased:
             if (
                 rows_available
@@ -192,6 +271,7 @@ def check_slow_query(
                     dict.fromkeys(
                         reasons
                         + scope_limitations(templates)
+                        + filtered_notes
                         + [
                             "不自动宣称缺索引是所有慢查询的原因，不推断线上频率或业务 SLA。",
                             f"测量策略：重复≥{policy.minimum_repetitions}，离散度(IQR)容差≤"
