@@ -20,3 +20,7 @@ runtime-data/
 .mypy_cache/
 *.egg-info/
 *.local.json
+
+# Demo console (webui) local config and generated output
+webui/config.json
+webui/out/

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Project Doctor 诊断评测台</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Project Doctor 诊断评测台</h1>
+      <p class="subtitle">完整用例「跑一遍」演示台 · 离线评分 / 真跑回退</p>
+    </div>
+    <div class="env-badges" id="env-badges">
+      <span class="badge pending" data-env="docker">Docker…</span>
+      <span class="badge pending" data-env="platform_dsn">平台 DB…</span>
+      <span class="badge pending" data-env="agh_ready">AGH…</span>
+      <span class="badge pending" data-env="model_key">Agnes key…</span>
+    </div>
+  </header>
+
+  <section class="controls">
+    <div class="control-group">
+      <span class="control-label">运行模式</span>
+      <label class="radio"><input type="radio" name="mode" value="offline" checked /> 离线评分</label>
+      <label class="radio"><input type="radio" name="mode" value="real" disabled /> 真跑（AGH）</label>
+    </div>
+    <div class="control-group">
+      <label class="checkbox">
+        <input type="checkbox" id="only-bundled" /> 仅评估已有运行包（缺失不判失败）
+      </label>
+    </div>
+    <div class="control-group">
+      <button id="run-btn" class="btn primary">▶ 运行</button>
+      <span id="run-status" class="run-status">尚未运行</span>
+    </div>
+  </section>
+
+  <section class="summary" id="summary" hidden>
+    <div class="card" data-key="total"><div class="value">—</div><div class="label">用例总数</div></div>
+    <div class="card" data-key="passed"><div class="value ok">—</div><div class="label">通过</div></div>
+    <div class="card" data-key="failed"><div class="value bad">—</div><div class="label">未通过</div></div>
+    <div class="card" data-key="under"><div class="value warn">—</div><div class="label">漏判 (under)</div></div>
+    <div class="card" data-key="over"><div class="value warn">—</div><div class="label">误判 (over)</div></div>
+    <div class="card" data-key="false_verified"><div class="value bad">—</div><div class="label">误验证</div></div>
+    <div class="card" data-key="missing"><div class="value warn">—</div><div class="label">缺失运行包</div></div>
+    <div class="card overall" data-key="overall"><div class="value">—</div><div class="label">overall_passed</div></div>
+  </section>
+
+  <section class="progress-wrap" id="progress-wrap" hidden>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="progress-text" id="progress-text"></div>
+  </section>
+
+  <section class="matrix">
+    <table id="matrix">
+      <thead>
+        <tr>
+          <th>用例</th>
+          <th>标题</th>
+          <th>类型</th>
+          <th>难度</th>
+          <th>问题类型</th>
+          <th>期望 decision</th>
+          <th>实际 decision</th>
+          <th>状态</th>
+        </tr>
+      </thead>
+      <tbody id="matrix-body">
+        <tr><td colspan="8" class="loading">加载用例中…</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <aside class="drawer" id="drawer" hidden>
+    <button class="drawer-close" id="drawer-close">×</button>
+    <div id="drawer-content"></div>
+  </aside>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

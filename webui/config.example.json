@@ -1,0 +1,14 @@
+{
+  "cases_root": "datasets",
+  "runs_dir": "datasets/evaluation/fixtures/run-bundle",
+  "out_dir": "webui/out",
+  "host": "127.0.0.1",
+  "port": 8080,
+  "agh_cli": "",
+  "agh_home": "",
+  "agh_profile": "local-dev",
+  "instructions": "agh/diagnosis-instructions.md",
+  "settings_local": "config/settings.local.json",
+  "run_home_root": "runtime-data/demo-runs",
+  "per_case_timeout_seconds": 300
+}
